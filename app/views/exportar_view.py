@@ -10,26 +10,47 @@ class ExportarView(ctk.CTkFrame):
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("green")
+        self.configure(padx=30, pady=20)
 
-        ctk.CTkLabel(self, text="Exportar Veiculações para CSV", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        # Título
+        ctk.CTkLabel(self, text="📤 Exportar Veiculações para CSV",
+                     font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(0, 15))
 
-        ctk.CTkButton(self, text="Exportar como CSV", command=self.exportar_csv).pack(pady=10)
+        # Botão de exportação
+        ctk.CTkButton(self, text="💾 Exportar como CSV", command=self.exportar_csv, height=40).pack(pady=10)
 
-        self.resultado_label = ctk.CTkLabel(self, text="", wraplength=450)
-        self.resultado_label.pack(pady=20)
+        # Resultado da exportação
+        self.resultado_label = ctk.CTkLabel(self, text="", wraplength=500, justify="center", text_color="lightgreen")
+        self.resultado_label.pack(pady=(10, 20))
 
-        self.lista = ctk.CTkTextbox(self, width=450, height=200)
-        self.lista.pack()
+        # Caixa de texto com scroll
+        self.text_frame = ctk.CTkFrame(self)
+        self.text_frame.pack(fill="both", expand=True)
+
+        self.lista = ctk.CTkTextbox(self.text_frame, width=700, height=300, wrap="none", corner_radius=8)
+        self.lista.pack(side="left", fill="both", expand=True)
+
+        self.scrollbar = ctk.CTkScrollbar(self.text_frame, orientation="vertical", command=self.lista.yview)
+        self.scrollbar.pack(side="right", fill="y")
+
+        self.lista.configure(yscrollcommand=self.scrollbar.set)
+
         self.atualizar_lista()
 
     def atualizar_lista(self):
         self.lista.delete("1.0", "end")
         veiculacoes = listar_veiculacoes()
+
+        if not veiculacoes:
+            self.lista.insert("end", "Nenhuma veiculação encontrada.\n")
+            return
+
         for v in veiculacoes:
             valor_total = (v.produto.valor_unitario * v.quantidade) - v.desconto_aplicado
             linha = (
-                f"{v.id} | Produto: {v.produto.nome} | PI: {v.pi.numero_pi} | "
-                f"Qtd: {v.quantidade} | Total: R$ {valor_total:.2f} | Data: {v.data_veiculacao}\n"
+                f"ID: {v.id} | Produto: {v.produto.nome} | PI: {v.pi.numero_pi} | "
+                f"Qtd: {v.quantidade} | Desconto: R$ {v.desconto_aplicado:.2f} | "
+                f"Total: R$ {valor_total:.2f} | Data: {v.data_veiculacao}\n"
             )
             self.lista.insert("end", linha)
 
@@ -56,6 +77,8 @@ class ExportarView(ctk.CTkFrame):
                         v.data_veiculacao
                     ])
 
-            self.resultado_label.configure(text=f"Arquivo exportado para:\n{os.path.abspath(caminho)} ✅")
+            self.resultado_label.configure(
+                text=f"✅ Arquivo exportado com sucesso!\n{os.path.abspath(caminho)}"
+            )
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao exportar: {e}")
