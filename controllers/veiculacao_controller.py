@@ -1,6 +1,8 @@
 from app.database import SessionLocal
 from app.models import Veiculacao, Produto, PI
 from datetime import date
+from sqlalchemy.orm import joinedload
+
 
 def criar_veiculacao(produto_id: int, quantidade: int, desconto: float,
                      data_veiculacao: date, pi_id: int):
@@ -36,11 +38,13 @@ def criar_veiculacao(produto_id: int, quantidade: int, desconto: float,
 def listar_veiculacoes():
     try:
         db = SessionLocal()
-        veiculacoes = db.query(Veiculacao).all()
+        veiculacoes = db.query(Veiculacao)\
+            .options(joinedload(Veiculacao.produto), joinedload(Veiculacao.pi))\
+            .all()
         return veiculacoes
     except Exception as e:
         print(f"Erro ao listar veiculações: {e}")
-        return []  # <- IMPORTANTE: retorna lista vazia se erro
+        return []
     finally:
         db.close()
 
