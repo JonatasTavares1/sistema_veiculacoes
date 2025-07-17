@@ -8,7 +8,8 @@ class PIView(ctk.CTkFrame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(self, text="Cadastro de Pedido de Inserção", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=10)
+        # Título
+        ctk.CTkLabel(self, text="Cadastro de Pedido de Inserção", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=15)
 
         # Campos principais
         self.numero_entry = ctk.CTkEntry(self, placeholder_text="Número do PI")
@@ -42,16 +43,18 @@ class PIView(ctk.CTkFrame):
         self.formato_entry = ctk.CTkEntry(self, placeholder_text="Formato")
         self.formato_entry.pack(pady=5)
 
-        self.valor_unit_entry = ctk.CTkEntry(self, placeholder_text="Valor Unitário")
+        self.valor_unit_entry = ctk.CTkEntry(self, placeholder_text="Valor Unitário (ex: 199.90)")
         self.valor_unit_entry.pack(pady=5)
 
-        self.valor_total_entry = ctk.CTkEntry(self, placeholder_text="Valor Total")
+        self.valor_total_entry = ctk.CTkEntry(self, placeholder_text="Valor Total (ex: 999.90)")
         self.valor_total_entry.pack(pady=5)
 
-        ctk.CTkButton(self, text="Cadastrar PI", command=self.cadastrar_pi).pack(pady=10)
+        # Botão de cadastro
+        ctk.CTkButton(self, text="Cadastrar PI", command=self.cadastrar_pi).pack(pady=15)
 
-        ctk.CTkLabel(self, text="PIs cadastrados:").pack(pady=10)
-        self.lista_pis = ctk.CTkTextbox(self, width=500, height=200)
+        # Lista de PIs
+        ctk.CTkLabel(self, text="PIs cadastrados:", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
+        self.lista_pis = ctk.CTkTextbox(self, width=550, height=200)
         self.lista_pis.pack()
         self.atualizar_lista()
 
@@ -110,4 +113,4 @@ class PIView(ctk.CTkFrame):
     def atualizar_lista(self):
         self.lista_pis.delete("1.0", "end")
         for pi in listar_pis():
-            self.lista_pis.insert("end", f"{pi.id} | {pi.numero_pi} | {pi.cliente} | {pi.data_emissao}\n")
+            self.lista_pis.insert("end", f"{pi.id} | {pi.numero_pi} | {pi.cliente} | {pi.data_emissao} | R$ {pi.valor_total:.2f}\n")
