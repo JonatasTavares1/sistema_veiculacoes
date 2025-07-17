@@ -22,6 +22,17 @@ class PI(Base):
     data_emissao = Column(Date, nullable=False)
     observacoes = Column(String)
 
+    # Novos campos conforme modelo de PI
+    tipo = Column(String)             # Ex: institucional, promocional
+    praca = Column(String)           # Ex: Brasília/DF
+    meio = Column(String)            # Ex: digital, jornal, etc.
+    titulo_peca = Column(String)     # Nome da peça
+    colocacao = Column(String)       # Onde será veiculado
+    formato = Column(String)         # Ex: 1080x1920, 1/2 página
+    valor_bruto = Column(Float)      # Valor total
+    comissao = Column(Float)         # Comissão de agência
+    valor_liquido = Column(Float)    # Valor líquido final
+
     veiculacoes = relationship("Veiculacao", back_populates="pi")
 
 class Veiculacao(Base):
