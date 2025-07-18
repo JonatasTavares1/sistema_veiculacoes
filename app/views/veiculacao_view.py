@@ -10,7 +10,6 @@ class VeiculacaoView(ctk.CTkFrame):
         super().__init__(master)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
-        self.configure(padx=30, pady=20)
 
         ctk.CTkLabel(self, text="📡 Cadastro de Veiculação", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=10)
 
@@ -42,6 +41,11 @@ class VeiculacaoView(ctk.CTkFrame):
         self.data_entry = ctk.CTkEntry(self, placeholder_text="Data da veiculação (dd/mm/aaaa)", width=400)
         self.data_entry.pack(pady=6)
 
+        # Checkbox de veiculação
+        self.foi_veiculado = ctk.BooleanVar(value=False)
+        self.check_veiculado = ctk.CTkCheckBox(self, text="Já foi veiculado", variable=self.foi_veiculado)
+        self.check_veiculado.pack(pady=6)
+
         # Botão de cadastro
         ctk.CTkButton(self, text="💾 Cadastrar Veiculação", command=self.cadastrar, height=40).pack(pady=12)
 
@@ -68,13 +72,15 @@ class VeiculacaoView(ctk.CTkFrame):
             quantidade = int(self.qtd_entry.get())
             desconto = float(self.desc_entry.get().replace(",", "."))
             data = datetime.strptime(self.data_entry.get(), "%d/%m/%Y").date()
+            veiculado = self.foi_veiculado.get()
 
-            criar_veiculacao(produto_id, quantidade, desconto, data, pi_id)
+            criar_veiculacao(produto_id, quantidade, desconto, data, pi_id, veiculado)
             messagebox.showinfo("✅ Sucesso", "Veiculação cadastrada com sucesso!")
 
             self.qtd_entry.delete(0, "end")
             self.desc_entry.delete(0, "end")
             self.data_entry.delete(0, "end")
+            self.foi_veiculado.set(False)
             self.atualizar_lista()
 
         except ValueError:
@@ -90,9 +96,10 @@ class VeiculacaoView(ctk.CTkFrame):
             return
 
         for v in veiculacoes:
+            status = "✅ Veiculado" if v.foi_veiculado else "⏳ Pendente"
             valor_total = (v.produto.valor_unitario * v.quantidade) - v.desconto_aplicado
             self.lista.insert(
                 "end",
-                f"📌 ID {v.id} | Produto: {v.produto.nome} | PI: {v.pi.numero_pi} | "
+                f"📌 ID {v.id} | {status} | Produto: {v.produto.nome} | PI: {v.pi.numero_pi} | "
                 f"Qtd: {v.quantidade} | R$ {valor_total:.2f} | Data: {v.data_veiculacao.strftime('%d/%m/%Y')}\n"
             )

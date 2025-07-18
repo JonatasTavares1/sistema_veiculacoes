@@ -7,7 +7,7 @@ class ConsultaVeiculacaoView(ctk.CTkFrame):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
-        self.configure(padx=30, pady=20)
+        
 
         # Título
         titulo = ctk.CTkLabel(self, text="📋 Veiculações Cadastradas", font=ctk.CTkFont(size=24, weight="bold"))
