@@ -47,3 +47,14 @@ class Veiculacao(Base):
 
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
+    entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
+class Entrega(Base):
+    __tablename__ = 'entregas'
+
+    id = Column(Integer, primary_key=True)
+    veiculacao_id = Column(Integer, ForeignKey('veiculacoes.id'), nullable=False)
+    data_entrega = Column(Date, nullable=False)
+    foi_entregue = Column(String, default="Não")
+    motivo = Column(String)
+
+    veiculacao = relationship("Veiculacao", back_populates="entregas")

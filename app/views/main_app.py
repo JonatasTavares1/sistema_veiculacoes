@@ -4,6 +4,7 @@ from app.views.pi_view import PIView
 from app.views.veiculacao_view import VeiculacaoView
 from app.views.consulta_veiculacao_view import ConsultaVeiculacaoView
 from app.views.exportar_view import ExportarView
+from app.views.entrega_view import EntregaView  # ⬅️ Importa nova view
 
 class MainApp(ctk.CTk):
     def __init__(self):
@@ -26,9 +27,16 @@ class MainApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Veiculações", command=self.mostrar_veiculacao).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Consulta", command=self.mostrar_consulta).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Exportar CSV", command=self.mostrar_exportar).pack(pady=5, fill="x", padx=10)
-
+        ctk.CTkButton(self.sidebar, text="Controle de Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)  # ⬅️ Novo botão
+        ctk.CTkButton(self.sidebar, text="Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)
         self.tela_atual = None
         self.mostrar_produto()
+
+    def mostrar_entregas(self):
+        self.limpar_container()
+        self.tela_atual = EntregaView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)
+
 
     def limpar_container(self):
         if self.tela_atual:
@@ -58,4 +66,9 @@ class MainApp(ctk.CTk):
     def mostrar_exportar(self):
         self.limpar_container()
         self.tela_atual = ExportarView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)
+
+    def mostrar_entregas(self):  # ⬅️ Nova função
+        self.limpar_container()
+        self.tela_atual = EntregaView(self.container)
         self.tela_atual.pack(fill="both", expand=True)

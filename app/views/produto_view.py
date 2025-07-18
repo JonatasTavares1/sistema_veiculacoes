@@ -7,7 +7,7 @@ class ProdutoView(ctk.CTkFrame):
         super().__init__(master)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.configure(padx=30, pady=20)
+        
 
         # Título
         ctk.CTkLabel(self, text="🛒 Cadastro de Produtos", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(0, 15))
