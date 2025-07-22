@@ -34,14 +34,17 @@ class PIView(ctk.CTkFrame):
         self.meio_entry = ctk.CTkEntry(self, placeholder_text="Meio")
         self.meio_entry.pack(pady=5)
 
-        self.peca_entry = ctk.CTkEntry(self, placeholder_text="Peça Publicitária")
-        self.peca_entry.pack(pady=5)
-
         self.colocacao_entry = ctk.CTkEntry(self, placeholder_text="Colocação")
         self.colocacao_entry.pack(pady=5)
 
         self.formato_entry = ctk.CTkEntry(self, placeholder_text="Formato")
         self.formato_entry.pack(pady=5)
+
+        self.executivo_entry = ctk.CTkEntry(self, placeholder_text="Executivo")
+        self.executivo_entry.pack(pady=5)
+
+        self.diretoria_entry = ctk.CTkEntry(self, placeholder_text="Diretoria")
+        self.diretoria_entry.pack(pady=5)
 
         self.valor_unit_entry = ctk.CTkEntry(self, placeholder_text="Valor Unitário (ex: 199.90)")
         self.valor_unit_entry.pack(pady=5)
@@ -68,9 +71,11 @@ class PIView(ctk.CTkFrame):
             tipo = self.tipo_entry.get()
             praca = self.praca_entry.get()
             meio = self.meio_entry.get()
-            peca = self.peca_entry.get()
             colocacao = self.colocacao_entry.get()
             formato = self.formato_entry.get()
+
+            executivo = self.executivo_entry.get()
+            diretoria = self.diretoria_entry.get()
 
             valor_unitario = float(self.valor_unit_entry.get().replace(",", ".") or 0)
             valor_total = float(self.valor_total_entry.get().replace(",", ".") or 0)
@@ -81,6 +86,7 @@ class PIView(ctk.CTkFrame):
 
             data_emissao = datetime.strptime(data_str, "%d/%m/%Y").date()
 
+            # Criando o PI
             criar_pi(
                 numero_pi=numero,
                 cliente=cliente,
@@ -89,9 +95,10 @@ class PIView(ctk.CTkFrame):
                 tipo=tipo,
                 praca=praca,
                 meio=meio,
-                peca_publicitaria=peca,
                 colocacao=colocacao,
                 formato=formato,
+                executivo=executivo,
+                diretoria=diretoria,
                 valor_unitario=valor_unitario,
                 valor_total=valor_total
             )

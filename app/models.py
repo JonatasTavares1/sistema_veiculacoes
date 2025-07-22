@@ -26,7 +26,8 @@ class PI(Base):
     tipo = Column(String)             # Ex: institucional, promocional
     praca = Column(String)           # Ex: Brasília/DF
     meio = Column(String)            # Ex: digital, jornal, etc.
-    titulo_peca = Column(String)     # Nome da peça
+    executivo = Column(String, default="")
+    diretoria = Column(String, default="")
     colocacao = Column(String)       # Onde será veiculado
     formato = Column(String)         # Ex: 1080x1920, 1/2 página
     valor_bruto = Column(Float)      # Valor total
