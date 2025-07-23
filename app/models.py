@@ -13,54 +13,62 @@ class Produto(Base):
 
     veiculacoes = relationship("Veiculacao", back_populates="produto")
 
+class Anunciante(Base):
+    __tablename__ = 'anunciantes'
+
+    id = Column(Integer, primary_key=True)
+    nome_anunciante = Column(String, nullable=False)
+    razao_social_anunciante = Column(String)
+    cnpj_anunciante = Column(String, unique=True, nullable=False)
+    uf_cliente = Column(String)
+
+    pis = relationship("PI", back_populates="anunciante")
+
+
+class Agencia(Base):
+    __tablename__ = 'agencias'
+
+    id = Column(Integer, primary_key=True)
+    nome_agencia = Column(String, nullable=False)
+    razao_social_agencia = Column(String)
+    cnpj_agencia = Column(String, unique=True, nullable=False)
+    uf_agencia = Column(String)
+
+    pis = relationship("PI", back_populates="agencia")
+
 
 class PI(Base):
     __tablename__ = 'pis'
 
-    id = Column(Integer, primary_key=True)
+    numero_pi = Column(String, primary_key=True)  # PI será a chave primária
+    pi_matriz = Column(String)
 
-    # Identificação do PI
-    pi_matriz = Column(String, nullable=True)
-    numero_pi = Column(String, nullable=False)
+    # Relacionamento com Anunciante
+    anunciante_id = Column(Integer, ForeignKey('anunciantes.id'), nullable=False)
+    anunciante = relationship("Anunciante", back_populates="pis")
 
-    # Anunciante
-    nome_anunciante = Column(String, nullable=False)
-    razao_social_anunciante = Column(String, nullable=False)
-    cnpj_anunciante = Column(String, nullable=False)
-    uf_cliente = Column(String, nullable=True)
+    # Relacionamento com Agência
+    agencia_id = Column(Integer, ForeignKey('agencias.id'), nullable=False)
+    agencia = relationship("Agencia", back_populates="pis")
 
-    # Agência
-    nome_agencia = Column(String, nullable=True)
-    razao_social_agencia = Column(String, nullable=True)
-    cnpj_agencia = Column(String, nullable=True)
-    uf_agencia = Column(String, nullable=True)
+    nome_campanha = Column(String)
+    canal = Column(String)
+    perfil_anunciante = Column(String)
+    subperfil_anunciante = Column(String)
 
-    # Campanha
-    nome_campanha = Column(String, nullable=True)
-    canal = Column(String, nullable=True)
-    perfil_anunciante = Column(String, nullable=True)
-    subperfil_anunciante = Column(String, nullable=True)
+    mes_venda = Column(String)
+    dia_venda = Column(String)
+    vencimento = Column(Date)
+    data_emissao = Column(Date)
 
-    # Datas
-    mes_venda = Column(String, nullable=True)     # Ex: "07/2025"
-    dia_venda = Column(String, nullable=True)     # Ex: "23"
-    vencimento = Column(Date, nullable=True)
-    data_emissao = Column(Date, nullable=False)
+    executivo = Column(String)
+    diretoria = Column(String)
+    valor_bruto = Column(Float)
+    valor_liquido = Column(Float)
 
-    # Responsáveis
-    executivo = Column(String, default="")
-    diretoria = Column(String, default="")
-
-    # Valores
-    valor_bruto = Column(Float, default=0.0)
-    valor_liquido = Column(Float, default=0.0)
-
-    # Observações
     observacoes = Column(String)
 
-    # Relacionamento com veiculações
-    veiculacoes = relationship("Veiculacao", back_populates="pi")
-
+    veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
 
 class Veiculacao(Base):
     __tablename__ = 'veiculacoes'
@@ -70,12 +78,11 @@ class Veiculacao(Base):
     quantidade = Column(Integer, nullable=False)
     desconto_aplicado = Column(Float, default=0.0)
     data_veiculacao = Column(Date, nullable=False)
-    pi_id = Column(Integer, ForeignKey('pis.id'), nullable=False)
+    pi_id = Column(String, ForeignKey('pis.numero_pi'), nullable=False)
 
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
     entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
-
 
 class Entrega(Base):
     __tablename__ = 'entregas'
