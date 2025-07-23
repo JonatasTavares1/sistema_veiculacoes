@@ -46,11 +46,8 @@ class PIView(ctk.CTkFrame):
         self.diretoria_entry = ctk.CTkEntry(self, placeholder_text="Diretoria")
         self.diretoria_entry.pack(pady=5)
 
-        self.valor_unit_entry = ctk.CTkEntry(self, placeholder_text="Valor Unitário (ex: 199.90)")
-        self.valor_unit_entry.pack(pady=5)
-
-        self.valor_total_entry = ctk.CTkEntry(self, placeholder_text="Valor Total (ex: 999.90)")
-        self.valor_total_entry.pack(pady=5)
+        self.valor_bruto_entry = ctk.CTkEntry(self, placeholder_text="Valor Bruto (ex: 999.90)")
+        self.valor_bruto_entry.pack(pady=5)
 
         # Botão de cadastro
         ctk.CTkButton(self, text="Cadastrar PI", command=self.cadastrar_pi).pack(pady=15)
@@ -77,8 +74,7 @@ class PIView(ctk.CTkFrame):
             executivo = self.executivo_entry.get()
             diretoria = self.diretoria_entry.get()
 
-            valor_unitario = float(self.valor_unit_entry.get().replace(",", ".") or 0)
-            valor_total = float(self.valor_total_entry.get().replace(",", ".") or 0)
+            valor_bruto = float(self.valor_bruto_entry.get().replace(",", ".") or 0)
 
             if not numero or not cliente or not data_str:
                 messagebox.showerror("Erro", "Preencha os campos obrigatórios.")
@@ -99,8 +95,7 @@ class PIView(ctk.CTkFrame):
                 formato=formato,
                 executivo=executivo,
                 diretoria=diretoria,
-                valor_unitario=valor_unitario,
-                valor_total=valor_total
+                valor_bruto=valor_bruto
             )
 
             messagebox.showinfo("Sucesso", "PI cadastrada com sucesso!")
@@ -120,4 +115,7 @@ class PIView(ctk.CTkFrame):
     def atualizar_lista(self):
         self.lista_pis.delete("1.0", "end")
         for pi in listar_pis():
-            self.lista_pis.insert("end", f"{pi.id} | {pi.numero_pi} | {pi.cliente} | {pi.data_emissao} | R$ {pi.valor_total:.2f}\n")
+            self.lista_pis.insert(
+                "end",
+                f"{pi.id} | {pi.numero_pi} | {pi.cliente} | {pi.data_emissao.strftime('%d/%m/%Y')} | R$ {pi.valor_bruto:.2f}\n"
+            )
