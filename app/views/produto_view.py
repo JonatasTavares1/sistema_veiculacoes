@@ -133,5 +133,6 @@ class ProdutoView(ctk.CTkFrame):
             try:
                 excluir_produto(produto_id)
                 self.atualizar_tabela()
+                messagebox.showinfo("Sucesso", "Produto excluído com sucesso!")
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao excluir produto: {e}")
