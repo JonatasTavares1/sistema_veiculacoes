@@ -13,6 +13,7 @@ class Produto(Base):
 
     veiculacoes = relationship("Veiculacao", back_populates="produto")
 
+
 class Anunciante(Base):
     __tablename__ = 'anunciantes'
 
@@ -40,14 +41,12 @@ class Agencia(Base):
 class PI(Base):
     __tablename__ = 'pis'
 
-    numero_pi = Column(String, primary_key=True)  # PI será a chave primária
+    numero_pi = Column(String, primary_key=True)  # Chave primária da PI
     pi_matriz = Column(String)
 
-    # Relacionamento com Anunciante
     anunciante_id = Column(Integer, ForeignKey('anunciantes.id'), nullable=False)
     anunciante = relationship("Anunciante", back_populates="pis")
 
-    # Relacionamento com Agência
     agencia_id = Column(Integer, ForeignKey('agencias.id'), nullable=False)
     agencia = relationship("Agencia", back_populates="pis")
 
@@ -70,19 +69,20 @@ class PI(Base):
 
     veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
 
+
 class Veiculacao(Base):
-    __tablename__ = 'veiculacoes'
+    __tablename__ = "veiculacoes"
 
     id = Column(Integer, primary_key=True)
-    produto_id = Column(Integer, ForeignKey('produtos.id'), nullable=False)
-    quantidade = Column(Integer, nullable=False)
-    desconto_aplicado = Column(Float, default=0.0)
-    data_veiculacao = Column(Date, nullable=False)
-    pi_id = Column(String, ForeignKey('pis.numero_pi'), nullable=False)
+    produto_id = Column(Integer, ForeignKey("produtos.id"))
+    pi_id = Column(String, ForeignKey("pis.numero_pi"))  # Correção feita aqui
+    data_inicio = Column(String)
+    data_fim = Column(String)
 
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
     entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
+
 
 class Entrega(Base):
     __tablename__ = 'entregas'

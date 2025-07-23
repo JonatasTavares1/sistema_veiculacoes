@@ -1,16 +1,15 @@
 from app.database import SessionLocal
 from app.models import Veiculacao, Produto, PI
-from datetime import date
 from sqlalchemy.orm import joinedload
 
 
-def criar_veiculacao(produto_id: int, quantidade: int, desconto: float,
-                     data_veiculacao: date, pi_id: int):
+def criar_veiculacao(produto_id: int, data_inicio: str, data_fim: str, pi_id: int):
     session = SessionLocal()
     try:
         # Verifica se Produto e PI existem
         produto = session.query(Produto).get(produto_id)
         pi = session.query(PI).get(pi_id)
+
         if not produto:
             print("Produto não encontrado.")
             return
@@ -20,9 +19,8 @@ def criar_veiculacao(produto_id: int, quantidade: int, desconto: float,
 
         nova = Veiculacao(
             produto_id=produto_id,
-            quantidade=quantidade,
-            desconto_aplicado=desconto,
-            data_veiculacao=data_veiculacao,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
             pi_id=pi_id
         )
         session.add(nova)
@@ -36,9 +34,9 @@ def criar_veiculacao(produto_id: int, quantidade: int, desconto: float,
 
 
 def listar_veiculacoes():
+    session = SessionLocal()
     try:
-        db = SessionLocal()
-        veiculacoes = db.query(Veiculacao)\
+        veiculacoes = session.query(Veiculacao)\
             .options(joinedload(Veiculacao.produto), joinedload(Veiculacao.pi))\
             .all()
         return veiculacoes
@@ -46,17 +44,17 @@ def listar_veiculacoes():
         print(f"Erro ao listar veiculações: {e}")
         return []
     finally:
-        db.close()
+        session.close()
 
 
-def deletar_veiculacao(id_veiculacao: int):
+def excluir_veiculacao(id_veiculacao: int):
     session = SessionLocal()
     try:
-        v = session.query(Veiculacao).get(id_veiculacao)
-        if not v:
+        veiculacao = session.query(Veiculacao).get(id_veiculacao)
+        if not veiculacao:
             print("Veiculação não encontrada.")
             return
-        session.delete(v)
+        session.delete(veiculacao)
         session.commit()
         print("Veiculação removida com sucesso.")
     except Exception as e:
