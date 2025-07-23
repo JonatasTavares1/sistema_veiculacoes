@@ -11,7 +11,8 @@ class Produto(Base):
     descricao = Column(String)
     valor_unitario = Column(String, nullable=False)
 
-    veiculacoes = relationship("Veiculacao", back_populates="produto")
+    veiculacoes = relationship("Veiculacao", back_populates="produto", cascade="all, delete-orphan")
+
 
 
 class Anunciante(Base):
