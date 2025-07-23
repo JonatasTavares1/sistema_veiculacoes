@@ -9,7 +9,7 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
     descricao = Column(String)
-    valor_unitario = Column(Float, nullable=False)
+    valor_unitario = Column(String, nullable=False)
 
     veiculacoes = relationship("Veiculacao", back_populates="produto")
 

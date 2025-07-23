@@ -40,18 +40,14 @@ def atualizar_produto(id_produto: int, novo_nome=None, nova_desc=None, novo_valo
     finally:
         session.close()
 
-def deletar_produto(id_produto: int):
-    session = SessionLocal()
+def excluir_produto(produto_id):
+    db = SessionLocal()
     try:
-        produto = session.query(Produto).get(id_produto)
-        if not produto:
-            print("Produto não encontrado.")
-            return
-        session.delete(produto)
-        session.commit()
-        print("Produto removido com sucesso.")
-    except Exception as e:
-        session.rollback()
-        print("Erro ao deletar produto:", e)
+        produto = db.query(Produto).get(produto_id)
+        if produto:
+            db.delete(produto)
+            db.commit()
     finally:
-        session.close()
+        db.close()
+
+
