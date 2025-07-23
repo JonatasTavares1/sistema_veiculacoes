@@ -1,105 +1,143 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from controllers.veiculacao_controller import criar_veiculacao, listar_veiculacoes
+from controllers.veiculacao_controller import criar_veiculacao, listar_veiculacoes, excluir_veiculacao
 from controllers.produto_controller import listar_produtos
 from controllers.pi_controller import listar_pis
-from datetime import datetime
+
 
 class VeiculacaoView(ctk.CTkFrame):
     def __init__(self, master=None):
         super().__init__(master)
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("dark-blue")
+        ctk.set_default_color_theme("blue")
 
-        ctk.CTkLabel(self, text="📡 Cadastro de Veiculação", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=10)
+        self.fonte_titulo = ctk.CTkFont(family="Arial", size=22, weight="bold")
+        self.fonte_label = ctk.CTkFont(family="Arial", size=13)
+        self.fonte_botao = ctk.CTkFont(family="Arial", size=14)
+        self.fonte_header = ctk.CTkFont(family="Arial", size=14, weight="bold")
 
-        # Produto
-        self.produtos = listar_produtos()
-        self.produto_var = ctk.StringVar()
-        self.produto_combo = ctk.CTkComboBox(self, width=400, values=[f"{p.id} - {p.nome}" for p in self.produtos],
-                                             variable=self.produto_var)
-        self.produto_combo.pack(pady=6)
-        self.produto_combo.set("Selecione o produto")
+        # Título
+        ctk.CTkLabel(self, text="Controle de Veiculações", font=self.fonte_titulo).pack(pady=(10, 15))
+
+        # FORMULÁRIO
+        form_frame = ctk.CTkFrame(self)
+        form_frame.pack(pady=10)
 
         # PI
+        ctk.CTkLabel(form_frame, text="PI", font=self.fonte_label).grid(row=0, column=0, sticky="w", padx=5, pady=2)
         self.pis = listar_pis()
-        self.pi_var = ctk.StringVar()
-        self.pi_combo = ctk.CTkComboBox(self, width=400, values=[f"{pi.id} - {pi.numero_pi}" for pi in self.pis],
-                                        variable=self.pi_var)
-        self.pi_combo.pack(pady=6)
-        self.pi_combo.set("Selecione o PI")
+        self.pi_combobox = ctk.CTkComboBox(form_frame, values=[pi.numero_pi for pi in self.pis], width=250)
+        self.pi_combobox.grid(row=1, column=0, padx=5, pady=5)
 
-        # Quantidade
-        self.qtd_entry = ctk.CTkEntry(self, placeholder_text="Quantidade", width=400)
-        self.qtd_entry.pack(pady=6)
+        # Produto
+        ctk.CTkLabel(form_frame, text="Produto", font=self.fonte_label).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        self.produtos = listar_produtos()
+        self.produto_combobox = ctk.CTkComboBox(form_frame, values=[p.nome for p in self.produtos], width=250)
+        self.produto_combobox.grid(row=1, column=1, padx=5, pady=5)
 
-        # Desconto
-        self.desc_entry = ctk.CTkEntry(self, placeholder_text="Desconto (em reais)", width=400)
-        self.desc_entry.pack(pady=6)
+        # Data Início
+        ctk.CTkLabel(form_frame, text="Data Início Veiculação", font=self.fonte_label).grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.data_inicio_entry = ctk.CTkEntry(form_frame, placeholder_text="dd/mm/aaaa", width=250)
+        self.data_inicio_entry.grid(row=3, column=0, padx=5, pady=5)
 
-        # Data
-        self.data_entry = ctk.CTkEntry(self, placeholder_text="Data da veiculação (dd/mm/aaaa)", width=400)
-        self.data_entry.pack(pady=6)
+        # Data Fim
+        ctk.CTkLabel(form_frame, text="Data Fim Veiculação", font=self.fonte_label).grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        self.data_fim_entry = ctk.CTkEntry(form_frame, placeholder_text="dd/mm/aaaa", width=250)
+        self.data_fim_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        # Checkbox de veiculação
-        self.foi_veiculado = ctk.BooleanVar(value=False)
-        self.check_veiculado = ctk.CTkCheckBox(self, text="Já foi veiculado", variable=self.foi_veiculado)
-        self.check_veiculado.pack(pady=6)
+        # Botão Adicionar
+        ctk.CTkButton(
+            form_frame, text="➕ Adicionar Veiculação", command=self.adicionar_veiculacao,
+            font=self.fonte_botao, height=40
+        ).grid(row=4, column=0, columnspan=2, padx=5, pady=10)
 
-        # Botão de cadastro
-        ctk.CTkButton(self, text="💾 Cadastrar Veiculação", command=self.cadastrar, height=40).pack(pady=12)
+        # TABELA DE VEICULAÇÕES
+        ctk.CTkLabel(self, text="Veiculações Registradas", font=self.fonte_header).pack(pady=(20, 5))
 
-        # Título da lista
-        ctk.CTkLabel(self, text="🧾 Veiculações cadastradas:", font=ctk.CTkFont(size=16)).pack(pady=(15, 5))
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, width=800, height=300, fg_color="#1e1e1e")
+        self.scrollable_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
-        # Lista com scroll
-        self.text_frame = ctk.CTkFrame(self)
-        self.text_frame.pack()
+        headers = ["PI", "PRODUTO", "INÍCIO", "FIM", "AÇÃO"]
+        widths = [150, 250, 120, 120, 80]
 
-        self.lista = ctk.CTkTextbox(self.text_frame, width=560, height=230, corner_radius=8)
-        self.lista.pack(side="left", fill="both", expand=True)
+        for i, (h, w) in enumerate(zip(headers, widths)):
+            label = ctk.CTkLabel(
+                self.scrollable_frame, text=h, width=w, anchor="center",
+                font=self.fonte_header, fg_color="#444444",
+                text_color="white", height=40, corner_radius=6
+            )
+            label.grid(row=0, column=i, padx=6, pady=(0, 6), sticky="w")
 
-        self.scrollbar = ctk.CTkScrollbar(self.text_frame, orientation="vertical", command=self.lista.yview)
-        self.scrollbar.pack(side="right", fill="y")
-        self.lista.configure(yscrollcommand=self.scrollbar.set)
+        self.linhas_widgets = []
+        self.atualizar_tabela()
 
-        self.atualizar_lista()
+    def adicionar_veiculacao(self):
+        pi_numero = self.pi_combobox.get()
+        produto_nome = self.produto_combobox.get()
+        data_inicio = self.data_inicio_entry.get()
+        data_fim = self.data_fim_entry.get()
 
-    def cadastrar(self):
-        try:
-            produto_id = int(self.produto_var.get().split(" - ")[0])
-            pi_id = int(self.pi_var.get().split(" - ")[0])
-            quantidade = int(self.qtd_entry.get())
-            desconto = float(self.desc_entry.get().replace(",", "."))
-            data = datetime.strptime(self.data_entry.get(), "%d/%m/%Y").date()
-            veiculado = self.foi_veiculado.get()
-
-            criar_veiculacao(produto_id, quantidade, desconto, data, pi_id, veiculado)
-            messagebox.showinfo("✅ Sucesso", "Veiculação cadastrada com sucesso!")
-
-            self.qtd_entry.delete(0, "end")
-            self.desc_entry.delete(0, "end")
-            self.data_entry.delete(0, "end")
-            self.foi_veiculado.set(False)
-            self.atualizar_lista()
-
-        except ValueError:
-            messagebox.showerror("Erro", "Preencha todos os campos corretamente.")
-        except Exception as e:
-            messagebox.showerror("Erro inesperado", f"Erro ao cadastrar: {e}")
-
-    def atualizar_lista(self):
-        self.lista.delete("1.0", "end")
-        veiculacoes = listar_veiculacoes()
-        if not veiculacoes:
-            self.lista.insert("end", "Nenhuma veiculação cadastrada.\n")
+        if not pi_numero or not produto_nome or not data_inicio or not data_fim:
+            messagebox.showerror("Erro", "Preencha todos os campos.")
             return
 
-        for v in veiculacoes:
-            status = "✅ Veiculado" if v.foi_veiculado else "⏳ Pendente"
-            valor_total = (v.produto.valor_unitario * v.quantidade) - v.desconto_aplicado
-            self.lista.insert(
-                "end",
-                f"📌 ID {v.id} | {status} | Produto: {v.produto.nome} | PI: {v.pi.numero_pi} | "
-                f"Qtd: {v.quantidade} | R$ {valor_total:.2f} | Data: {v.data_veiculacao.strftime('%d/%m/%Y')}\n"
+        try:
+            # Procura os objetos selecionados
+            pi_obj = next((pi for pi in self.pis if pi.numero_pi == pi_numero), None)
+            produto_obj = next((p for p in self.produtos if p.nome == produto_nome), None)
+
+            if not pi_obj or not produto_obj:
+                raise ValueError("Produto ou PI inválido.")
+
+            criar_veiculacao(produto_obj.id, data_inicio, data_fim, pi_obj.numero_pi)
+            messagebox.showinfo("Sucesso", "Veiculação adicionada com sucesso!")
+
+            self.data_inicio_entry.delete(0, "end")
+            self.data_fim_entry.delete(0, "end")
+            self.atualizar_tabela()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao adicionar veiculação: {e}")
+
+    def atualizar_tabela(self):
+        for linha in self.linhas_widgets:
+            for widget in linha:
+                widget.destroy()
+        self.linhas_widgets.clear()
+
+        veiculacoes = listar_veiculacoes()
+
+        for i, v in enumerate(veiculacoes, start=1):
+            bg = "#2a2a2a" if i % 2 == 0 else "#1f1f1f"
+            widgets = []
+
+            campos = [v.pi.numero_pi, v.produto.nome, v.data_inicio, v.data_fim]
+            larguras = [150, 250, 120, 120]
+
+            for j, (valor, w) in enumerate(zip(campos, larguras)):
+                label = ctk.CTkLabel(
+                    self.scrollable_frame, text=valor, width=w, anchor="w",
+                    font=self.fonte_label, text_color="#ffffff",
+                    fg_color=bg, corner_radius=6
+                )
+                label.grid(row=i, column=j, padx=6, pady=3, sticky="w")
+                widgets.append(label)
+
+            excluir_btn = ctk.CTkButton(
+                self.scrollable_frame, text="🗑️", width=40, height=28,
+                font=self.fonte_botao, fg_color="#cc0000",
+                hover_color="#ff1a1a", text_color="white",
+                corner_radius=6, command=lambda vid=v.id: self.excluir_veiculacao(vid)
             )
+            excluir_btn.grid(row=i, column=4, padx=6, pady=3, sticky="w")
+            widgets.append(excluir_btn)
+
+            self.linhas_widgets.append(widgets)
+
+    def excluir_veiculacao(self, veiculacao_id):
+        if messagebox.askyesno("Confirmação", "Deseja realmente excluir esta veiculação?"):
+            try:
+                excluir_veiculacao(veiculacao_id)
+                messagebox.showinfo("Sucesso", "Veiculação excluída com sucesso!")
+                self.atualizar_tabela()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao excluir veiculação: {e}")

@@ -30,7 +30,7 @@ class MainApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Produtos", command=self.mostrar_produto).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="PIs", command=self.mostrar_pi).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Veiculações", command=self.mostrar_veiculacao).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Consulta", command=self.mostrar_consulta).pack(pady=5, fill="x", padx=10)
+        ctk.CTkButton(self.sidebar, text="Consulta de Veiculações", command=self.mostrar_consulta).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Exportar CSV", command=self.mostrar_exportar).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Controle de Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)  # ⬅️ Novo botão
         ctk.CTkButton(self.sidebar, text="PIs Cadastrados", command=self.mostrar_pis_cadastrados).pack(pady=5, fill="x", padx=10)
