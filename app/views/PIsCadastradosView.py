@@ -7,14 +7,20 @@ class PIsCadastradosView(ctk.CTkFrame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
 
+        # Título
         ctk.CTkLabel(self, text="📄 PIs Cadastrados", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=15)
         ctk.CTkLabel(self, text="Lista completa dos pedidos de inserção registrados no sistema:",
                      font=ctk.CTkFont(size=16)).pack(pady=5)
 
+        # 🔄 Botão de Atualizar
+        self.atualizar_btn = ctk.CTkButton(self, text="🔄 Atualizar Lista", command=self.atualizar_lista)
+        self.atualizar_btn.pack(pady=5)
+
+        # Tabela
         self.tabela_frame = ctk.CTkScrollableFrame(self, width=1400, height=500, corner_radius=8)
         self.tabela_frame.pack(pady=15, padx=10, fill="both", expand=True)
 
-        # Cabeçalhos finais com as novas colunas
+        # Cabeçalhos
         self.headers = [
             "ID", "Número", "Cliente", "Data de Emissão", "Valor Total (R$)",
             "Praça", "Meio", "Colocação", "Diretoria", "Executivo",
@@ -37,15 +43,18 @@ class PIsCadastradosView(ctk.CTkFrame):
                 separator = ctk.CTkFrame(self.tabela_frame, width=2, height=30, fg_color="#444")
                 separator.grid(row=0, column=col * 2 + 1, sticky="ns", padx=0, pady=(0, 8))
 
+        # Inicializa lista
         self.linhas_pi = []
         self.atualizar_lista()
 
     def atualizar_lista(self):
+        # Limpa as linhas existentes
         for linha in self.linhas_pi:
             for widget in linha:
                 widget.destroy()
         self.linhas_pi.clear()
 
+        # Recarrega os PIs
         for i, pi in enumerate(listar_pis(), start=1):
             linha_widgets = []
             valores = [

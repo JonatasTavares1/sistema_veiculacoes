@@ -13,28 +13,54 @@ class Produto(Base):
 
     veiculacoes = relationship("Veiculacao", back_populates="produto")
 
+
 class PI(Base):
     __tablename__ = 'pis'
 
     id = Column(Integer, primary_key=True)
-    numero_pi = Column(String, nullable=False)
-    cliente = Column(String, nullable=False)
-    data_emissao = Column(Date, nullable=False)
-    observacoes = Column(String)
 
-    # Novos campos conforme modelo de PI
-    tipo = Column(String)             # Ex: institucional, promocional
-    praca = Column(String)           # Ex: Brasília/DF
-    meio = Column(String)            # Ex: digital, jornal, etc.
+    # Identificação do PI
+    pi_matriz = Column(String, nullable=True)
+    numero_pi = Column(String, nullable=False)
+
+    # Anunciante
+    nome_anunciante = Column(String, nullable=False)
+    razao_social_anunciante = Column(String, nullable=False)
+    cnpj_anunciante = Column(String, nullable=False)
+    uf_cliente = Column(String, nullable=True)
+
+    # Agência
+    nome_agencia = Column(String, nullable=True)
+    razao_social_agencia = Column(String, nullable=True)
+    cnpj_agencia = Column(String, nullable=True)
+    uf_agencia = Column(String, nullable=True)
+
+    # Campanha
+    nome_campanha = Column(String, nullable=True)
+    canal = Column(String, nullable=True)
+    perfil_anunciante = Column(String, nullable=True)
+    subperfil_anunciante = Column(String, nullable=True)
+
+    # Datas
+    mes_venda = Column(String, nullable=True)     # Ex: "07/2025"
+    dia_venda = Column(String, nullable=True)     # Ex: "23"
+    vencimento = Column(Date, nullable=True)
+    data_emissao = Column(Date, nullable=False)
+
+    # Responsáveis
     executivo = Column(String, default="")
     diretoria = Column(String, default="")
-    colocacao = Column(String)       # Onde será veiculado
-    formato = Column(String)         # Ex: 1080x1920, 1/2 página
-    valor_bruto = Column(Float)      # Valor total
-    comissao = Column(Float)         # Comissão de agência
-    valor_liquido = Column(Float)    # Valor líquido final
 
+    # Valores
+    valor_bruto = Column(Float, default=0.0)
+    valor_liquido = Column(Float, default=0.0)
+
+    # Observações
+    observacoes = Column(String)
+
+    # Relacionamento com veiculações
     veiculacoes = relationship("Veiculacao", back_populates="pi")
+
 
 class Veiculacao(Base):
     __tablename__ = 'veiculacoes'
@@ -49,6 +75,8 @@ class Veiculacao(Base):
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
     entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
+
+
 class Entrega(Base):
     __tablename__ = 'entregas'
 

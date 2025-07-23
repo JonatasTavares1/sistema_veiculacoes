@@ -2,82 +2,110 @@ from app.database import SessionLocal
 from app.models import PI
 from datetime import date
 
+
 # Função para criar um novo PI
 def criar_pi(
     numero_pi: str,
-    cliente: str,
+    pi_matriz: str,
+    nome_anunciante: str,
+    razao_social_anunciante: str,
+    cnpj_anunciante: str,
+    uf_cliente: str,
+    executivo: str,
+    diretoria: str,
+    nome_campanha: str,
+    nome_agencia: str,
+    razao_social_agencia: str,
+    cnpj_agencia: str,
+    uf_agencia: str,
+    mes_venda: str,
+    dia_venda: str,
+    canal: str,
+    perfil_anunciante: str,
+    subperfil_anunciante: str,
+    valor_bruto: float,
+    valor_liquido: float,
+    vencimento: date,
     data_emissao: date,
-    observacoes: str = "",
-    tipo: str = "",
-    praca: str = "",
-    meio: str = "",
-    colocacao: str = "",
-    formato: str = "",
-    executivo: str = "",  # Novo campo
-    diretoria: str = "",  # Novo campo
-    valor_unitario: float = 0.0,
-    valor_total: float = 0.0
+    observacoes: str = ""
 ):
     session = SessionLocal()
     try:
-        # Criando a nova instância de PI com os dados fornecidos
-        nova_pi = PI(
-            numero_pi=numero_pi,
-            cliente=cliente,
-            data_emissao=data_emissao,
-            observacoes=observacoes,
-            tipo=tipo,
-            praca=praca,
-            meio=meio,
-            colocacao=colocacao,
-            formato=formato,
-            executivo=executivo,  # Atribuindo o valor do campo "executivo"
-            diretoria=diretoria,  # Atribuindo o valor do campo "diretoria"
-            valor_unitario=valor_unitario,
-            valor_total=valor_total
-        )
-        
-        # Adicionando o novo PI na sessão do banco de dados
-        session.add(nova_pi)
-        session.commit()  # Commit para salvar as alterações no banco de dados
-        print("PI cadastrada com sucesso!")
-    except Exception as e:
-        session.rollback()  # Caso ocorra algum erro, desfazemos a transação (rollback)
-        print(f"Erro ao cadastrar PI: {e}")
-    finally:
-        session.close()  # Fechar a sessão com o banco de dados
+        # Verifica se já existe um PI com esse número
+        pi_existente = session.query(PI).filter_by(numero_pi=numero_pi).first()
+        if pi_existente:
+            raise ValueError(f"O PI '{numero_pi}' já está cadastrado.")
 
-# Função para listar todos os PIs cadastrados
+        novo_pi = PI(
+            numero_pi=numero_pi,
+            pi_matriz=pi_matriz,
+            nome_anunciante=nome_anunciante,
+            razao_social_anunciante=razao_social_anunciante,
+            cnpj_anunciante=cnpj_anunciante,
+            uf_cliente=uf_cliente,
+            executivo=executivo,
+            diretoria=diretoria,
+            nome_campanha=nome_campanha,
+            nome_agencia=nome_agencia,
+            razao_social_agencia=razao_social_agencia,
+            cnpj_agencia=cnpj_agencia,
+            uf_agencia=uf_agencia,
+            mes_venda=mes_venda,
+            dia_venda=dia_venda,
+            canal=canal,
+            perfil_anunciante=perfil_anunciante,
+            subperfil_anunciante=subperfil_anunciante,
+            valor_bruto=valor_bruto,
+            valor_liquido=valor_liquido,
+            vencimento=vencimento,
+            data_emissao=data_emissao,
+            observacoes=observacoes
+        )
+
+        session.add(novo_pi)
+        session.commit()
+        print("✅ PI cadastrado com sucesso!")
+
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Erro ao cadastrar PI: {e}")
+        raise
+
+    finally:
+        session.close()
+
+
+# Função para listar todos os PIs
 def listar_pis():
     session = SessionLocal()
     try:
-        # Consultando todos os PIs, ordenados de forma decrescente pelo ID
-        return session.query(PI).order_by(PI.id.desc()).all()
+        return session.query(PI).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
-        print(f"Erro ao listar PIs: {e}")
+        print(f"❌ Erro ao listar PIs: {e}")
         return []
     finally:
         session.close()
 
-# Função para listar PIs por Executivo
+
+# Filtrar por executivo
 def listar_pis_por_executivo(executivo: str):
     session = SessionLocal()
     try:
-        # Filtrando os PIs pelo nome do executivo
-        return session.query(PI).filter(PI.executivo == executivo).order_by(PI.id.desc()).all()
+        return session.query(PI).filter(PI.executivo == executivo).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
-        print(f"Erro ao listar PIs por Executivo: {e}")
+        print(f"❌ Erro ao listar PIs por executivo: {e}")
         return []
     finally:
         session.close()
 
+
+# Filtrar por diretoria
 def listar_pis_por_diretoria(diretoria: str):
     session = SessionLocal()
     try:
-        # Filtrando os PIs pela diretoria
-        return session.query(PI).filter(PI.diretoria == diretoria).order_by(PI.id.desc()).all()
+        return session.query(PI).filter(PI.diretoria == diretoria).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
-        print(f"Erro ao listar PIs por Diretoria: {e}")
+        print(f"❌ Erro ao listar PIs por diretoria: {e}")
         return []
     finally:
         session.close()
