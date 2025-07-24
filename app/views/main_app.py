@@ -7,7 +7,7 @@ from app.views.exportar_view import ExportarView
 from app.views.entrega_view import EntregaView
 from app.views.PIsCadastradosView import PIsCadastradosView
 from app.views.vendasporexecutivo_view import ExecutivoView as VendasExecutivoView
-from app.views.diretoria_view import DiretoriaView
+from app.views.vendaspordiretoria_view import VendasDiretoriaView
 from app.views.anunciante_view import AnuncianteView
 from app.views.agencia_view import AgenciaView
 from app.views.executivo_view import ExecutivoView  # NOVA TELA de executivo (agências + anunciantes)
@@ -91,7 +91,7 @@ class MainApp(ctk.CTk):
 
     def mostrar_vendas_diretoria(self):
         self.limpar_container()
-        self.tela_atual = DiretoriaView(self.container)
+        self.tela_atual = VendasDiretoriaView(self.container)
         self.tela_atual.pack(fill="both", expand=True)
 
     def mostrar_anunciante(self):
