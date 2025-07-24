@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-from controllers.pi_controller import listar_pis_por_executivo
+from controllers.pi_controller import listar_pis_por_diretoria
 import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -11,27 +11,25 @@ MESES = {
     "Setembro": 9, "Outubro": 10, "Novembro": 11, "Dezembro": 12
 }
 
-EXECUTIVOS = [
-    "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
-    "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
-    "Flavia Cabral", "Paula Caroline", "Leila Santos", "Jessica Ribeiro", "Paula Campos"
+DIRETORIAS = [
+    "Governo Federal", "Governo Estadual", "Rafael Augusto"
 ]
 
-class ExecutivoView(ctk.CTkFrame):  # <- nome corrigido aqui
+class VendasDiretoriaView(ctk.CTkFrame):
     def __init__(self, master=None):
         super().__init__(master)
         self.pack(fill="both", expand=True)
         self.pis_encontrados = []
 
-        ctk.CTkLabel(self, text="📊 Vendas por Executivo", font=ctk.CTkFont(size=24, weight="bold")).pack(pady=15)
+        ctk.CTkLabel(self, text="📈 Vendas por Diretoria", font=ctk.CTkFont(size=24, weight="bold")).pack(pady=15)
 
         # Filtros
         filtros_frame = ctk.CTkFrame(self)
         filtros_frame.pack(pady=10)
 
-        self.executivo_cb = ctk.CTkComboBox(filtros_frame, values=EXECUTIVOS, width=200)
-        self.executivo_cb.set("Selecione o Executivo")
-        self.executivo_cb.grid(row=0, column=0, padx=10, pady=5)
+        self.diretoria_cb = ctk.CTkComboBox(filtros_frame, values=DIRETORIAS, width=200)
+        self.diretoria_cb.set("Selecione a Diretoria")
+        self.diretoria_cb.grid(row=0, column=0, padx=10, pady=5)
 
         self.mes_cb = ctk.CTkComboBox(filtros_frame, values=list(MESES.keys()), width=140)
         self.mes_cb.set("Mês")
@@ -56,13 +54,13 @@ class ExecutivoView(ctk.CTkFrame):  # <- nome corrigido aqui
         ctk.CTkButton(botoes_frame, text="Ver Gráfico", command=self.gerar_grafico).pack(side="left", padx=20)
 
     def buscar_pis(self):
-        executivo = self.executivo_cb.get()
+        diretoria = self.diretoria_cb.get()
         mes = self.mes_cb.get()
         ano = self.ano_entry.get()
         dia_inicio = self.dia_ini_entry.get()
         dia_fim = self.dia_fim_entry.get()
 
-        if not (executivo and mes and ano and dia_inicio and dia_fim):
+        if not (diretoria and mes and ano and dia_inicio and dia_fim):
             messagebox.showwarning("Campos obrigatórios", "Preencha todos os filtros.")
             return
 
@@ -75,8 +73,8 @@ class ExecutivoView(ctk.CTkFrame):  # <- nome corrigido aqui
             messagebox.showerror("Erro", "Verifique os valores de mês, ano e dias.")
             return
 
-        self.pis_encontrados = listar_pis_por_executivo(
-            executivo, mes_num, ano_int, dia_ini, dia_fim
+        self.pis_encontrados = listar_pis_por_diretoria(
+            diretoria, mes_num, ano_int, dia_ini, dia_fim
         )
 
         if not self.pis_encontrados:
@@ -110,7 +108,7 @@ class ExecutivoView(ctk.CTkFrame):  # <- nome corrigido aqui
         df_grouped = df.groupby("dia_venda")["valor_bruto"].sum().reset_index()
 
         plt.figure(figsize=(10, 5))
-        plt.bar(df_grouped["dia_venda"], df_grouped["valor_bruto"], color="orange")
+        plt.bar(df_grouped["dia_venda"], df_grouped["valor_bruto"], color="skyblue")
         plt.title("Valor Bruto por Dia")
         plt.xlabel("Dia da Venda")
         plt.ylabel("Valor Bruto (R$)")
