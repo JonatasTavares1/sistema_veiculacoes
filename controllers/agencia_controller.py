@@ -1,5 +1,6 @@
 from app.models import Agencia
 from app.database import SessionLocal
+import requests
 
 def criar_agencia(nome, razao_social, cnpj, uf):
     db = SessionLocal()
@@ -53,3 +54,15 @@ def excluir_agencia_por_cnpj(cnpj):
         raise e
     finally:
         db.close()
+def buscar_cnpj_na_web(cnpj):
+    try:
+        cnpj_limpo = ''.join(filter(str.isdigit, cnpj))
+        url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return None
+    except Exception as e:
+        print(f"[ERRO] buscar_cnpj_na_web: {e}")
+        return None
