@@ -4,12 +4,13 @@ from app.views.pi_view import PIView
 from app.views.veiculacao_view import VeiculacaoView
 from app.views.consulta_veiculacao_view import ConsultaVeiculacaoView
 from app.views.exportar_view import ExportarView
-from app.views.entrega_view import EntregaView  # ⬅️ Importa nova view
+from app.views.entrega_view import EntregaView
 from app.views.PIsCadastradosView import PIsCadastradosView
-from app.views.executivo_view import ExecutivoView  # Importando a tela de Vendas por Executivo
-from app.views.diretoria_view import DiretoriaView  # Importando a tela de Vendas por Diretoria
+from app.views.vendasporexecutivo_view import ExecutivoView as VendasExecutivoView
+from app.views.diretoria_view import DiretoriaView
 from app.views.anunciante_view import AnuncianteView
 from app.views.agencia_view import AgenciaView
+from app.views.executivo_view import ExecutivoView  # NOVA TELA de executivo (agências + anunciantes)
 
 class MainApp(ctk.CTk):
     def __init__(self):
@@ -32,31 +33,20 @@ class MainApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Veiculações", command=self.mostrar_veiculacao).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Consulta de Veiculações", command=self.mostrar_consulta).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Exportar CSV", command=self.mostrar_exportar).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Controle de Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)  # ⬅️ Novo botão
+        ctk.CTkButton(self.sidebar, text="Controle de Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="PIs Cadastrados", command=self.mostrar_pis_cadastrados).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Vendas por Executivo", command=self.mostrar_vendas_exec).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Vendas por Diretoria", command=self.mostrar_vendas_diretoria).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Cadastrar Anunciante", command=self.mostrar_anunciante).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Cadastrar Agência", command=self.mostrar_agencia).pack(pady=5, fill="x", padx=10)
+        ctk.CTkButton(self.sidebar, text="Executivos", command=self.mostrar_executivo_view).pack(pady=5, fill="x", padx=10)
 
-
-        # Inicializa a tela atual como None
         self.tela_atual = None
-        self.mostrar_produto()  # Exibe a primeira tela ao iniciar a aplicação
-
-    def mostrar_pis_cadastrados(self):
-        self.limpar_container()
-        self.tela_atual = PIsCadastradosView(self.container)
-        self.tela_atual.pack(fill="both", expand=True)
-
-    def mostrar_entregas(self):
-        self.limpar_container()
-        self.tela_atual = EntregaView(self.container)
-        self.tela_atual.pack(fill="both", expand=True)
+        self.mostrar_produto()
 
     def limpar_container(self):
         if self.tela_atual:
-            self.tela_atual.destroy()  # Limpa a tela atual
+            self.tela_atual.destroy()
             self.tela_atual = None
 
     def mostrar_produto(self):
@@ -84,19 +74,25 @@ class MainApp(ctk.CTk):
         self.tela_atual = ExportarView(self.container)
         self.tela_atual.pack(fill="both", expand=True)
 
-
-    # Função para mostrar a tela de Vendas por Executivo
-    def mostrar_vendas_exec(self):
+    def mostrar_entregas(self):
         self.limpar_container()
-        self.tela_atual = ExecutivoView(self.container)
+        self.tela_atual = EntregaView(self.container)
         self.tela_atual.pack(fill="both", expand=True)
 
-    # Função para mostrar a tela de Vendas por Diretoria
+    def mostrar_pis_cadastrados(self):
+        self.limpar_container()
+        self.tela_atual = PIsCadastradosView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)
+
+    def mostrar_vendas_exec(self):
+        self.limpar_container()
+        self.tela_atual = VendasExecutivoView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)
+
     def mostrar_vendas_diretoria(self):
         self.limpar_container()
         self.tela_atual = DiretoriaView(self.container)
         self.tela_atual.pack(fill="both", expand=True)
-
 
     def mostrar_anunciante(self):
         self.limpar_container()
@@ -107,4 +103,8 @@ class MainApp(ctk.CTk):
         self.limpar_container()
         self.tela_atual = AgenciaView(self.container)
         self.tela_atual.pack(fill="both", expand=True)
-   
+
+    def mostrar_executivo_view(self):
+        self.limpar_container()
+        self.tela_atual = ExecutivoView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)

@@ -1,6 +1,22 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from controllers.anunciante_controller import criar_anunciante, listar_anunciantes
+from controllers.anunciante_controller import criar_anunciante, listar_anunciantes, buscar_cnpj_na_web
+
+EXECUTIVOS = [
+    "Rafale e Francio",
+    "Rafael Rodrigo",
+    "Rodrigo da Silva",
+    "Juliana Madazio",
+    "Flavio de Paula",
+    "Lorena Fernandes",
+    "Henri Marques",
+    "Caio Bruno",
+    "Flavia Cabral",
+    "Paula Caroline",
+    "Leila Santos",
+    "Jessica Ribeiro",
+    "Paula Campos"
+]
 
 class AnuncianteView(ctk.CTkFrame):
     def __init__(self, master=None):
@@ -9,7 +25,6 @@ class AnuncianteView(ctk.CTkFrame):
 
         ctk.CTkLabel(self, text="Cadastro de Anunciante", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=10)
 
-        # Entradas de dados
         self.nome_entry = ctk.CTkEntry(self, placeholder_text="Nome do Anunciante")
         self.nome_entry.pack(pady=5, fill="x", padx=20)
 
@@ -18,31 +33,56 @@ class AnuncianteView(ctk.CTkFrame):
 
         self.cnpj_entry = ctk.CTkEntry(self, placeholder_text="CNPJ")
         self.cnpj_entry.pack(pady=5, fill="x", padx=20)
+        self.cnpj_entry.bind("<FocusOut>", self.preencher_dados_por_cnpj)
+        self.cnpj_entry.bind("<Return>", self.preencher_dados_por_cnpj)
 
         self.uf_entry = ctk.CTkEntry(self, placeholder_text="UF")
         self.uf_entry.pack(pady=5, fill="x", padx=20)
 
-        # Botão para cadastrar
+        self.executivo_combo = ctk.CTkComboBox(self, values=EXECUTIVOS)
+        self.executivo_combo.set("Selecione o Executivo")
+        self.executivo_combo.pack(pady=5, padx=20)
+
         ctk.CTkButton(self, text="Cadastrar Anunciante", command=self.cadastrar).pack(pady=10)
 
-        # Lista de anunciantes
         ctk.CTkLabel(self, text="Anunciantes cadastrados:", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
         self.lista = ctk.CTkTextbox(self, width=500, height=200)
         self.lista.pack(padx=20, pady=10)
         self.atualizar_lista()
+
+    def preencher_dados_por_cnpj(self, event=None):
+        cnpj = self.cnpj_entry.get().strip()
+        if not cnpj:
+            return
+
+        dados = buscar_cnpj_na_web(cnpj)
+        if dados:
+            self.nome_entry.delete(0, "end")
+            self.nome_entry.insert(0, dados.get("nome_fantasia", ""))
+
+            self.razao_entry.delete(0, "end")
+            self.razao_entry.insert(0, dados.get("razao_social", ""))
+
+            self.uf_entry.delete(0, "end")
+            self.uf_entry.insert(0, dados.get("uf", ""))
+
+            messagebox.showinfo("Info", "Dados preenchidos automaticamente pelo CNPJ.")
+        else:
+            messagebox.showwarning("Aviso", "CNPJ não encontrado na base da Receita.")
 
     def cadastrar(self):
         nome = self.nome_entry.get()
         razao = self.razao_entry.get()
         cnpj = self.cnpj_entry.get()
         uf = self.uf_entry.get()
+        executivo = self.executivo_combo.get()
 
-        if not nome or not cnpj:
-            messagebox.showerror("Erro", "Nome e CNPJ são obrigatórios.")
+        if not nome or not cnpj or executivo == "Selecione o Executivo":
+            messagebox.showerror("Erro", "Nome, CNPJ e Executivo são obrigatórios.")
             return
 
         try:
-            criar_anunciante(nome, razao, cnpj, uf)
+            criar_anunciante(nome, razao, cnpj, uf, executivo)
             messagebox.showinfo("Sucesso", "Anunciante cadastrado com sucesso!")
             self.limpar_campos()
             self.atualizar_lista()
@@ -54,8 +94,9 @@ class AnuncianteView(ctk.CTkFrame):
         self.razao_entry.delete(0, "end")
         self.cnpj_entry.delete(0, "end")
         self.uf_entry.delete(0, "end")
+        self.executivo_combo.set("Selecione o Executivo")
 
     def atualizar_lista(self):
         self.lista.delete("1.0", "end")
         for a in listar_anunciantes():
-            self.lista.insert("end", f"{a.nome_anunciante} | {a.cnpj_anunciante} | {a.uf_cliente}\n")
+            self.lista.insert("end", f"{a.nome_anunciante} | {a.cnpj_anunciante} | {a.uf_cliente} | {a.executivo}\n")

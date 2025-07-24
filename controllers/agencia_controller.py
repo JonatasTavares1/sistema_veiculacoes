@@ -1,15 +1,15 @@
 from app.models import Agencia
 from app.database import SessionLocal
-import requests
 
-def criar_agencia(nome, razao_social, cnpj, uf):
+def criar_agencia(nome, razao_social, cnpj, uf, executivo):
     db = SessionLocal()
     try:
         nova = Agencia(
-            nome=nome,
-            razao_social=razao_social,
-            cnpj=cnpj,
-            uf=uf
+            nome_agencia=nome,
+            razao_social_agencia=razao_social,
+            cnpj_agencia=cnpj,
+            uf_agencia=uf,
+            executivo=executivo
         )
         db.add(nova)
         db.commit()
@@ -19,19 +19,6 @@ def criar_agencia(nome, razao_social, cnpj, uf):
     finally:
         db.close()
 
-def buscar_agencia_por_cnpj(cnpj):
-    db = SessionLocal()
-    try:
-        return db.query(Agencia).filter_by(cnpj=cnpj).first()
-    finally:
-        db.close()
-
-def buscar_agencia_por_nome(nome):
-    db = SessionLocal()
-    try:
-        return db.query(Agencia).filter(Agencia.nome.ilike(f"%{nome}%")).all()
-    finally:
-        db.close()
 
 def listar_agencias():
     db = SessionLocal()
@@ -40,10 +27,24 @@ def listar_agencias():
     finally:
         db.close()
 
+def buscar_agencia_por_cnpj(cnpj):
+    db = SessionLocal()
+    try:
+        return db.query(Agencia).filter_by(cnpj_agencia=cnpj).first()
+    finally:
+        db.close()
+
+def buscar_agencia_por_nome(nome):
+    db = SessionLocal()
+    try:
+        return db.query(Agencia).filter(Agencia.nome_agencia.ilike(f"%{nome}%")).all()
+    finally:
+        db.close()
+
 def excluir_agencia_por_cnpj(cnpj):
     db = SessionLocal()
     try:
-        agencia = db.query(Agencia).filter_by(cnpj=cnpj).first()
+        agencia = db.query(Agencia).filter_by(cnpj_agencia=cnpj).first()
         if agencia:
             db.delete(agencia)
             db.commit()
@@ -54,6 +55,8 @@ def excluir_agencia_por_cnpj(cnpj):
         raise e
     finally:
         db.close()
+import requests
+
 def buscar_cnpj_na_web(cnpj):
     try:
         cnpj_limpo = ''.join(filter(str.isdigit, cnpj))
