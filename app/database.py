@@ -1,8 +1,8 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models import Base
+from app.models import Base  # Agora pode importar normalmente
 
-# Caminho do banco (relativo à pasta onde está o script)
+# Caminho do banco (relativo à raiz do projeto)
 engine = create_engine("sqlite:///app/banco.db", echo=False)
 
 # Cria as tabelas no banco
@@ -11,6 +11,8 @@ def init_db():
 
 # Sessão de acesso ao banco
 SessionLocal = sessionmaker(bind=engine)
+
+# Execução direta para recriar o banco
 if __name__ == "__main__":
     import os
 

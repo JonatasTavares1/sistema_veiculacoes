@@ -1,18 +1,20 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
-from sqlalchemy.orm import declarative_base, relationship
-
+from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
-class Produto(Base):
-    __tablename__ = 'produtos'
+from sqlalchemy import Column, Integer, String, ForeignKey, Float
+from sqlalchemy.orm import relationship
+
+class Agencia(Base):
+    __tablename__ = 'agencias'
 
     id = Column(Integer, primary_key=True)
-    nome = Column(String, nullable=False)
-    descricao = Column(String)
-    valor_unitario = Column(String, nullable=False)
+    nome_agencia = Column(String, nullable=False)
+    razao_social_agencia = Column(String)
+    cnpj_agencia = Column(String, unique=True, nullable=False)
+    uf_agencia = Column(String)
+    executivo = Column(String, nullable=False)
 
-    veiculacoes = relationship("Veiculacao", back_populates="produto", cascade="all, delete-orphan")
-
+    pis = relationship("PI", back_populates="agencia")
 
 
 class Anunciante(Base):
@@ -23,75 +25,67 @@ class Anunciante(Base):
     razao_social_anunciante = Column(String)
     cnpj_anunciante = Column(String, unique=True, nullable=False)
     uf_cliente = Column(String)
+    executivo = Column(String, nullable=False)
 
     pis = relationship("PI", back_populates="anunciante")
-
-
-class Agencia(Base):
-    __tablename__ = 'agencias'
-
-    id = Column(Integer, primary_key=True)
-    nome_agencia = Column(String, nullable=False)
-    razao_social_agencia = Column(String)
-    cnpj_agencia = Column(String, unique=True, nullable=False)
-    uf_agencia = Column(String)
-
-    pis = relationship("PI", back_populates="agencia")
 
 
 class PI(Base):
     __tablename__ = 'pis'
 
-    numero_pi = Column(String, primary_key=True)  # Chave primária da PI
-    pi_matriz = Column(String)
-
-    anunciante_id = Column(Integer, ForeignKey('anunciantes.id'), nullable=False)
-    anunciante = relationship("Anunciante", back_populates="pis")
-
-    agencia_id = Column(Integer, ForeignKey('agencias.id'), nullable=False)
-    agencia = relationship("Agencia", back_populates="pis")
-
+    id = Column(Integer, primary_key=True)
+    numero_pi = Column(String, nullable=False)
+    numero_pi_matriz = Column(String)
     nome_campanha = Column(String)
-    canal = Column(String)
-    perfil_anunciante = Column(String)
-    subperfil_anunciante = Column(String)
-
     mes_venda = Column(String)
     dia_venda = Column(String)
-    vencimento = Column(Date)
-    data_emissao = Column(Date)
-
-    executivo = Column(String)
-    diretoria = Column(String)
+    canal = Column(String)
+    perfil = Column(String)
+    subperfil = Column(String)
     valor_bruto = Column(Float)
     valor_liquido = Column(Float)
-
+    vencimento = Column(String)
+    data_emissao = Column(String)
     observacoes = Column(String)
 
-    veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
+    agencia_id = Column(Integer, ForeignKey('agencias.id'))
+    anunciante_id = Column(Integer, ForeignKey('anunciantes.id'))
+
+    agencia = relationship("Agencia", back_populates="pis")
+    anunciante = relationship("Anunciante", back_populates="pis")
+    veiculacoes = relationship("Veiculacao", back_populates="pi")
+
+
+class Produto(Base):
+    __tablename__ = 'produtos'
+
+    id = Column(Integer, primary_key=True)
+    nome = Column(String, nullable=False)
 
 
 class Veiculacao(Base):
-    __tablename__ = "veiculacoes"
+    __tablename__ = 'veiculacoes'
 
     id = Column(Integer, primary_key=True)
-    produto_id = Column(Integer, ForeignKey("produtos.id"))
-    pi_id = Column(String, ForeignKey("pis.numero_pi"))  # Correção feita aqui
+    produto = Column(String)
     data_inicio = Column(String)
     data_fim = Column(String)
+    quantidade = Column(Integer)
+    valor_unitario = Column(Float)
+    desconto = Column(Float)
+    valor_total = Column(Float)
 
-    produto = relationship("Produto", back_populates="veiculacoes")
+    pi_id = Column(Integer, ForeignKey('pis.id'))
     pi = relationship("PI", back_populates="veiculacoes")
-    entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
 
 
 class Entrega(Base):
     __tablename__ = 'entregas'
 
     id = Column(Integer, primary_key=True)
-    veiculacao_id = Column(Integer, ForeignKey('veiculacoes.id'), nullable=False)
-    data_entrega = Column(Date, nullable=False)
-    foi_entregue = Column(String, default="Não")
-    motivo = Column(String)
+    produto = Column(String, nullable=False)
+    data_entrega = Column(String, nullable=False)
+    status = Column(String, default="pendente")  # ou entregue
 
-    veiculacao = relationship("Veiculacao", back_populates="entregas")
+    pi_id = Column(Integer, ForeignKey('pis.id'))
+    pi = relationship("PI", backref="entregas")    

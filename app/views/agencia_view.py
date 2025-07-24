@@ -2,6 +2,12 @@ import customtkinter as ctk
 from tkinter import messagebox
 from controllers.agencia_controller import criar_agencia, listar_agencias, buscar_cnpj_na_web
 
+EXECUTIVOS = [
+    "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio", "Flavio de Paula",
+    "Lorena Fernandes", "Henri Marques", "Caio Bruno", "Flavia Cabral", "Paula Caroline",
+    "Leila Santos", "Jessica Ribeiro", "Paula Campos"
+]
+
 class AgenciaView(ctk.CTkFrame):
     def __init__(self, master=None):
         super().__init__(master)
@@ -9,7 +15,6 @@ class AgenciaView(ctk.CTkFrame):
 
         ctk.CTkLabel(self, text="Cadastro de Agência", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=10)
 
-        # Entradas
         self.nome_entry = ctk.CTkEntry(self, placeholder_text="Nome da Agência")
         self.nome_entry.pack(pady=5, fill="x", padx=20)
 
@@ -24,10 +29,12 @@ class AgenciaView(ctk.CTkFrame):
         self.uf_entry = ctk.CTkEntry(self, placeholder_text="UF")
         self.uf_entry.pack(pady=5, fill="x", padx=20)
 
-        # Botão de cadastro
+        self.executivo_combo = ctk.CTkComboBox(self, values=EXECUTIVOS)
+        self.executivo_combo.set("Selecione o Executivo")
+        self.executivo_combo.pack(pady=5, padx=20)
+
         ctk.CTkButton(self, text="Cadastrar Agência", command=self.cadastrar).pack(pady=10)
 
-        # Lista de agências
         ctk.CTkLabel(self, text="Agências cadastradas:", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
         self.lista = ctk.CTkTextbox(self, width=500, height=200)
         self.lista.pack(padx=20, pady=10)
@@ -58,13 +65,14 @@ class AgenciaView(ctk.CTkFrame):
         razao = self.razao_entry.get()
         cnpj = self.cnpj_entry.get()
         uf = self.uf_entry.get()
+        executivo = self.executivo_combo.get()
 
-        if not nome or not cnpj:
-            messagebox.showerror("Erro", "Nome e CNPJ são obrigatórios.")
+        if not nome or not cnpj or executivo == "Selecione o Executivo":
+            messagebox.showerror("Erro", "Nome, CNPJ e Executivo são obrigatórios.")
             return
 
         try:
-            criar_agencia(nome, razao, cnpj, uf)
+            criar_agencia(nome, razao, cnpj, uf, executivo)
             messagebox.showinfo("Sucesso", "Agência cadastrada com sucesso!")
             self.limpar_campos()
             self.atualizar_lista()
@@ -76,8 +84,9 @@ class AgenciaView(ctk.CTkFrame):
         self.razao_entry.delete(0, "end")
         self.cnpj_entry.delete(0, "end")
         self.uf_entry.delete(0, "end")
+        self.executivo_combo.set("Selecione o Executivo")
 
     def atualizar_lista(self):
         self.lista.delete("1.0", "end")
         for a in listar_agencias():
-            self.lista.insert("end", f"{a.nome} | {a.cnpj} | {a.uf}\n")
+            self.lista.insert("end", f"{a.nome_agencia} | {a.cnpj_agencia} | {a.uf_agencia} | {a.executivo}\n")
