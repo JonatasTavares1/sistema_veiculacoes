@@ -62,7 +62,7 @@ class PIsCadastradosView(ctk.CTkFrame):
                 pi.numero_pi,
                 pi.cliente,
                 pi.data_emissao.strftime("%d/%m/%Y") if pi.data_emissao else "",
-                f"{pi.valor_total:.2f}".replace('.', ',') if pi.valor_total else "0,00",
+                f"{pi.valor_bruto:.2f}".replace('.', ',') if pi.valor_bruto else "0,00",  # Corrigido aqui!
                 pi.praca or "",
                 pi.meio or "",
                 pi.colocacao or "",

@@ -2,11 +2,10 @@ from app.database import SessionLocal
 from app.models import PI
 from datetime import date
 
-
 # Função para criar um novo PI
 def criar_pi(
     numero_pi: str,
-    pi_matriz: str,
+    numero_pi_matriz: str,
     nome_anunciante: str,
     razao_social_anunciante: str,
     cnpj_anunciante: str,
@@ -38,7 +37,7 @@ def criar_pi(
 
         novo_pi = PI(
             numero_pi=numero_pi,
-            pi_matriz=pi_matriz,
+            numero_pi_matriz=numero_pi_matriz,
             nome_anunciante=nome_anunciante,
             razao_social_anunciante=razao_social_anunciante,
             cnpj_anunciante=cnpj_anunciante,
@@ -53,8 +52,8 @@ def criar_pi(
             mes_venda=mes_venda,
             dia_venda=dia_venda,
             canal=canal,
-            perfil_anunciante=perfil_anunciante,
-            subperfil_anunciante=subperfil_anunciante,
+            perfil=perfil_anunciante,
+            subperfil=subperfil_anunciante,
             valor_bruto=valor_bruto,
             valor_liquido=valor_liquido,
             vencimento=vencimento,
@@ -106,6 +105,19 @@ def listar_pis_por_diretoria(diretoria: str):
         return session.query(PI).filter(PI.diretoria == diretoria).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs por diretoria: {e}")
+        return []
+    finally:
+        session.close()
+
+
+# Listar PIs que são matriz (ou seja, que foram marcados como tal e podem receber PIs filhos)
+def listar_pis_matriz_ativos():
+    session = SessionLocal()
+    try:
+        # Retorna PIs que não estão vinculados a nenhum PI matriz
+        return session.query(PI).filter((PI.numero_pi_matriz == "") | (PI.numero_pi_matriz == None)).order_by(PI.numero_pi.desc()).all()
+    except Exception as e:
+        print(f"❌ Erro ao listar PIs matriz: {e}")
         return []
     finally:
         session.close()

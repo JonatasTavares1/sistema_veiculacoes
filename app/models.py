@@ -1,8 +1,7 @@
-from sqlalchemy.orm import declarative_base
-Base = declarative_base()
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Float
-from sqlalchemy.orm import relationship
+Base = declarative_base()
 
 class Agencia(Base):
     __tablename__ = 'agencias'
@@ -54,6 +53,7 @@ class PI(Base):
     agencia = relationship("Agencia", back_populates="pis")
     anunciante = relationship("Anunciante", back_populates="pis")
     veiculacoes = relationship("Veiculacao", back_populates="pi")
+    entregas = relationship("Entrega", back_populates="pi")
 
 
 class Produto(Base):
@@ -62,12 +62,14 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
 
+    veiculacoes = relationship("Veiculacao", back_populates="produto")
+
 
 class Veiculacao(Base):
     __tablename__ = 'veiculacoes'
 
     id = Column(Integer, primary_key=True)
-    produto = Column(String)
+    produto_id = Column(Integer, ForeignKey('produtos.id'))
     data_inicio = Column(String)
     data_fim = Column(String)
     quantidade = Column(Integer)
@@ -76,16 +78,22 @@ class Veiculacao(Base):
     valor_total = Column(Float)
 
     pi_id = Column(Integer, ForeignKey('pis.id'))
+
+    produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
+    entregas = relationship("Entrega", back_populates="veiculacao")
 
 
 class Entrega(Base):
     __tablename__ = 'entregas'
 
     id = Column(Integer, primary_key=True)
-    produto = Column(String, nullable=False)
-    data_entrega = Column(String, nullable=False)
-    status = Column(String, default="pendente")  # ou entregue
+    data_entrega = Column(Date, nullable=False)
+    foi_entregue = Column(String, default="pendente")  # valores: "Sim", "Não"
+    motivo = Column(String)
 
+    veiculacao_id = Column(Integer, ForeignKey('veiculacoes.id'))
     pi_id = Column(Integer, ForeignKey('pis.id'))
-    pi = relationship("PI", backref="entregas")    
+
+    veiculacao = relationship("Veiculacao", back_populates="entregas")
+    pi = relationship("PI", back_populates="entregas")
