@@ -3,7 +3,7 @@ from tkinter import messagebox
 from controllers.pi_controller import criar_pi, listar_pis, listar_pis_matriz_ativos
 from controllers.anunciante_controller import buscar_anunciante_por_cnpj
 from controllers.agencia_controller import buscar_agencia_por_cnpj
-from datetime import datetime
+from datetime import datetime, date
 
 class PIView(ctk.CTkFrame):
     def __init__(self, master=None):
@@ -128,10 +128,7 @@ class PIView(ctk.CTkFrame):
         self.atualizar_lista()
 
     def alternar_visibilidade_matriz(self):
-        if self.pi_matriz_var.get():
-            self.combo_pi_matriz.pack_forget()
-        else:
-            self.combo_pi_matriz.pack_forget()
+        self.combo_pi_matriz.pack_forget()
 
     def vincular_a_pi_matriz(self):
         self.pi_matriz_var.set(False)
@@ -173,11 +170,14 @@ class PIView(ctk.CTkFrame):
     def cadastrar_pi(self):
         try:
             numero = self.numero_entry.get()
-            numero_pi_matriz = ""
 
-            if not self.pi_matriz_var.get():
-                valor_combo = self.combo_pi_matriz.get()
-                numero_pi_matriz = valor_combo if valor_combo and valor_combo != "Selecione o PI Matriz" else ""
+            # Verificação se é PI matriz ou vinculado
+            if self.pi_matriz_var.get():
+                numero_pi_matriz = ""
+            elif self.combo_pi_matriz.get() and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
+                numero_pi_matriz = self.combo_pi_matriz.get()
+            else:
+                numero_pi_matriz = ""
 
             criar_pi(
                 numero_pi=numero,

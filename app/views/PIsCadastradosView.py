@@ -60,16 +60,15 @@ class PIsCadastradosView(ctk.CTkFrame):
             valores = [
                 pi.id,
                 pi.numero_pi,
-                pi.cliente,
+                pi.nome_anunciante,
                 pi.data_emissao.strftime("%d/%m/%Y") if pi.data_emissao else "",
-                f"{pi.valor_bruto:.2f}".replace('.', ',') if pi.valor_bruto else "0,00",  # Corrigido aqui!
-                pi.praca or "",
-                pi.meio or "",
-                pi.colocacao or "",
+                f"{pi.valor_bruto:.2f}".replace('.', ',') if pi.valor_bruto else "0,00",
+                pi.uf_cliente or "",
+                pi.canal or "",
+                pi.nome_campanha or "",
                 pi.diretoria or "",
                 pi.executivo or "",
-                pi.data_venda.strftime("%d/%m/%Y") if hasattr(pi, 'data_venda') and pi.data_venda else "",
-                pi.produto if hasattr(pi, 'produto') else ""
+                f"{pi.dia_venda}/{pi.mes_venda}" if pi.dia_venda and pi.mes_venda else "",
             ]
             for j, valor in enumerate(valores):
                 cell = ctk.CTkLabel(

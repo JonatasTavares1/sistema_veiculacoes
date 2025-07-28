@@ -1,7 +1,6 @@
 from app.database import SessionLocal
 from app.models import PI
-from datetime import date
-
+from datetime import datetime, date
 
 # Função para criar um novo PI
 def criar_pi(
@@ -25,12 +24,18 @@ def criar_pi(
     subperfil_anunciante: str,
     valor_bruto: float,
     valor_liquido: float,
-    vencimento: date,
-    data_emissao: date,
+    vencimento,
+    data_emissao,
     observacoes: str = ""
 ):
     session = SessionLocal()
     try:
+        # ✅ Conversão de string para objeto date (se necessário)
+        if isinstance(vencimento, str):
+            vencimento = datetime.strptime(vencimento, "%d/%m/%Y").date()
+        if isinstance(data_emissao, str):
+            data_emissao = datetime.strptime(data_emissao, "%d/%m/%Y").date()
+
         pi_existente = session.query(PI).filter_by(numero_pi=numero_pi).first()
         if pi_existente:
             raise ValueError(f"O PI '{numero_pi}' já está cadastrado.")

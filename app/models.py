@@ -56,8 +56,8 @@ class PI(Base):
     subperfil = Column(String)
     valor_bruto = Column(Float)
     valor_liquido = Column(Float)
-    vencimento = Column(String)
-    data_emissao = Column(String)
+    vencimento = Column(Date)
+    data_emissao = Column(Date)
     observacoes = Column(String)
 
     agencia_id = Column(Integer, ForeignKey('agencias.id'))

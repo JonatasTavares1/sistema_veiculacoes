@@ -3,19 +3,9 @@ from tkinter import messagebox
 from controllers.anunciante_controller import criar_anunciante, listar_anunciantes, buscar_cnpj_na_web
 
 EXECUTIVOS = [
-    "Rafale e Francio",
-    "Rafael Rodrigo",
-    "Rodrigo da Silva",
-    "Juliana Madazio",
-    "Flavio de Paula",
-    "Lorena Fernandes",
-    "Henri Marques",
-    "Caio Bruno",
-    "Flavia Cabral",
-    "Paula Caroline",
-    "Leila Santos",
-    "Jessica Ribeiro",
-    "Paula Campos"
+    "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio", "Flavio de Paula",
+    "Lorena Fernandes", "Henri Marques", "Caio Bruno", "Flavia Cabral", "Paula Caroline",
+    "Leila Santos", "Jessica Ribeiro", "Paula Campos"
 ]
 
 class AnuncianteView(ctk.CTkFrame):
@@ -79,6 +69,11 @@ class AnuncianteView(ctk.CTkFrame):
 
         if not nome or not cnpj or executivo == "Selecione o Executivo":
             messagebox.showerror("Erro", "Nome, CNPJ e Executivo são obrigatórios.")
+            return
+
+        # Validação do CNPJ
+        if "." not in cnpj or "-" not in cnpj:
+            messagebox.showerror("Erro", "O CNPJ deve conter ponto (.) e traço (-).")
             return
 
         try:
