@@ -132,8 +132,13 @@ class PIView(ctk.CTkFrame):
 
     def vincular_a_pi_matriz(self):
         self.pi_matriz_var.set(False)
-        self.combo_pi_matriz.configure(values=[pi.numero_pi for pi in listar_pis_matriz_ativos()])
-        self.combo_pi_matriz.pack(pady=4, padx=20, fill="x")
+        pis_matriz = listar_pis_matriz_ativos()
+        if not pis_matriz:
+            messagebox.showinfo("Aviso", "Nenhum PI Matriz disponível.")
+            return
+        self.combo_pi_matriz.configure(values=[pi.numero_pi for pi in pis_matriz])
+        self.combo_pi_matriz.pack(pady=4, padx=20, fill="x")  # Garante que apareça
+
 
     def preencher_anunciante(self):
         cnpj = self.cnpj_anunciante_entry.get()

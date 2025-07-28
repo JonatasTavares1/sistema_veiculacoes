@@ -42,7 +42,7 @@ def criar_pi(
 
         novo_pi = PI(
             numero_pi=numero_pi,
-            numero_pi_matriz=numero_pi_matriz,
+            numero_pi_matriz=None if numero_pi_matriz == "" else numero_pi_matriz,
             nome_anunciante=nome_anunciante,
             razao_social_anunciante=razao_social_anunciante,
             cnpj_anunciante=cnpj_anunciante,
@@ -119,7 +119,9 @@ def listar_pis_por_diretoria(diretoria: str):
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
-        return session.query(PI).filter((PI.numero_pi_matriz == "") | (PI.numero_pi_matriz == None)).order_by(PI.numero_pi.desc()).all()
+        return session.query(PI).filter(
+            (PI.numero_pi_matriz == None)
+        ).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
         return []

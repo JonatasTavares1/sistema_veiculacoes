@@ -71,6 +71,11 @@ class AgenciaView(ctk.CTkFrame):
             messagebox.showerror("Erro", "Nome, CNPJ e Executivo são obrigatórios.")
             return
 
+        # Validação de CNPJ: deve conter ponto e traço
+        if "." not in cnpj or "-" not in cnpj:
+            messagebox.showerror("Erro", "O CNPJ deve conter ponto (.) e traço (-).")
+            return
+
         try:
             criar_agencia(nome, razao, cnpj, uf, executivo)
             messagebox.showinfo("Sucesso", "Agência cadastrada com sucesso!")

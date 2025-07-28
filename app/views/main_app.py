@@ -11,7 +11,7 @@ from app.views.vendaspordiretoria_view import VendasDiretoriaView
 from app.views.anunciante_view import AnuncianteView
 from app.views.agencia_view import AgenciaView
 from app.views.executivo_view import ExecutivoView  # NOVA TELA de executivo (agências + anunciantes)
-
+from app.views.PIMatrizView import PIMatrizView
 class MainApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -40,7 +40,7 @@ class MainApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Cadastrar Anunciante", command=self.mostrar_anunciante).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Cadastrar Agência", command=self.mostrar_agencia).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Executivos", command=self.mostrar_executivo_view).pack(pady=5, fill="x", padx=10)
-
+        ctk.CTkButton(self.sidebar, text="PIs Matriz", command=self.mostrar_pis_matriz).pack(pady=5, fill="x", padx=10)
         self.tela_atual = None
         self.mostrar_produto()
 
@@ -107,4 +107,9 @@ class MainApp(ctk.CTk):
     def mostrar_executivo_view(self):
         self.limpar_container()
         self.tela_atual = ExecutivoView(self.container)
+        self.tela_atual.pack(fill="both", expand=True)
+
+    def mostrar_pis_matriz(self):
+        self.limpar_container()
+        self.tela_atual = PIMatrizView(self.container)
         self.tela_atual.pack(fill="both", expand=True)

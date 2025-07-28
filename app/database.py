@@ -11,7 +11,7 @@ def init_db():
 
 # Sessão de acesso ao banco
 SessionLocal = sessionmaker(bind=engine)
-
+session = SessionLocal()
 # Execução direta para recriar o banco
 if __name__ == "__main__":
     import os
