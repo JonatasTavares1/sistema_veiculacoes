@@ -2,6 +2,7 @@ from app.database import SessionLocal
 from app.models import PI
 from datetime import date
 
+
 # Função para criar um novo PI
 def criar_pi(
     numero_pi: str,
@@ -30,7 +31,6 @@ def criar_pi(
 ):
     session = SessionLocal()
     try:
-        # Verifica se já existe um PI com esse número
         pi_existente = session.query(PI).filter_by(numero_pi=numero_pi).first()
         if pi_existente:
             raise ValueError(f"O PI '{numero_pi}' já está cadastrado.")
@@ -110,14 +110,43 @@ def listar_pis_por_diretoria(diretoria: str):
         session.close()
 
 
-# Listar PIs que são matriz (ou seja, que foram marcados como tal e podem receber PIs filhos)
+# Listar PIs que são matriz (ou seja, que podem receber PIs filhos)
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
-        # Retorna PIs que não estão vinculados a nenhum PI matriz
         return session.query(PI).filter((PI.numero_pi_matriz == "") | (PI.numero_pi_matriz == None)).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
         return []
+    finally:
+        session.close()
+
+
+# Calcular o valor já abatido de um PI Matriz
+def calcular_valor_abatido(numero_pi_matriz: str):
+    session = SessionLocal()
+    try:
+        pis_filhos = session.query(PI).filter(PI.numero_pi_matriz == numero_pi_matriz).all()
+        valor_abatido = sum(pi.valor_bruto for pi in pis_filhos)
+        return valor_abatido
+    except Exception as e:
+        print(f"❌ Erro ao calcular valor abatido: {e}")
+        return 0
+    finally:
+        session.close()
+
+
+# Calcular o saldo restante de um PI Matriz
+def calcular_saldo_restante(numero_pi_matriz: str):
+    session = SessionLocal()
+    try:
+        pi_matriz = session.query(PI).filter(PI.numero_pi == numero_pi_matriz).first()
+        if not pi_matriz:
+            return 0
+        valor_abatido = calcular_valor_abatido(numero_pi_matriz)
+        return pi_matriz.valor_bruto - valor_abatido
+    except Exception as e:
+        print(f"❌ Erro ao calcular saldo restante: {e}")
+        return 0
     finally:
         session.close()

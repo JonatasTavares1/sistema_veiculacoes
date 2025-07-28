@@ -33,8 +33,21 @@ class PI(Base):
     __tablename__ = 'pis'
 
     id = Column(Integer, primary_key=True)
-    numero_pi = Column(String, nullable=False)
-    numero_pi_matriz = Column(String)
+    numero_pi = Column(String, nullable=False, unique=True)
+    numero_pi_matriz = Column(String, nullable=True)  # Armazena o número do PI matriz
+
+    # ✅ Novos campos adicionados aqui 👇
+    nome_anunciante = Column(String)
+    razao_social_anunciante = Column(String)
+    cnpj_anunciante = Column(String)
+    uf_cliente = Column(String)
+    nome_agencia = Column(String)
+    razao_social_agencia = Column(String)
+    cnpj_agencia = Column(String)
+    uf_agencia = Column(String)
+    executivo = Column(String)
+    diretoria = Column(String)
+
     nome_campanha = Column(String)
     mes_venda = Column(String)
     dia_venda = Column(String)
@@ -54,6 +67,12 @@ class PI(Base):
     anunciante = relationship("Anunciante", back_populates="pis")
     veiculacoes = relationship("Veiculacao", back_populates="pi")
     entregas = relationship("Entrega", back_populates="pi")
+
+    filhos = relationship(
+        "PI",
+        primaryjoin="PI.numero_pi==foreign(PI.numero_pi_matriz)",
+        viewonly=True
+    )
 
 
 class Produto(Base):
@@ -89,7 +108,7 @@ class Entrega(Base):
 
     id = Column(Integer, primary_key=True)
     data_entrega = Column(Date, nullable=False)
-    foi_entregue = Column(String, default="pendente")  # valores: "Sim", "Não"
+    foi_entregue = Column(String, default="pendente")
     motivo = Column(String)
 
     veiculacao_id = Column(Integer, ForeignKey('veiculacoes.id'))
