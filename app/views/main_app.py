@@ -39,7 +39,7 @@ class MainApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Vendas por Diretoria", command=self.mostrar_vendas_diretoria).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Cadastrar Anunciante", command=self.mostrar_anunciante).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="Cadastrar Agência", command=self.mostrar_agencia).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Executivos", command=self.mostrar_executivo_view).pack(pady=5, fill="x", padx=10)
+        ctk.CTkButton(self.sidebar, text="Carteira De Executivos", command=self.mostrar_executivo_view).pack(pady=5, fill="x", padx=10)
         ctk.CTkButton(self.sidebar, text="PIs Matriz", command=self.mostrar_pis_matriz).pack(pady=5, fill="x", padx=10)
         self.tela_atual = None
         self.mostrar_produto()

@@ -12,6 +12,16 @@ class PIsCadastradosView(ctk.CTkFrame):
         ctk.CTkLabel(self, text="Lista completa dos pedidos de inserção registrados no sistema:",
                      font=ctk.CTkFont(size=16)).pack(pady=5)
 
+        # 🔎 Campo de busca + botão
+        busca_frame = ctk.CTkFrame(self)
+        busca_frame.pack(pady=5)
+
+        self.entrada_busca = ctk.CTkEntry(busca_frame, placeholder_text="Buscar por número do PI ou cliente", width=300)
+        self.entrada_busca.pack(side="left", padx=(0, 10))
+
+        botao_buscar = ctk.CTkButton(busca_frame, text="🔍 Buscar", command=self.buscar_pis)
+        botao_buscar.pack(side="left")
+
         # 🔄 Botão de Atualizar
         self.atualizar_btn = ctk.CTkButton(self, text="🔄 Atualizar Lista", command=self.atualizar_lista)
         self.atualizar_btn.pack(pady=5)
@@ -22,7 +32,7 @@ class PIsCadastradosView(ctk.CTkFrame):
 
         # Cabeçalhos
         self.headers = [
-            "ID", "Número", "Cliente", "Data de Emissão", "Valor Total (R$)",
+            "ID", "PI", "Cliente", "Data de Emissão", "Valor Total (R$)", "Valor Líquido (R$)", 
             "Praça", "Meio", "Colocação", "Diretoria", "Executivo",
             "Data da Venda", "Produto"
         ]
@@ -48,14 +58,24 @@ class PIsCadastradosView(ctk.CTkFrame):
         self.atualizar_lista()
 
     def atualizar_lista(self):
+        self.mostrar_pis(listar_pis())
+
+    def buscar_pis(self):
+        termo = self.entrada_busca.get().lower()
+        resultados = []
+        for pi in listar_pis():
+            if termo in str(pi.numero_pi).lower() or termo in str(pi.nome_anunciante).lower():
+                resultados.append(pi)
+        self.mostrar_pis(resultados)
+
+    def mostrar_pis(self, lista_pis):
         # Limpa as linhas existentes
         for linha in self.linhas_pi:
             for widget in linha:
                 widget.destroy()
         self.linhas_pi.clear()
 
-        # Recarrega os PIs
-        for i, pi in enumerate(listar_pis(), start=1):
+        for i, pi in enumerate(lista_pis, start=1):
             linha_widgets = []
             valores = [
                 pi.id,
@@ -63,6 +83,7 @@ class PIsCadastradosView(ctk.CTkFrame):
                 pi.nome_anunciante,
                 pi.data_emissao.strftime("%d/%m/%Y") if pi.data_emissao else "",
                 f"{pi.valor_bruto:.2f}".replace('.', ',') if pi.valor_bruto else "0,00",
+                f"{pi.valor_liquido:.2f}".replace('.', ',') if pi.valor_liquido else "0,00",
                 pi.uf_cliente or "",
                 pi.canal or "",
                 pi.nome_campanha or "",
