@@ -123,10 +123,7 @@ class PIView(ctk.CTkFrame):
 
         ctk.CTkButton(self.scrollable_frame, text="💾 Cadastrar PI", command=self.cadastrar_pi).pack(pady=20)
 
-        ctk.CTkLabel(self.scrollable_frame, text="PIs cadastrados:", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
-        self.lista_pis = ctk.CTkTextbox(self.scrollable_frame, width=700, height=200)
-        self.lista_pis.pack()
-        self.atualizar_lista()
+        
 
     def preencher_pis_matriz(self):
         pis_matriz_disponiveis = [
