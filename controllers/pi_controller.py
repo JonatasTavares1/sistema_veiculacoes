@@ -5,6 +5,7 @@ from datetime import datetime, date
 # Função para criar um novo PI
 def criar_pi(
     numero_pi: str,
+    tipo_pi: str,
     numero_pi_matriz: str,
     nome_anunciante: str,
     razao_social_anunciante: str,
@@ -26,7 +27,6 @@ def criar_pi(
     valor_liquido: float,
     vencimento,
     data_emissao,
-    eh_matriz: bool = False,
     observacoes: str = ""
 ):
     session = SessionLocal()
@@ -40,8 +40,11 @@ def criar_pi(
         if pi_existente:
             raise ValueError(f"O PI '{numero_pi}' já está cadastrado.")
 
+        eh_matriz = tipo_pi == "Matriz"
+
         novo_pi = PI(
             numero_pi=numero_pi,
+            tipo_pi=tipo_pi,
             numero_pi_matriz=None if numero_pi_matriz == "" else numero_pi_matriz,
             nome_anunciante=nome_anunciante,
             razao_social_anunciante=razao_social_anunciante,
@@ -132,9 +135,7 @@ def listar_pis_por_data(dia: str, mes: str):
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
-        return session.query(PI).filter(
-            PI.eh_matriz == True
-        ).order_by(PI.numero_pi.desc()).all()
+        return session.query(PI).filter(PI.eh_matriz == True).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
         return []

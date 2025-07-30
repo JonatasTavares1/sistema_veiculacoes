@@ -31,26 +31,34 @@ class PIView(ctk.CTkFrame):
         ctk.CTkLabel(self.scrollable_frame, text="Tipo de PI", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 2))
         self.tipo_pi_segmented = ctk.CTkSegmentedButton(
             self.scrollable_frame,
-            values=["Matriz", "Vinculado", "Independente"],
+            values=["Matriz", "CS", "Normal"],
             command=self.alternar_visibilidade_matriz,
             width=300
         )
-        self.tipo_pi_segmented.set("Independente")  # Valor padrão
+        self.tipo_pi_segmented.set("Normal")
         self.tipo_pi_segmented.pack(pady=4, padx=20)
 
         # Seleção de PI Matriz
         self.label_pi_matriz = ctk.CTkLabel(self.scrollable_frame, text="Selecione o PI Matriz que deseja vincular", font=ctk.CTkFont(weight="bold"))
         self.label_pi_matriz.pack(pady=(4, 2))
         self.combo_pi_matriz = criar_combo(self.scrollable_frame, values=[], placeholder="Selecione o PI Matriz")
-        self.preencher_pis_matriz()
+        self.combo_pi_matriz.configure(state="disabled")
 
-        # Informações do Anunciante
+        # Anunciante
         ctk.CTkLabel(self.scrollable_frame, text="Informações do Anunciante", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 2))
         self.cnpj_anunciante_entry = criar_entry(self.scrollable_frame, "CNPJ do Anunciante")
         self.nome_anunciante_entry = criar_entry(self.scrollable_frame, "Nome do Anunciante")
         self.razao_anunciante_entry = criar_entry(self.scrollable_frame, "Razão Social do Anunciante")
         self.uf_cliente_entry = criar_entry(self.scrollable_frame, "UF do Cliente")
-        ctk.CTkButton(self.scrollable_frame, text="🔍 Buscar Anunciante", command=self.preencher_anunciante).pack(pady=(0, 10))
+
+        ctk.CTkButton(
+            self.scrollable_frame,
+            text="🔍 Buscar Anunciante",
+            command=self.preencher_anunciante,
+            fg_color="#cc0000",
+            hover_color="#990000",
+            text_color="white"
+        ).pack(pady=(0, 10))
 
         # Agência
         ctk.CTkLabel(self.scrollable_frame, text="Informações da Agência", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 2))
@@ -62,7 +70,15 @@ class PIView(ctk.CTkFrame):
         self.nome_agencia_entry = criar_entry(self.scrollable_frame, "Nome da Agência")
         self.razao_agencia_entry = criar_entry(self.scrollable_frame, "Razão Social da Agência")
         self.uf_agencia_entry = criar_entry(self.scrollable_frame, "UF da Agência")
-        self.botao_buscar_agencia = ctk.CTkButton(self.scrollable_frame, text="🔍 Buscar Agência", command=self.preencher_agencia)
+
+        self.botao_buscar_agencia = ctk.CTkButton(
+            self.scrollable_frame,
+            text="🔍 Buscar Agência",
+            command=self.preencher_agencia,
+            fg_color="#cc0000",
+            hover_color="#990000",
+            text_color="white"
+        )
         self.botao_buscar_agencia.pack(pady=(0, 10))
         self.alternar_agencia()
 
@@ -106,14 +122,23 @@ class PIView(ctk.CTkFrame):
         self.valor_liquido_entry = criar_entry(self.scrollable_frame, "Valor Líquido (ex: 900.00)")
         self.obs_entry = criar_entry(self.scrollable_frame, "Observações")
 
-        ctk.CTkButton(self.scrollable_frame, text="💾 Cadastrar PI", command=self.cadastrar_pi).pack(pady=20)
+        ctk.CTkButton(
+            self.scrollable_frame,
+            text="💾 Cadastrar PI",
+            command=self.cadastrar_pi,
+            fg_color="#cc0000",
+            hover_color="#990000",
+            text_color="white"
+        ).pack(pady=20)
 
     def alternar_visibilidade_matriz(self, *args):
         tipo = self.tipo_pi_segmented.get()
-        if tipo == "Vinculado":
+        if tipo == "CS":
+            self.preencher_pis_matriz()
             self.combo_pi_matriz.configure(state="normal")
             self.label_pi_matriz.configure(text_color="white")
         else:
+            self.combo_pi_matriz.set("Selecione o PI Matriz")
             self.combo_pi_matriz.configure(state="disabled")
             self.label_pi_matriz.configure(text_color="gray")
 
@@ -168,7 +193,7 @@ class PIView(ctk.CTkFrame):
         try:
             tipo_pi = self.tipo_pi_segmented.get()
             numero_pi_matriz = None
-            if tipo_pi == "Vinculado" and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
+            if tipo_pi == "CS" and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
                 numero_pi_matriz = self.combo_pi_matriz.get()
 
             criar_pi(
@@ -195,6 +220,7 @@ class PIView(ctk.CTkFrame):
                 valor_liquido=float(self.valor_liquido_entry.get().replace(",", ".")),
                 vencimento=datetime.strptime(self.vencimento_entry.get(), "%d/%m/%Y").date(),
                 data_emissao=datetime.strptime(self.data_emissao_entry.get(), "%d/%m/%Y").date(),
+                eh_matriz=(tipo_pi == "Matriz"),
                 observacoes=self.obs_entry.get()
             )
             messagebox.showinfo("Sucesso", "PI cadastrado com sucesso!")
@@ -208,4 +234,5 @@ class PIView(ctk.CTkFrame):
                 widget.delete(0, "end")
             elif isinstance(widget, ctk.CTkComboBox):
                 widget.set("Selecione")
-        self.tipo_pi_segmented.set("Independente")
+        self.tipo_pi_segmented.set("Normal")
+        self.alternar_visibilidade_matriz()

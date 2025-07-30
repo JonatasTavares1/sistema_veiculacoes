@@ -10,37 +10,61 @@ from app.views.vendasporexecutivo_view import ExecutivoView as VendasExecutivoVi
 from app.views.vendaspordiretoria_view import VendasDiretoriaView
 from app.views.anunciante_view import AnuncianteView
 from app.views.agencia_view import AgenciaView
-from app.views.executivo_view import ExecutivoView  # NOVA TELA de executivo (agências + anunciantes)
+from app.views.executivo_view import ExecutivoView
 from app.views.PIMatrizView import PIMatrizView
+
 class MainApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Sistema de Veiculações")
         self.geometry("900x600")
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("Red")
+        self.configure(fg_color="black")  # fundo principal escuro
 
+        # Sidebar com tema escuro (padrão)
         self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")
 
+        # Container principal
         self.container = ctk.CTkFrame(self)
         self.container.pack(side="right", fill="both", expand=True)
 
-        ctk.CTkLabel(self.sidebar, text="Menu", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=20)
+        # Título da sidebar
+        ctk.CTkLabel(
+            self.sidebar,
+            text="Menu",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="white"
+        ).pack(pady=20)
 
-        ctk.CTkButton(self.sidebar, text="Produtos", command=self.mostrar_produto).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="PIs", command=self.mostrar_pi).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Veiculações", command=self.mostrar_veiculacao).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Consulta de Veiculações", command=self.mostrar_consulta).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Exportar CSV", command=self.mostrar_exportar).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Controle de Entregas", command=self.mostrar_entregas).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="PIs Cadastrados", command=self.mostrar_pis_cadastrados).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Vendas por Executivo", command=self.mostrar_vendas_exec).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Vendas por Diretoria", command=self.mostrar_vendas_diretoria).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Cadastrar Anunciante", command=self.mostrar_anunciante).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Cadastrar Agência", command=self.mostrar_agencia).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="Carteira De Executivos", command=self.mostrar_executivo_view).pack(pady=5, fill="x", padx=10)
-        ctk.CTkButton(self.sidebar, text="PIs Matriz", command=self.mostrar_pis_matriz).pack(pady=5, fill="x", padx=10)
+        # Lista de botões e comandos
+        botoes = [
+            ("Produtos", self.mostrar_produto),
+            ("PIs", self.mostrar_pi),
+            ("Veiculações", self.mostrar_veiculacao),
+            ("Consulta de Veiculações", self.mostrar_consulta),
+            ("Exportar CSV", self.mostrar_exportar),
+            ("Controle de Entregas", self.mostrar_entregas),
+            ("PIs Cadastrados", self.mostrar_pis_cadastrados),
+            ("Vendas por Executivo", self.mostrar_vendas_exec),
+            ("Vendas por Diretoria", self.mostrar_vendas_diretoria),
+            ("Cadastrar Anunciante", self.mostrar_anunciante),
+            ("Cadastrar Agência", self.mostrar_agencia),
+            ("Carteira De Executivos", self.mostrar_executivo_view),
+            ("PIs Matriz", self.mostrar_pis_matriz)
+        ]
+
+        for texto, comando in botoes:
+            ctk.CTkButton(
+                self.sidebar,
+                text=texto,
+                command=comando,
+                text_color="white",
+                fg_color="#cc0000",       # vermelho
+                hover_color="#990000",    # vermelho escuro ao passar o mouse
+                corner_radius=6
+            ).pack(pady=5, fill="x", padx=10)
+
         self.tela_atual = None
         self.mostrar_produto()
 

@@ -35,8 +35,9 @@ class PI(Base):
     id = Column(Integer, primary_key=True)
     numero_pi = Column(String, nullable=False, unique=True)
     numero_pi_matriz = Column(String, nullable=True)  # Armazena o número do PI matriz
-    
-    # ✅ Novos campos adicionados aqui 👇
+
+    tipo_pi = Column(String, nullable=False)  # "Matriz", "CS", "Normal"
+
     nome_anunciante = Column(String)
     razao_social_anunciante = Column(String)
     cnpj_anunciante = Column(String)
