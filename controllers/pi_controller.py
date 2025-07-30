@@ -26,11 +26,11 @@ def criar_pi(
     valor_liquido: float,
     vencimento,
     data_emissao,
+    eh_matriz: bool = False,
     observacoes: str = ""
 ):
     session = SessionLocal()
     try:
-        # ✅ Conversão de string para objeto date (se necessário)
         if isinstance(vencimento, str):
             vencimento = datetime.strptime(vencimento, "%d/%m/%Y").date()
         if isinstance(data_emissao, str):
@@ -63,6 +63,7 @@ def criar_pi(
             valor_liquido=valor_liquido,
             vencimento=vencimento,
             data_emissao=data_emissao,
+            eh_matriz=eh_matriz,
             observacoes=observacoes
         )
 
@@ -115,12 +116,24 @@ def listar_pis_por_diretoria(diretoria: str):
         session.close()
 
 
+# Listar PIs por período de venda
+def listar_pis_por_data(dia: str, mes: str):
+    session = SessionLocal()
+    try:
+        return session.query(PI).filter(PI.dia_venda == dia, PI.mes_venda == mes).order_by(PI.numero_pi.desc()).all()
+    except Exception as e:
+        print(f"❌ Erro ao filtrar por data: {e}")
+        return []
+    finally:
+        session.close()
+
+
 # Listar PIs que são matriz (ou seja, que podem receber PIs filhos)
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
         return session.query(PI).filter(
-            (PI.numero_pi_matriz == None)
+            PI.eh_matriz == True
         ).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
@@ -134,7 +147,7 @@ def calcular_valor_abatido(numero_pi_matriz: str):
     session = SessionLocal()
     try:
         pis_filhos = session.query(PI).filter(PI.numero_pi_matriz == numero_pi_matriz).all()
-        valor_abatido = sum(pi.valor_bruto for pi in pis_filhos)
+        valor_abatido = sum(pi.valor_bruto for pi in pis_filhos if pi.valor_bruto)
         return valor_abatido
     except Exception as e:
         print(f"❌ Erro ao calcular valor abatido: {e}")

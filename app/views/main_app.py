@@ -18,7 +18,7 @@ class MainApp(ctk.CTk):
         self.title("Sistema de Veiculações")
         self.geometry("900x600")
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        ctk.set_default_color_theme("Red")
 
         self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")

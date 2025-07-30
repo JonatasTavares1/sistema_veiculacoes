@@ -1,11 +1,11 @@
 from app.database import SessionLocal
 from app.models import PI
 
-# Retorna todos os PIs que são matriz (numero_pi_matriz == None)
+# Retorna todos os PIs que são matriz
 def listar_pis_matriz():
     session = SessionLocal()
     try:
-        return session.query(PI).filter(PI.numero_pi_matriz == None).order_by(PI.numero_pi.desc()).all()
+        return session.query(PI).filter(PI.eh_matriz == True).order_by(PI.numero_pi.desc()).all()
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
         return []

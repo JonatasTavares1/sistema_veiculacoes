@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean
 
 Base = declarative_base()
 
@@ -35,7 +35,7 @@ class PI(Base):
     id = Column(Integer, primary_key=True)
     numero_pi = Column(String, nullable=False, unique=True)
     numero_pi_matriz = Column(String, nullable=True)  # Armazena o número do PI matriz
-
+    
     # ✅ Novos campos adicionados aqui 👇
     nome_anunciante = Column(String)
     razao_social_anunciante = Column(String)
@@ -67,7 +67,7 @@ class PI(Base):
     anunciante = relationship("Anunciante", back_populates="pis")
     veiculacoes = relationship("Veiculacao", back_populates="pi")
     entregas = relationship("Entrega", back_populates="pi")
-
+    eh_matriz = Column(Boolean, default=False, nullable=False)
     filhos = relationship(
         "PI",
         primaryjoin="PI.numero_pi==foreign(PI.numero_pi_matriz)",
