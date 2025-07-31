@@ -1,6 +1,7 @@
 from app.database import SessionLocal
 from app.models import PI
 from datetime import datetime, date
+from sqlalchemy import func  # necessário para comparação case-insensitive
 
 # Função para criar um novo PI
 def criar_pi(
@@ -131,11 +132,13 @@ def listar_pis_por_data(dia: str, mes: str):
         session.close()
 
 
-# Listar PIs que são matriz (ou seja, que podem receber PIs filhos)
+# Listar PIs do tipo "Matriz" (para vincular com CS)
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
-        return session.query(PI).filter(PI.eh_matriz == True).order_by(PI.numero_pi.desc()).all()
+        resultados = session.query(PI).filter(func.lower(PI.tipo_pi) == "matriz").order_by(PI.numero_pi.desc()).all()
+        print("🔎 PIs tipo 'Matriz' encontrados:", [pi.numero_pi for pi in resultados])  # debug opcional
+        return resultados
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
         return []

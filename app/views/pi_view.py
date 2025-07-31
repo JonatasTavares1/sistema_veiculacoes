@@ -137,6 +137,8 @@ class PIView(ctk.CTkFrame):
             self.preencher_pis_matriz()
             self.combo_pi_matriz.configure(state="normal")
             self.label_pi_matriz.configure(text_color="white")
+            self.combo_pi_matriz.focus()
+            self.combo_pi_matriz.event_generate("<Button-1>")  # 👈 Adicionado para abrir automaticamente
         else:
             self.combo_pi_matriz.set("Selecione o PI Matriz")
             self.combo_pi_matriz.configure(state="disabled")
