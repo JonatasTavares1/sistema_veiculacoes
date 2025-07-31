@@ -222,7 +222,7 @@ class PIView(ctk.CTkFrame):
                 valor_liquido=float(self.valor_liquido_entry.get().replace(",", ".")),
                 vencimento=datetime.strptime(self.vencimento_entry.get(), "%d/%m/%Y").date(),
                 data_emissao=datetime.strptime(self.data_emissao_entry.get(), "%d/%m/%Y").date(),
-                eh_matriz=(tipo_pi == "Matriz"),
+                
                 observacoes=self.obs_entry.get()
             )
             messagebox.showinfo("Sucesso", "PI cadastrado com sucesso!")

@@ -9,48 +9,54 @@ class PIsCadastradosView(ctk.CTkFrame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
 
-        # Título
         ctk.CTkLabel(self, text="📄 PIs Cadastrados", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=15)
         ctk.CTkLabel(self, text="Lista completa dos pedidos de inserção registrados no sistema:",
                      font=ctk.CTkFont(size=16)).pack(pady=5)
 
-        # 🔎 Campo de busca + botão
-        busca_frame = ctk.CTkFrame(self)
-        busca_frame.pack(pady=5)
+        # 🔎 Campo de busca + filtros adicionais
+        filtros_frame = ctk.CTkFrame(self)
+        filtros_frame.pack(pady=5)
 
-        self.entrada_busca = ctk.CTkEntry(busca_frame, placeholder_text="Buscar por PI, cliente, agência ou CNPJ", width=400)
-        self.entrada_busca.pack(side="left", padx=(0, 10))
+        self.entrada_busca = ctk.CTkEntry(filtros_frame, placeholder_text="Buscar por PI, cliente, agência ou CNPJ", width=350)
+        self.entrada_busca.grid(row=0, column=0, padx=(0, 10))
 
-        botao_buscar = ctk.CTkButton(busca_frame, text="🔍 Buscar", command=self.buscar_pis)
-        botao_buscar.pack(side="left")
+        self.combo_tipo = ctk.CTkComboBox(filtros_frame, values=["Todos", "Matriz", "CS", "Normal"])
+        self.combo_tipo.set("Todos")
+        self.combo_tipo.grid(row=0, column=1, padx=5)
 
-        # 🔄 Botão de Atualizar
-        self.atualizar_btn = ctk.CTkButton(self, text="🔄 Atualizar Lista", command=self.atualizar_lista)
-        self.atualizar_btn.pack(pady=5)
+        self.combo_diretoria = ctk.CTkComboBox(filtros_frame, values=["Todos", "Governo Federal", "Governo Estadual", "Rafael Augusto"])
+        self.combo_diretoria.set("Todos")
+        self.combo_diretoria.grid(row=0, column=2, padx=5)
 
-        # 📤 Botão de Exportar XLS
-        self.exportar_btn = ctk.CTkButton(self, text="📤 Exportar XLS", command=self.exportar_para_excel)
-        self.exportar_btn.pack(pady=5)
+        self.combo_executivo = ctk.CTkComboBox(filtros_frame, values=[
+            "Todos", "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio", "Flavio de Paula",
+            "Lorena Fernandes", "Henri Marques", "Caio Bruno", "Flavia Cabral", "Paula Caroline",
+            "Leila Santos", "Jessica Ribeiro", "Paula Campos"
+        ])
+        self.combo_executivo.set("Todos")
+        self.combo_executivo.grid(row=0, column=3, padx=5)
 
-        # ScrollFrame com rolagem horizontal
-        self.tabela_scroll = ctk.CTkScrollableFrame(self, width=1500, height=500, orientation="horizontal", corner_radius=8)
+        botao_buscar = ctk.CTkButton(filtros_frame, text="🔍 Buscar", command=self.buscar_pis)
+        botao_buscar.grid(row=0, column=4, padx=(10, 0))
+
+        # Botões
+        ctk.CTkButton(self, text="🔄 Atualizar Lista", command=self.atualizar_lista).pack(pady=5)
+        ctk.CTkButton(self, text="📤 Exportar XLS", command=self.exportar_para_excel).pack(pady=5)
+
+        # Scroll da tabela
+        self.tabela_scroll = ctk.CTkScrollableFrame(self, width=1600, height=500, orientation="horizontal", corner_radius=8)
         self.tabela_scroll.pack(pady=15, padx=10, fill="both", expand=True)
 
         self.headers = [
-            "ID", "PI", "Cliente", "Agência", "Data de Emissão", "Valor Total (R$)", "Valor Líquido (R$)", 
-            "Praça", "Meio", "Campanha", "Diretoria", "Executivo", "Data da Venda", "Produto"
+            "ID", "PI", "Tipo de PI", "PI Matriz", "Cliente", "Agência", "Data de Emissão",
+            "Valor Total (R$)", "Valor Líquido (R$)", "Praça", "Meio", "Campanha", "Diretoria",
+            "Executivo", "Data da Venda"
         ]
         header_font = ctk.CTkFont(size=15, weight="bold")
 
         for col, header in enumerate(self.headers):
-            header_label = ctk.CTkLabel(
-                self.tabela_scroll,
-                text=header,
-                font=header_font,
-                anchor="w",
-                padx=8
-            )
-            header_label.grid(row=0, column=col * 2, sticky="nsew", pady=(0, 8), padx=(4, 2))
+            label = ctk.CTkLabel(self.tabela_scroll, text=header, font=header_font, anchor="w", padx=8)
+            label.grid(row=0, column=col * 2, sticky="nsew", pady=(0, 8), padx=(4, 2))
             self.tabela_scroll.grid_columnconfigure(col * 2, weight=1)
 
             if col < len(self.headers) - 1:
@@ -67,15 +73,23 @@ class PIsCadastradosView(ctk.CTkFrame):
 
     def buscar_pis(self):
         termo = self.entrada_busca.get().lower()
+        tipo_pi = self.combo_tipo.get()
+        diretoria = self.combo_diretoria.get()
+        executivo = self.combo_executivo.get()
+
         resultados = []
         for pi in listar_pis():
             if (
-                termo in str(pi.numero_pi).lower()
-                or termo in (pi.nome_anunciante or "").lower()
-                or termo in (pi.nome_agencia or "").lower()
-                or termo in (pi.cnpj_agencia or "").lower()
+                (termo in str(pi.numero_pi).lower()
+                 or termo in (pi.nome_anunciante or "").lower()
+                 or termo in (pi.nome_agencia or "").lower()
+                 or termo in (pi.cnpj_agencia or "").lower())
+                and (tipo_pi == "Todos" or pi.tipo_pi == tipo_pi)
+                and (diretoria == "Todos" or pi.diretoria == diretoria)
+                and (executivo == "Todos" or pi.executivo == executivo)
             ):
                 resultados.append(pi)
+
         self.lista_exibida = resultados
         self.mostrar_pis(resultados)
 
@@ -90,6 +104,8 @@ class PIsCadastradosView(ctk.CTkFrame):
             valores = [
                 pi.id,
                 pi.numero_pi,
+                pi.tipo_pi,
+                pi.numero_pi_matriz if pi.tipo_pi == "CS" else "",
                 pi.nome_anunciante,
                 pi.nome_agencia or "",
                 pi.data_emissao.strftime("%d/%m/%Y") if pi.data_emissao else "",
@@ -100,16 +116,10 @@ class PIsCadastradosView(ctk.CTkFrame):
                 pi.nome_campanha or "",
                 pi.diretoria or "",
                 pi.executivo or "",
-                f"{pi.dia_venda}/{pi.mes_venda}" if pi.dia_venda and pi.mes_venda else "",
-                ""  # Produto (adicione se existir)
+                f"{pi.dia_venda}/{pi.mes_venda}" if pi.dia_venda and pi.mes_venda else ""
             ]
             for j, valor in enumerate(valores):
-                cell = ctk.CTkLabel(
-                    self.tabela_scroll,
-                    text=str(valor),
-                    anchor="w",
-                    padx=8
-                )
+                cell = ctk.CTkLabel(self.tabela_scroll, text=str(valor), anchor="w", padx=8)
                 cell.grid(row=i, column=j * 2, sticky="nsew", pady=4, padx=(4, 2))
                 linha_widgets.append(cell)
 
@@ -129,6 +139,8 @@ class PIsCadastradosView(ctk.CTkFrame):
             dados.append({
                 "ID": pi.id,
                 "PI": pi.numero_pi,
+                "Tipo de PI": pi.tipo_pi,
+                "PI Matriz": pi.numero_pi_matriz if pi.tipo_pi == "CS" else "",
                 "Cliente": pi.nome_anunciante,
                 "Agência": pi.nome_agencia,
                 "CNPJ Agência": pi.cnpj_agencia,
@@ -141,7 +153,6 @@ class PIsCadastradosView(ctk.CTkFrame):
                 "Diretoria": pi.diretoria or "",
                 "Executivo": pi.executivo or "",
                 "Data da Venda": f"{pi.dia_venda}/{pi.mes_venda}" if pi.dia_venda and pi.mes_venda else "",
-                "Produto": "",  # Adapte se necessário
                 "Observações": getattr(pi, "observacoes", "")
             })
 
