@@ -1,6 +1,6 @@
 from app.database import SessionLocal
 from app.models import PI
-from datetime import datetime, date
+from datetime import datetime
 from sqlalchemy import func  # necessário para comparação case-insensitive
 
 # Função para criar um novo PI
@@ -137,7 +137,7 @@ def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
         resultados = session.query(PI).filter(func.lower(PI.tipo_pi) == "matriz").order_by(PI.numero_pi.desc()).all()
-        print("🔎 PIs tipo 'Matriz' encontrados:", [pi.numero_pi for pi in resultados])  # debug opcional
+        print("🔎 PIs tipo 'Matriz' encontrados:", [pi.numero_pi for pi in resultados])
         return resultados
     except Exception as e:
         print(f"❌ Erro ao listar PIs matriz: {e}")
@@ -172,5 +172,36 @@ def calcular_saldo_restante(numero_pi_matriz: str):
     except Exception as e:
         print(f"❌ Erro ao calcular saldo restante: {e}")
         return 0
+    finally:
+        session.close()
+
+
+# ✅ Função para atualizar PI existente
+def atualizar_pi(pi_id: int, **dados):
+    session = SessionLocal()
+    try:
+        pi = session.query(PI).get(pi_id)
+        if not pi:
+            raise ValueError(f"PI com ID {pi_id} não encontrado.")
+
+        campos_editaveis = [
+            "numero_pi", "tipo_pi", "numero_pi_matriz", "nome_anunciante", "nome_agencia",
+            "data_emissao", "valor_bruto", "valor_liquido", "uf_cliente", "canal",
+            "nome_campanha", "diretoria", "executivo", "dia_venda", "mes_venda", "observacoes"
+        ]
+
+        for campo in campos_editaveis:
+            if campo in dados:
+                setattr(pi, campo, dados[campo])
+
+        # Atualiza campo booleano
+        pi.eh_matriz = dados.get("tipo_pi", pi.tipo_pi) == "Matriz"
+
+        session.commit()
+        print(f"✅ PI ID {pi_id} atualizado com sucesso.")
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Erro ao atualizar PI: {e}")
+        raise
     finally:
         session.close()
