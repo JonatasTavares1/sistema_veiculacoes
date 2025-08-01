@@ -34,31 +34,44 @@ class PI(Base):
 
     id = Column(Integer, primary_key=True)
     numero_pi = Column(String, nullable=False, unique=True)
-    numero_pi_matriz = Column(String, nullable=True)  # Armazena o número do PI matriz
 
-    tipo_pi = Column(String, nullable=False)  # "Matriz", "CS", "Normal"
+    # Vinculação
+    numero_pi_matriz = Column(String, nullable=True)   # Usado SOMENTE se tipo_pi == "Abatimento"
+    numero_pi_normal = Column(String, nullable=True)   # Usado SOMENTE se tipo_pi == "CS"
 
+    # Tipo de PI: "Matriz", "Normal", "CS", "Abatimento"
+    tipo_pi = Column(String, nullable=False)
+
+    # Dados do anunciante
     nome_anunciante = Column(String)
     razao_social_anunciante = Column(String)
     cnpj_anunciante = Column(String)
     uf_cliente = Column(String)
+
+    # Dados da agência
     nome_agencia = Column(String)
     razao_social_agencia = Column(String)
     cnpj_agencia = Column(String)
     uf_agencia = Column(String)
+
+    # Responsáveis
     executivo = Column(String)
     diretoria = Column(String)
 
+    # Campanha
     nome_campanha = Column(String)
     mes_venda = Column(String)
     dia_venda = Column(String)
     canal = Column(String)
     perfil = Column(String)
     subperfil = Column(String)
+
+    # Valores e datas
     valor_bruto = Column(Float)
     valor_liquido = Column(Float)
     vencimento = Column(Date)
     data_emissao = Column(Date)
+
     observacoes = Column(String)
 
     agencia_id = Column(Integer, ForeignKey('agencias.id'))
@@ -68,10 +81,20 @@ class PI(Base):
     anunciante = relationship("Anunciante", back_populates="pis")
     veiculacoes = relationship("Veiculacao", back_populates="pi")
     entregas = relationship("Entrega", back_populates="pi")
+
+    # Flag para identificar matrizes antigas (pode ser mantida para compatibilidade)
     eh_matriz = Column(Boolean, default=False, nullable=False)
-    filhos = relationship(
+
+    # Relacionamentos de filhos
+    filhos_abatimento = relationship(
         "PI",
-        primaryjoin="PI.numero_pi==foreign(PI.numero_pi_matriz)",
+        primaryjoin="and_(PI.numero_pi_matriz==foreign(PI.numero_pi), PI.tipo_pi=='Abatimento')",
+        viewonly=True
+    )
+
+    filhos_cs = relationship(
+        "PI",
+        primaryjoin="and_(PI.numero_pi_normal==foreign(PI.numero_pi), PI.tipo_pi=='CS')",
         viewonly=True
     )
 

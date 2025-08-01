@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-from controllers.pi_matriz_controller import listar_pis_matriz, listar_pis_vinculados, calcular_saldo_matriz
+from controllers.pi_matriz_controller import listar_pis_matriz, listar_abatimentos, calcular_saldo_matriz
 from openpyxl import Workbook
 
 class PIMatrizView(ctk.CTkFrame):
@@ -11,22 +11,35 @@ class PIMatrizView(ctk.CTkFrame):
         self.entry_export = ctk.CTkEntry(self, placeholder_text="Digite o número do PI MATRIZ para exportar")
         self.entry_export.pack(pady=(15, 5), padx=20, fill="x")
 
-        btn_exportar = ctk.CTkButton(self, text="🧾 Exportar PI MATRIZ e CS para Excel",
-                                     fg_color="#cc0000", hover_color="#990000",
-                                     text_color="white", font=ctk.CTkFont(size=15, weight="bold"),
-                                     command=self.exportar_excel)
+        btn_exportar = ctk.CTkButton(
+            self,
+            text="🧾 Exportar PI MATRIZ e Abatimentos",
+            fg_color="#cc0000",
+            hover_color="#990000",
+            text_color="white",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            command=self.exportar_excel
+        )
         btn_exportar.pack(pady=(5, 15), padx=20)
 
-        atualizar_btn = ctk.CTkButton(self, text="🔄 Atualizar Lista",
-                                      fg_color="red", hover_color="#b30000",
-                                      text_color="white",
-                                      command=self.atualizar_lista)
+        atualizar_btn = ctk.CTkButton(
+            self,
+            text="🔄 Atualizar Lista",
+            fg_color="red",
+            hover_color="#b30000",
+            text_color="white",
+            command=self.atualizar_lista
+        )
         atualizar_btn.pack(pady=5)
 
-        self.scroll_frame = ctk.CTkScrollableFrame(self, width=1000, height=600,
-                                                   fg_color="#2a2a2a",
-                                                   scrollbar_button_color="red",
-                                                   scrollbar_button_hover_color="#b30000")
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            width=1000,
+            height=600,
+            fg_color="#2a2a2a",
+            scrollbar_button_color="red",
+            scrollbar_button_hover_color="#b30000"
+        )
         self.scroll_frame.pack(padx=20, pady=15, fill="both", expand=True)
 
         self.matriz_frames = []
@@ -39,8 +52,12 @@ class PIMatrizView(ctk.CTkFrame):
 
         pis_matriz = listar_pis_matriz()
         if not pis_matriz:
-            msg = ctk.CTkLabel(self.scroll_frame, text="⚠️ Nenhum PI MATRIZ encontrado.",
-                               font=ctk.CTkFont(size=16), text_color="white")
+            msg = ctk.CTkLabel(
+                self.scroll_frame,
+                text="⚠️ Nenhum PI MATRIZ encontrado.",
+                font=ctk.CTkFont(size=16),
+                text_color="white"
+            )
             msg.pack(pady=10)
             self.matriz_frames.append(msg)
             return
@@ -57,10 +74,15 @@ class PIMatrizView(ctk.CTkFrame):
                 f"Saldo: R$ {calcular_saldo_matriz(pi.numero_pi):.2f}"
             )
 
-            toggle_button = ctk.CTkButton(frame_pi, text=header_text,
-                                          font=ctk.CTkFont(size=14),
-                                          fg_color="#444", hover_color="#b30000",
-                                          anchor="w", text_color="white")
+            toggle_button = ctk.CTkButton(
+                frame_pi,
+                text=header_text,
+                font=ctk.CTkFont(size=14),
+                fg_color="#444",
+                hover_color="#b30000",
+                anchor="w",
+                text_color="white"
+            )
             toggle_button.pack(fill="x")
 
             detalhes_frame = ctk.CTkFrame(frame_pi, fg_color="#252525")
@@ -75,10 +97,14 @@ class PIMatrizView(ctk.CTkFrame):
 
             toggle_button.configure(command=toggle_detalhes)
 
-            filhos = listar_pis_vinculados(pi.numero_pi)
+            filhos = listar_abatimentos(pi.numero_pi)
             if not filhos:
-                label_vazio = ctk.CTkLabel(detalhes_frame, text="🔕 Nenhum PI vinculado.",
-                                           text_color="gray", font=ctk.CTkFont(size=13))
+                label_vazio = ctk.CTkLabel(
+                    detalhes_frame,
+                    text="🔕 Nenhum abatimento vinculado.",
+                    text_color="gray",
+                    font=ctk.CTkFont(size=13)
+                )
                 label_vazio.pack(anchor="w", padx=10, pady=5)
             else:
                 for filho in filhos:
@@ -93,16 +119,20 @@ class PIMatrizView(ctk.CTkFrame):
 
                     texto = (
                         f"🔹 Campanha: {campanha} | "
-                        f"PI CS: {numero_pi} | "
+                        f"PI Abatimento: {numero_pi} | "
                         f"Anunciante: {anunciante} | "
                         f"Emissão: {emissao} | "
                         f"Venda: {venda} | "
                         f"Valor Líquido: {valor_liquido}"
                     )
 
-                    pi_label = ctk.CTkLabel(detalhes_frame, text=texto,
-                                            font=ctk.CTkFont(size=13),
-                                            text_color="white", anchor="w")
+                    pi_label = ctk.CTkLabel(
+                        detalhes_frame,
+                        text=texto,
+                        font=ctk.CTkFont(size=13),
+                        text_color="white",
+                        anchor="w"
+                    )
                     pi_label.pack(anchor="w", padx=10, pady=2)
 
             self.matriz_frames.append(frame_pi)
@@ -120,12 +150,14 @@ class PIMatrizView(ctk.CTkFrame):
             messagebox.showerror("Erro", f"PI MATRIZ {numero_pi} não encontrado.")
             return
 
-        filhos = listar_pis_vinculados(pi.numero_pi)
+        filhos = listar_abatimentos(pi.numero_pi)
 
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx",
-                                            filetypes=[("Excel Files", "*.xlsx")],
-                                            title="Salvar Arquivo Excel",
-                                            initialfile=f"PI_MATRIZ_{numero_pi}.xlsx")
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel Files", "*.xlsx")],
+            title="Salvar Arquivo Excel",
+            initialfile=f"PI_MATRIZ_{numero_pi}.xlsx"
+        )
         if not path:
             return
 
@@ -148,8 +180,8 @@ class PIMatrizView(ctk.CTkFrame):
         # Espaço antes do próximo bloco
         ws.append([])
 
-        # Seção: PIs CS vinculados
-        ws.append(["PIs CS Vinculados"])
+        # Seção: Abatimentos vinculados
+        ws.append(["Abatimentos Vinculados"])
         ws.append(["Número", "Campanha", "Anunciante", "Data Emissão", "Data da Venda", "Valor Líquido"])
         for filho in filhos:
             ws.append([

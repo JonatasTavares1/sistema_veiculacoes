@@ -1,6 +1,11 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from controllers.pi_controller import criar_pi, listar_pis_matriz_ativos, calcular_saldo_restante
+from controllers.pi_controller import (
+    criar_pi,
+    listar_pis_matriz_ativos,
+    listar_pis_normal_ativos,
+    calcular_saldo_restante
+)
 from controllers.anunciante_controller import buscar_anunciante_por_cnpj
 from controllers.agencia_controller import buscar_agencia_por_cnpj
 from datetime import datetime
@@ -76,26 +81,33 @@ class PIView(ctk.CTkFrame):
         criar_label("Tipo de PI")
         self.tipo_pi_segmented = ctk.CTkSegmentedButton(
             self.scrollable_frame,
-            values=["Matriz", "CS", "Normal"],
-            command=self.alternar_visibilidade_matriz,
-            width=420
+            values=["Matriz", "Normal", "CS", "Abatimento"],
+            command=self.alternar_visibilidade_vinculos,
+            width=520
         )
         self.tipo_pi_segmented.set("Normal")
         self.tipo_pi_segmented.pack(pady=(2, 10), padx=20, anchor="w")
 
-        # Seleção de PI Matriz (só habilita quando for CS)
-        criar_label("PI Matriz (habilita ao selecionar 'CS' no Tipo de PI)")
+        # Vínculo para Abatimento -> PI Matriz
+        criar_label("Vincular a PI Matriz (somente Abatimento)")
         self.combo_pi_matriz = ctk.CTkComboBox(self.scrollable_frame, values=[], height=40, font=self.font_input)
         self.combo_pi_matriz.set("Selecione o PI Matriz")
         self.combo_pi_matriz.configure(state="disabled")
         self.combo_pi_matriz.pack(pady=(0, 10), padx=20, fill="x")
+
+        # Vínculo para CS -> PI Normal
+        criar_label("Vincular a PI Normal (somente CS)")
+        self.combo_pi_normal = ctk.CTkComboBox(self.scrollable_frame, values=[], height=40, font=self.font_input)
+        self.combo_pi_normal.set("Selecione o PI Normal")
+        self.combo_pi_normal.configure(state="disabled")
+        self.combo_pi_normal.pack(pady=(0, 10), padx=20, fill="x")
 
         # Anunciante
         titulo_secao("Informações do Anunciante")
         self.cnpj_anunciante_entry = criar_entry("CNPJ do Anunciante")
         self.nome_anunciante_entry = criar_entry("Nome do Anunciante")
         self.razao_anunciante_entry = criar_entry("Razão Social do Anunciante")
-        self.uf_cliente_entry = criar_combo_uf("UF do Cliente (use EX para Exterior)", default="DF")
+        self.uf_cliente_entry = criar_combo_uf("UF do Cliente", default="DF")
 
         ctk.CTkButton(
             self.scrollable_frame,
@@ -104,7 +116,7 @@ class PIView(ctk.CTkFrame):
             height=42
         ).pack(pady=(2, 14), padx=20, anchor="w")
 
-        # Agência (sem título chamativo; apenas campos)
+        # Agência
         self.agencia_var = ctk.BooleanVar(value=True)
         self.checkbox_agencia = ctk.CTkCheckBox(
             self.scrollable_frame,
@@ -127,7 +139,7 @@ class PIView(ctk.CTkFrame):
             height=42
         )
         self.botao_buscar_agencia.pack(pady=(2, 14), padx=20, anchor="w")
-        self.alternar_agencia()  # aplica estado inicial de acordo com o checkbox
+        self.alternar_agencia()
 
         # Campanha
         titulo_secao("Dados da Campanha")
@@ -195,35 +207,44 @@ class PIView(ctk.CTkFrame):
         ).pack(pady=20, padx=20, anchor="w")
 
     # =================== LÓGICA ===================
-
-    def alternar_visibilidade_matriz(self, *args):
-        """Habilita a seleção de PI Matriz apenas quando Tipo de PI == 'CS'."""
+    def alternar_visibilidade_vinculos(self, *args):
         tipo = self.tipo_pi_segmented.get()
-        if tipo == "CS":
+        if tipo == "Abatimento":
             self.preencher_pis_matriz()
             self.combo_pi_matriz.configure(state="normal")
-            self.combo_pi_matriz.focus()
-            self.combo_pi_matriz.event_generate("<Button-1>")
+            self.combo_pi_normal.set("Selecione o PI Normal")
+            self.combo_pi_normal.configure(state="disabled")
+        elif tipo == "CS":
+            self.preencher_pis_normal()
+            self.combo_pi_normal.configure(state="normal")
+            self.combo_pi_matriz.set("Selecione o PI Matriz")
+            self.combo_pi_matriz.configure(state="disabled")
         else:
             self.combo_pi_matriz.set("Selecione o PI Matriz")
             self.combo_pi_matriz.configure(state="disabled")
+            self.combo_pi_normal.set("Selecione o PI Normal")
+            self.combo_pi_normal.configure(state="disabled")
 
     def preencher_pis_matriz(self):
-        """Preenche a ComboBox com PIs Matriz que ainda possuem saldo."""
         pis_matriz_disponiveis = [
             pi for pi in listar_pis_matriz_ativos()
             if calcular_saldo_restante(pi.numero_pi) > 0
         ]
         self.combo_pi_matriz.configure(values=[pi.numero_pi for pi in pis_matriz_disponiveis])
 
+    def preencher_pis_normal(self):
+        pis_normais = listar_pis_normal_ativos()
+        self.combo_pi_normal.configure(values=[pi.numero_pi for pi in pis_normais])
+
     def alternar_agencia(self):
-        """Habilita/desabilita campos da Agência conforme o checkbox 'Possui Agência?'."""
         estado = "normal" if self.agencia_var.get() else "disabled"
-        for widget in (self.cnpj_agencia_entry, self.nome_agencia_entry, self.razao_agencia_entry, self.uf_agencia_entry, self.botao_buscar_agencia):
+        for widget in (
+            self.cnpj_agencia_entry, self.nome_agencia_entry,
+            self.razao_agencia_entry, self.uf_agencia_entry, self.botao_buscar_agencia
+        ):
             widget.configure(state=estado)
 
     def preencher_anunciante(self):
-        """Busca dados do anunciante pelo CNPJ e preenche os campos."""
         cnpj = self.cnpj_anunciante_entry.get().strip()
         if not cnpj:
             messagebox.showwarning("Aviso", "Digite o CNPJ do anunciante.")
@@ -239,7 +260,6 @@ class PIView(ctk.CTkFrame):
             messagebox.showinfo("Não encontrado", "Anunciante não encontrado.")
 
     def preencher_agencia(self):
-        """Busca dados da agência pelo CNPJ e preenche os campos."""
         cnpj = self.cnpj_agencia_entry.get().strip()
         if not cnpj:
             messagebox.showwarning("Aviso", "Digite o CNPJ da agência.")
@@ -255,23 +275,23 @@ class PIView(ctk.CTkFrame):
             messagebox.showinfo("Não encontrado", "Agência não encontrada.")
 
     def cadastrar_pi(self):
-        """Coleta os dados do formulário e chama o controller para criar o PI."""
         try:
             tipo_pi = self.tipo_pi_segmented.get()
             numero_pi_matriz = None
-            if tipo_pi == "CS" and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
+            numero_pi_normal = None
+            if tipo_pi == "Abatimento" and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
                 numero_pi_matriz = self.combo_pi_matriz.get()
+            if tipo_pi == "CS" and self.combo_pi_normal.get() != "Selecione o PI Normal":
+                numero_pi_normal = self.combo_pi_normal.get()
 
-            # Converte 'EX (Exterior)' para 'EX'
-            uf_cliente_val = self.uf_cliente_entry.get()
-            uf_agencia_val = self.uf_agencia_entry.get()
-            uf_cliente_val = "EX" if uf_cliente_val.startswith("EX") else uf_cliente_val
-            uf_agencia_val = "EX" if uf_agencia_val.startswith("EX") else uf_agencia_val
+            uf_cliente_val = "EX" if self.uf_cliente_entry.get().startswith("EX") else self.uf_cliente_entry.get()
+            uf_agencia_val = "EX" if self.uf_agencia_entry.get().startswith("EX") else self.uf_agencia_entry.get()
 
             criar_pi(
                 numero_pi=self.numero_entry.get().strip(),
                 tipo_pi=tipo_pi,
                 numero_pi_matriz=numero_pi_matriz,
+                numero_pi_normal=numero_pi_normal,
                 nome_anunciante=self.nome_anunciante_entry.get().strip(),
                 razao_social_anunciante=self.razao_anunciante_entry.get().strip(),
                 cnpj_anunciante=self.cnpj_anunciante_entry.get().strip(),
@@ -300,7 +320,6 @@ class PIView(ctk.CTkFrame):
             messagebox.showerror("Erro", f"Erro ao cadastrar PI: {e}")
 
     def limpar_campos(self):
-        """Limpa todas as entradas e reseta seleções."""
         for widget in self.scrollable_frame.winfo_children():
             if isinstance(widget, ctk.CTkEntry):
                 widget.delete(0, "end")
@@ -310,7 +329,10 @@ class PIView(ctk.CTkFrame):
                 elif widget is self.combo_pi_matriz:
                     widget.set("Selecione o PI Matriz")
                     widget.configure(state="disabled")
+                elif widget is self.combo_pi_normal:
+                    widget.set("Selecione o PI Normal")
+                    widget.configure(state="disabled")
                 else:
                     widget.set("Selecione")
         self.tipo_pi_segmented.set("Normal")
-        self.alternar_visibilidade_matriz()
+        self.alternar_visibilidade_vinculos()

@@ -1,7 +1,9 @@
 from app.database import SessionLocal
 from app.models import PI
 
-# Listar PIs cujo tipo é 'Matriz'
+# -------------------------------------------------------------------
+# Listar PIs do tipo Matriz
+# -------------------------------------------------------------------
 def listar_pis_matriz():
     session = SessionLocal()
     try:
@@ -12,7 +14,9 @@ def listar_pis_matriz():
     finally:
         session.close()
 
-# Listar PIs Matriz com saldo restante maior que 0
+# -------------------------------------------------------------------
+# Listar PIs Matriz com saldo restante > 0
+# -------------------------------------------------------------------
 def listar_pis_matriz_ativos():
     session = SessionLocal()
     try:
@@ -24,22 +28,32 @@ def listar_pis_matriz_ativos():
     finally:
         session.close()
 
-# Listar PIs vinculados a um PI matriz (usando numero_pi_matriz)
-def listar_pis_vinculados(numero_pi_matriz: str):
+# -------------------------------------------------------------------
+# Listar apenas abatimentos vinculados a um Matriz
+# -------------------------------------------------------------------
+def listar_abatimentos(numero_pi_matriz: str):
     session = SessionLocal()
     try:
-        return session.query(PI).filter(PI.numero_pi_matriz == numero_pi_matriz).order_by(PI.numero_pi.asc()).all()
+        return session.query(PI).filter(
+            PI.numero_pi_matriz == numero_pi_matriz,
+            PI.tipo_pi == "Abatimento"
+        ).order_by(PI.numero_pi.asc()).all()
     except Exception as e:
-        print(f"❌ Erro ao listar PIs vinculados: {e}")
+        print(f"❌ Erro ao listar abatimentos: {e}")
         return []
     finally:
         session.close()
 
-# Calcular o valor total dos filhos (abatido)
+# -------------------------------------------------------------------
+# Calcular o valor total já abatido
+# -------------------------------------------------------------------
 def calcular_valor_abatido(numero_pi_matriz: str):
     session = SessionLocal()
     try:
-        filhos = session.query(PI).filter(PI.numero_pi_matriz == numero_pi_matriz).all()
+        filhos = session.query(PI).filter(
+            PI.numero_pi_matriz == numero_pi_matriz,
+            PI.tipo_pi == "Abatimento"
+        ).all()
         return sum(f.valor_bruto or 0 for f in filhos)
     except Exception as e:
         print(f"❌ Erro ao calcular valor abatido: {e}")
@@ -47,11 +61,13 @@ def calcular_valor_abatido(numero_pi_matriz: str):
     finally:
         session.close()
 
-# Calcular o saldo restante de um PI matriz
+# -------------------------------------------------------------------
+# Calcular saldo restante do Matriz
+# -------------------------------------------------------------------
 def calcular_saldo_matriz(numero_pi_matriz: str):
     session = SessionLocal()
     try:
-        pi_matriz = session.query(PI).filter(PI.numero_pi == numero_pi_matriz).first()
+        pi_matriz = session.query(PI).filter(PI.numero_pi == numero_pi_matriz, PI.tipo_pi == "Matriz").first()
         if not pi_matriz:
             return 0
         valor_abatido = calcular_valor_abatido(numero_pi_matriz)
@@ -62,11 +78,15 @@ def calcular_saldo_matriz(numero_pi_matriz: str):
     finally:
         session.close()
 
-# Wrapper para uso em views (calcular saldo restante)
+# -------------------------------------------------------------------
+# Wrapper para facilitar uso em views
+# -------------------------------------------------------------------
 def calcular_saldo_restante(numero_pi_matriz: str):
     return calcular_saldo_matriz(numero_pi_matriz)
 
-# Função para criar PI
+# -------------------------------------------------------------------
+# Criar PI (genérico, mas normalmente chamamos o pi_controller)
+# -------------------------------------------------------------------
 def criar_pi(**kwargs):
     session = SessionLocal()
     try:
