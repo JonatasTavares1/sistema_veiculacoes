@@ -2,7 +2,7 @@ from app.models import Anunciante
 from app.database import SessionLocal
 import requests
 
-def criar_anunciante(nome, razao_social, cnpj, uf, executivo):
+def criar_anunciante(nome, razao_social, cnpj, uf, executivo, email, data_cadastro):
     db = SessionLocal()
     try:
         novo = Anunciante(
@@ -10,7 +10,9 @@ def criar_anunciante(nome, razao_social, cnpj, uf, executivo):
             razao_social_anunciante=razao_social,
             cnpj_anunciante=cnpj,
             uf_cliente=uf,
-            executivo=executivo
+            executivo=executivo,
+            email_anunciante=email,
+            data_cadastro=data_cadastro
         )
         db.add(novo)
         db.commit()

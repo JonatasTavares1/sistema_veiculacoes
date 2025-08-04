@@ -1,7 +1,8 @@
 from app.models import Agencia
 from app.database import SessionLocal
+import requests
 
-def criar_agencia(nome, razao_social, cnpj, uf, executivo):
+def criar_agencia(nome, razao_social, cnpj, uf, executivo, email, data_cadastro):
     db = SessionLocal()
     try:
         nova = Agencia(
@@ -9,7 +10,9 @@ def criar_agencia(nome, razao_social, cnpj, uf, executivo):
             razao_social_agencia=razao_social,
             cnpj_agencia=cnpj,
             uf_agencia=uf,
-            executivo=executivo
+            executivo=executivo,
+            email_agencia=email,
+            data_cadastro=data_cadastro
         )
         db.add(nova)
         db.commit()
@@ -27,6 +30,7 @@ def listar_agencias():
     finally:
         db.close()
 
+
 def buscar_agencia_por_cnpj(cnpj):
     db = SessionLocal()
     try:
@@ -34,12 +38,14 @@ def buscar_agencia_por_cnpj(cnpj):
     finally:
         db.close()
 
+
 def buscar_agencia_por_nome(nome):
     db = SessionLocal()
     try:
         return db.query(Agencia).filter(Agencia.nome_agencia.ilike(f"%{nome}%")).all()
     finally:
         db.close()
+
 
 def excluir_agencia_por_cnpj(cnpj):
     db = SessionLocal()
@@ -55,7 +61,7 @@ def excluir_agencia_por_cnpj(cnpj):
         raise e
     finally:
         db.close()
-import requests
+
 
 def buscar_cnpj_na_web(cnpj):
     try:

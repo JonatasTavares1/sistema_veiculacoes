@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, StringVar
 from controllers.pi_controller import (
     criar_pi,
     listar_pis_matriz_ativos,
@@ -16,24 +16,20 @@ class PIView(ctk.CTkFrame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
 
-        # ========= ESTILO =========
         self.font_titulo_pagina = ctk.CTkFont(size=22, weight="bold")
         self.font_secao = ctk.CTkFont(size=18, weight="bold")
         self.font_label = ctk.CTkFont(size=14, weight="bold")
         self.font_input = ctk.CTkFont(size=15)
 
-        # ========= TÍTULO =========
         ctk.CTkLabel(
             self,
             text="Cadastro de Pedido de Inserção",
             font=self.font_titulo_pagina
         ).pack(pady=15)
 
-        # ========= CONTAINER ROLÁVEL =========
         self.scrollable_frame = ctk.CTkScrollableFrame(self, width=930, height=700)
         self.scrollable_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
-        # ========= HELPERS =========
         def titulo_secao(texto):
             ctk.CTkLabel(
                 self.scrollable_frame, text=texto,
@@ -72,30 +68,30 @@ class PIView(ctk.CTkFrame):
             return cb
 
         # ========= CAMPOS =========
-
-        # Número do PI
         titulo_secao("Identificação")
         self.numero_entry = criar_entry("Número do PI")
 
-        # Tipo de PI
+        # Tipo de PI - 4 botões separados
         criar_label("Tipo de PI")
-        self.tipo_pi_segmented = ctk.CTkSegmentedButton(
-            self.scrollable_frame,
-            values=["Matriz", "Normal", "CS", "Abatimento"],
-            command=self.alternar_visibilidade_vinculos,
-            width=520
-        )
-        self.tipo_pi_segmented.set("Normal")
-        self.tipo_pi_segmented.pack(pady=(2, 10), padx=20, anchor="w")
+        self.tipo_pi_var = StringVar(value="Normal")
+        tipos_frame = ctk.CTkFrame(self.scrollable_frame)
+        tipos_frame.pack(pady=(2, 10), padx=20, anchor="w")
 
-        # Vínculo para Abatimento -> PI Matriz
+        for tipo in ["Matriz", "Normal", "CS", "Abatimento"]:
+            ctk.CTkRadioButton(
+                tipos_frame,
+                text=tipo,
+                variable=self.tipo_pi_var,
+                value=tipo,
+                command=self.alternar_visibilidade_vinculos
+            ).pack(side="left", padx=10)
+
         criar_label("Vincular a PI Matriz (somente Abatimento)")
         self.combo_pi_matriz = ctk.CTkComboBox(self.scrollable_frame, values=[], height=40, font=self.font_input)
         self.combo_pi_matriz.set("Selecione o PI Matriz")
         self.combo_pi_matriz.configure(state="disabled")
         self.combo_pi_matriz.pack(pady=(0, 10), padx=20, fill="x")
 
-        # Vínculo para CS -> PI Normal
         criar_label("Vincular a PI Normal (somente CS)")
         self.combo_pi_normal = ctk.CTkComboBox(self.scrollable_frame, values=[], height=40, font=self.font_input)
         self.combo_pi_normal.set("Selecione o PI Normal")
@@ -208,7 +204,7 @@ class PIView(ctk.CTkFrame):
 
     # =================== LÓGICA ===================
     def alternar_visibilidade_vinculos(self, *args):
-        tipo = self.tipo_pi_segmented.get()
+        tipo = self.tipo_pi_var.get()
         if tipo == "Abatimento":
             self.preencher_pis_matriz()
             self.combo_pi_matriz.configure(state="normal")

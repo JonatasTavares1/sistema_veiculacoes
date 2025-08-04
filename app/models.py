@@ -1,5 +1,5 @@
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean
+from sqlalchemy.orm import declarative_base, relationship, foreign, remote
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_
 
 Base = declarative_base()
 
@@ -12,6 +12,8 @@ class Agencia(Base):
     cnpj_agencia = Column(String, unique=True, nullable=False)
     uf_agencia = Column(String)
     executivo = Column(String, nullable=False)
+    email_agencia = Column(String)
+    data_cadastro = Column(String)
 
     pis = relationship("PI", back_populates="agencia")
 
@@ -25,6 +27,8 @@ class Anunciante(Base):
     cnpj_anunciante = Column(String, unique=True, nullable=False)
     uf_cliente = Column(String)
     executivo = Column(String, nullable=False)
+    email_anunciante = Column(String)
+    data_cadastro = Column(String)
 
     pis = relationship("PI", back_populates="anunciante")
 
@@ -82,19 +86,24 @@ class PI(Base):
     veiculacoes = relationship("Veiculacao", back_populates="pi")
     entregas = relationship("Entrega", back_populates="pi")
 
-    # Flag para identificar matrizes antigas (pode ser mantida para compatibilidade)
     eh_matriz = Column(Boolean, default=False, nullable=False)
 
-    # Relacionamentos de filhos
+    # Relacionamentos corrigidos
     filhos_abatimento = relationship(
         "PI",
-        primaryjoin="and_(PI.numero_pi_matriz==foreign(PI.numero_pi), PI.tipo_pi=='Abatimento')",
+        primaryjoin=and_(
+            foreign(numero_pi_matriz) == remote(numero_pi),
+            tipo_pi == "Abatimento"
+        ),
         viewonly=True
     )
 
     filhos_cs = relationship(
         "PI",
-        primaryjoin="and_(PI.numero_pi_normal==foreign(PI.numero_pi), PI.tipo_pi=='CS')",
+        primaryjoin=and_(
+            foreign(numero_pi_normal) == remote(numero_pi),
+            tipo_pi == "CS"
+        ),
         viewonly=True
     )
 

@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox
+from datetime import datetime
 from controllers.anunciante_controller import criar_anunciante, listar_anunciantes, buscar_cnpj_na_web
 
 EXECUTIVOS = [
@@ -29,6 +30,9 @@ class AnuncianteView(ctk.CTkFrame):
         self.uf_entry = ctk.CTkEntry(self, placeholder_text="UF")
         self.uf_entry.pack(pady=5, fill="x", padx=20)
 
+        self.email_entry = ctk.CTkEntry(self, placeholder_text="Email do Anunciante")
+        self.email_entry.pack(pady=5, fill="x", padx=20)
+
         self.executivo_combo = ctk.CTkComboBox(self, values=EXECUTIVOS)
         self.executivo_combo.set("Selecione o Executivo")
         self.executivo_combo.pack(pady=5, padx=20)
@@ -36,7 +40,7 @@ class AnuncianteView(ctk.CTkFrame):
         ctk.CTkButton(self, text="Cadastrar Anunciante", command=self.cadastrar).pack(pady=10)
 
         ctk.CTkLabel(self, text="Anunciantes cadastrados:", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
-        self.lista = ctk.CTkTextbox(self, width=500, height=200)
+        self.lista = ctk.CTkTextbox(self, width=600, height=220)
         self.lista.pack(padx=20, pady=10)
         self.atualizar_lista()
 
@@ -61,23 +65,29 @@ class AnuncianteView(ctk.CTkFrame):
             messagebox.showwarning("Aviso", "CNPJ não encontrado na base da Receita.")
 
     def cadastrar(self):
-        nome = self.nome_entry.get()
-        razao = self.razao_entry.get()
-        cnpj = self.cnpj_entry.get()
-        uf = self.uf_entry.get()
+        nome = self.nome_entry.get().strip()
+        razao = self.razao_entry.get().strip()
+        cnpj = self.cnpj_entry.get().strip()
+        uf = self.uf_entry.get().strip()
+        email = self.email_entry.get().strip()
         executivo = self.executivo_combo.get()
 
         if not nome or not cnpj or executivo == "Selecione o Executivo":
             messagebox.showerror("Erro", "Nome, CNPJ e Executivo são obrigatórios.")
             return
 
-        # Validação do CNPJ
         if "." not in cnpj or "-" not in cnpj:
             messagebox.showerror("Erro", "O CNPJ deve conter ponto (.) e traço (-).")
             return
 
+        if email and "@" not in email:
+            messagebox.showerror("Erro", "Email inválido.")
+            return
+
+        data_cadastro = datetime.now().strftime("%d/%m/%Y")
+
         try:
-            criar_anunciante(nome, razao, cnpj, uf, executivo)
+            criar_anunciante(nome, razao, cnpj, uf, executivo, email, data_cadastro)
             messagebox.showinfo("Sucesso", "Anunciante cadastrado com sucesso!")
             self.limpar_campos()
             self.atualizar_lista()
@@ -89,9 +99,13 @@ class AnuncianteView(ctk.CTkFrame):
         self.razao_entry.delete(0, "end")
         self.cnpj_entry.delete(0, "end")
         self.uf_entry.delete(0, "end")
+        self.email_entry.delete(0, "end")
         self.executivo_combo.set("Selecione o Executivo")
 
     def atualizar_lista(self):
         self.lista.delete("1.0", "end")
         for a in listar_anunciantes():
-            self.lista.insert("end", f"{a.nome_anunciante} | {a.cnpj_anunciante} | {a.uf_cliente} | {a.executivo}\n")
+            self.lista.insert(
+                "end",
+                f"{a.nome_anunciante} | {a.cnpj_anunciante} | {a.uf_cliente} | {a.executivo} | {a.email_anunciante} | {a.data_cadastro}\n"
+            )
