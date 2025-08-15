@@ -1,441 +1,608 @@
-import { useEffect, useMemo, useState } from "react";
+// src/pages/CadastroPI.tsx
+import { useEffect, useMemo, useState } from "react"
 
-// 🔧 Ajuste essa constante conforme seu backend
-const API_BASE = "http://localhost:8000";
+// ====== Tipos ======
+type TipoPI = "Matriz" | "Normal" | "CS" | "Abatimento"
+type PISimple = { numero_pi: string; nome_campanha?: string | null }
+
+// ====== HTTP helpers (sem axios) ======
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+
+async function getJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url)
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json()
+}
+async function postJSON<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let detail = await r.text()
+    try { detail = (await r.json()).detail ?? detail } catch {}
+    throw new Error(detail || `Erro ${r.status}`)
+  }
+  return r.json()
+}
+
+// ====== Constantes UI ======
+const UFS = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO","EX (Exterior)"
+]
+const CANAIS = [
+  "SITE","YOUTUBE","INSTAGRAM","FACEBOOK","TIKTOK","TWITTER","DOOH",
+  "GOOGLE","PROGRAMMATIC","RADIO","PORTAL","REVISTA","JORNAL","INFLUENCIADOR","TV","OUTROS"
+]
+const PERFIS = ["Privado", "Governo estadual", "Governo federal"]
+const SUBPERFIS = [
+  "Privado","Governo estadual","GDF - DETRAN","Sistema S Federal","Governo Federal",
+  "GDF - TERRACAP","Sistema S Regional","CLDF","GDF - SECOM","GDF - BRB",
+  "Governo Estadual - RJ","Privado - PATROCINIO","Privado - Ambipar",
+  "Governo Federal - PATROCINIO","Privado - BYD","Privado - Gestao Executiva","Gestao Executiva - PATROCINIO"
+]
+const EXECUTIVOS_FALLBACK = [
+  "Rafale e Francio","Rafael Rodrigo","Rodrigo da Silva","Juliana Madazio",
+  "Flavio de Paula","Lorena Fernandes","Henri Marques","Caio Bruno",
+  "Flavia Cabral","Paula Caroline","Leila Santos","Jessica Ribeiro","Paula Campos"
+]
+const DIRETORIAS = ["Governo Federal", "Governo Estadual", "Rafael Augusto"]
 
 export default function CadastroPI() {
-  const [tipoPI, setTipoPI] = useState("Normal"); // "Matriz" | "Normal" | "CS" | "Abatimento"
+  // ===== Identificação
+  const [tipoPI, setTipoPI] = useState<TipoPI>("Normal")
+  const [numeroPI, setNumeroPI] = useState("")
 
-  // Identificação
-  const [numeroPI, setNumeroPI] = useState("");
+  // vínculos
+  const [matrizesAtivas, setMatrizesAtivas] = useState<PISimple[]>([])
+  const [normaisAtivos, setNormaisAtivos] = useState<PISimple[]>([])
+  const [numeroPIMatriz, setNumeroPIMatriz] = useState("")
+  const [numeroPINormal, setNumeroPINormal] = useState("")
 
-  // Vinculações
-  const [piMatrizOptions, setPiMatrizOptions] = useState([]); // [{value,label}]
-  const [piNormalOptions, setPiNormalOptions] = useState([]);
-  const [piMatrizSelecionado, setPiMatrizSelecionado] = useState("");
-  const [piNormalSelecionado, setPiNormalSelecionado] = useState("");
+  // ===== Anunciante
+  const [cnpjAnunciante, setCnpjAnunciante] = useState("")
+  const [nomeAnunciante, setNomeAnunciante] = useState("")
+  const [razaoAnunciante, setRazaoAnunciante] = useState("")
+  const [ufCliente, setUfCliente] = useState("DF")
 
-  // Anunciante / Agência / Campanha
-  const [anuncianteCNPJ, setAnuncianteCNPJ] = useState("");
-  const [anuncianteNome, setAnuncianteNome] = useState("");
-  const [agenciaCNPJ, setAgenciaCNPJ] = useState("");
-  const [agenciaNome, setAgenciaNome] = useState("");
-  const [nomeCampanha, setNomeCampanha] = useState("");
+  // ===== Agência (opcional)
+  const [temAgencia, setTemAgencia] = useState(true)
+  const [cnpjAgencia, setCnpjAgencia] = useState("")
+  const [nomeAgencia, setNomeAgencia] = useState("")
+  const [razaoAgencia, setRazaoAgencia] = useState("")
+  const [ufAgencia, setUfAgencia] = useState("DF")
 
-  // Datas
-  const [dataVenda, setDataVenda] = useState(""); // YYYY-MM-DD
-  const [dataEmissao, setDataEmissao] = useState("");
-  const [vencimento, setVencimento] = useState("");
+  // ===== Campanha
+  const [nomeCampanha, setNomeCampanha] = useState("")
+  const [canal, setCanal] = useState("SITE")
+  const [perfilAnunciante, setPerfilAnunciante] = useState("Privado")
+  const [subperfilAnunciante, setSubperfilAnunciante] = useState("Privado")
 
-  // Valores
-  const [valorBruto, setValorBruto] = useState("");
-  const [valorLiquido, setValorLiquido] = useState("");
+  // ===== Datas & Período de venda
+  const [mesVenda, setMesVenda] = useState("") // "07/2025"
+  const [diaVenda, setDiaVenda] = useState("") // "23"
+  const [vencimento, setVencimento] = useState<string>("")   // yyyy-mm-dd
+  const [dataEmissao, setDataEmissao] = useState<string>("") // yyyy-mm-dd
 
-  // Observações
-  const [observacoes, setObservacoes] = useState("");
+  // ===== Responsáveis & Valores
+  const [executivos, setExecutivos] = useState<string[]>(EXECUTIVOS_FALLBACK)
+  const [executivo, setExecutivo] = useState(EXECUTIVOS_FALLBACK[0])
+  const [diretoria, setDiretoria] = useState(DIRETORIAS[0])
+  const [valorBruto, setValorBruto] = useState<string>("")
+  const [valorLiquido, setValorLiquido] = useState<string>("")
+  const [observacoes, setObservacoes] = useState<string>("")
 
-  // Mensagens
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState("");
-  const [ok, setOk] = useState("");
+  // ===== UX
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
 
-  const precisaSelecionarMatriz = useMemo(() => tipoPI === "CS", [tipoPI]);
-  const precisaSelecionarNormal = useMemo(() => tipoPI === "Abatimento", [tipoPI]);
-
-  // Carrega listas condicionais
+  // ===== Loads iniciais
   useEffect(() => {
-    async function carregarMatrizes() {
+    (async () => {
       try {
-        const r = await fetch(`${API_BASE}/pis/matriz/ativos`); // ajuste a rota se necessário
-        if (!r.ok) throw new Error("Falha ao carregar PIs Matriz");
-        const data = await r.json();
-        // Esperado: array de objetos com {numero_pi, nome_campanha}
-        const opts = data.map((pi) => ({
-          value: String(pi.numero_pi),
-          label: pi.nome_campanha ? `${pi.numero_pi} — ${pi.nome_campanha}` : String(pi.numero_pi),
-        }));
-        setPiMatrizOptions(opts);
-      } catch (e) {
-        console.error(e);
-        setPiMatrizOptions([]);
-      }
-    }
-
-    async function carregarNormais() {
+        const mats = await getJSON<PISimple[]>(`${API}/matrizes/ativos`)
+        setMatrizesAtivas(mats || [])
+      } catch (e) { console.warn("Falha matrizes:", e) }
       try {
-        const r = await fetch(`${API_BASE}/pis/normais/ativos`); // ajuste a rota se necessário
-        if (!r.ok) throw new Error("Falha ao carregar PIs Normais");
-        const data = await r.json();
-        const opts = data.map((pi) => ({
-          value: String(pi.numero_pi),
-          label: pi.nome_campanha ? `${pi.numero_pi} — ${pi.nome_campanha}` : String(pi.numero_pi),
-        }));
-        setPiNormalOptions(opts);
-      } catch (e) {
-        console.error(e);
-        setPiNormalOptions([]);
-      }
-    }
+        const norms = await getJSON<PISimple[]>(`${API}/pis/normal/ativos`)
+        setNormaisAtivos(norms || [])
+      } catch (e) { console.warn("Falha normais:", e) }
+      try {
+        const ex = await getJSON<string[]>(`${API}/executivos`)
+        if (Array.isArray(ex) && ex.length) { setExecutivos(ex); setExecutivo(ex[0]) }
+      } catch { /* fallback já setado */ }
+    })()
+  }, [])
 
-    if (precisaSelecionarMatriz) {
-      carregarMatrizes();
-      setPiNormalSelecionado("");
-    } else if (precisaSelecionarNormal) {
-      carregarNormais();
-      setPiMatrizSelecionado("");
-    } else {
-      setPiMatrizSelecionado("");
-      setPiNormalSelecionado("");
-    }
-  }, [precisaSelecionarMatriz, precisaSelecionarNormal]);
+  // alterna seções condicionais
+  useEffect(() => {
+    setErro(null); setMsg(null)
+    if (tipoPI !== "Abatimento") setNumeroPIMatriz("")
+    if (tipoPI !== "CS") setNumeroPINormal("")
+  }, [tipoPI])
 
-  function validarCampos() {
-    setErro("");
-
-    if (!numeroPI.trim()) return "Informe o número do PI.";
-
-    if (precisaSelecionarMatriz && !piMatrizSelecionado)
-      return "Selecione o PI Matriz para um PI do tipo CS.";
-
-    if (precisaSelecionarNormal && !piNormalSelecionado)
-      return "Selecione o PI Normal para um Abatimento.";
-
-    if (!anuncianteCNPJ.trim() || !anuncianteNome.trim())
-      return "Informe CNPJ e Razão Social do Anunciante.";
-
-    if (!agenciaCNPJ.trim() || !agenciaNome.trim())
-      return "Informe CNPJ e Razão Social da Agência.";
-
-    if (!nomeCampanha.trim()) return "Informe o nome da campanha.";
-
-    if (!dataVenda || !dataEmissao) return "Informe data da venda e data de emissão.";
-
-    if (!valorBruto || isNaN(Number(valorBruto))) return "Informe o valor bruto (número).";
-
-    if (!valorLiquido || isNaN(Number(valorLiquido))) return "Informe o valor líquido (número).";
-
-    return "";
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setOk("");
-    const msg = validarCampos();
-    if (msg) {
-      setErro(msg);
-      return;
-    }
-
-    const payload = {
-      numero_pi: numeroPI,
-      tipo_pi: tipoPI, // "Matriz" | "Normal" | "CS" | "Abatimento"
-      pi_matriz_vinculado: precisaSelecionarMatriz ? piMatrizSelecionado : null,
-      pi_normal_vinculado: precisaSelecionarNormal ? piNormalSelecionado : null,
-      anunciante_cnpj: anuncianteCNPJ,
-      anunciante_nome: anuncianteNome,
-      agencia_cnpj: agenciaCNPJ,
-      agencia_nome: agenciaNome,
-      nome_campanha: nomeCampanha,
-      data_venda: dataVenda,
-      data_emissao: dataEmissao,
-      vencimento: vencimento || null,
-      valor_bruto: Number(valorBruto),
-      valor_liquido: Number(valorLiquido),
-      observacoes,
-    };
-
+  // ===== Buscar por CNPJ (BD -> BrasilAPI fallback)
+  const onlyDigits = (s: string) => (s || "").replace(/\D/g, "")
+  async function buscarAnunciante() {
+    const cnpj = onlyDigits(cnpjAnunciante)
+    if (!cnpj) return setErro("Informe o CNPJ do anunciante.")
+    setErro(null); setMsg(null)
     try {
-      setSalvando(true);
-      const r = await fetch(`${API_BASE}/pis`, {
-        method: "POST", // ajuste para a rota correta do seu controller
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(t || "Erro ao salvar PI");
-      }
-      setOk("PI cadastrado com sucesso.");
-      setErro("");
-      // opcional: limpar formulário
-      // resetForm();
-    } catch (e) {
-      console.error(e);
-      setErro(e.message || "Erro ao salvar");
-    } finally {
-      setSalvando(false);
+      const reg = await getJSON<any>(`${API}/anunciantes/cnpj/${cnpj}`)
+      setNomeAnunciante(reg?.nome_anunciante || "")
+      setRazaoAnunciante(reg?.razao_social_anunciante || "")
+      setUfCliente(reg?.uf_cliente || "DF")
+      setMsg("Anunciante carregado do cadastro.")
+    } catch {
+      try {
+        const br = await getJSON<any>(`${API}/anunciantes/cnpj/${cnpj}/consulta`)
+        setNomeAnunciante(br?.nome_fantasia || br?.razao_social || "")
+        setRazaoAnunciante(br?.razao_social || "")
+        setUfCliente(br?.uf || br?.estado || "DF")
+        setMsg("Pré-preenchido via BrasilAPI.")
+      } catch { setErro("Não encontrado na base nem na BrasilAPI.") }
+    }
+  }
+  async function buscarAgencia() {
+    const cnpj = onlyDigits(cnpjAgencia)
+    if (!cnpj) return setErro("Informe o CNPJ da agência.")
+    setErro(null); setMsg(null)
+    try {
+      const reg = await getJSON<any>(`${API}/agencias/cnpj/${cnpj}`)
+      setNomeAgencia(reg?.nome_agencia || "")
+      setRazaoAgencia(reg?.razao_social_agencia || "")
+      setUfAgencia(reg?.uf_agencia || "DF")
+      setMsg("Agência carregada do cadastro.")
+    } catch {
+      try {
+        const br = await getJSON<any>(`${API}/agencias/cnpj/${cnpj}/consulta`)
+        setNomeAgencia(br?.nome_fantasia || br?.razao_social || "")
+        setRazaoAgencia(br?.razao_social || "")
+        setUfAgencia(br?.uf || br?.estado || "DF")
+        setMsg("Pré-preenchido via BrasilAPI.")
+      } catch { setErro("Não encontrada na base nem na BrasilAPI.") }
     }
   }
 
-  function resetForm() {
-    setNumeroPI("");
-    setTipoPI("Normal");
-    setPiMatrizSelecionado("");
-    setPiNormalSelecionado("");
-    setAnuncianteCNPJ("");
-    setAnuncianteNome("");
-    setAgenciaCNPJ("");
-    setAgenciaNome("");
-    setNomeCampanha("");
-    setDataVenda("");
-    setDataEmissao("");
-    setVencimento("");
-    setValorBruto("");
-    setValorLiquido("");
-    setObservacoes("");
+  // ===== Regras de envio
+  const podeEnviar = useMemo(() => {
+    if (!numeroPI.trim()) return false
+    if (tipoPI === "Abatimento") {
+      if (!numeroPIMatriz) return false
+      const v = parseFloat((valorBruto || "").replace(",", "."))
+      if (isNaN(v) || v <= 0) return false
+    }
+    if (tipoPI === "CS" && !numeroPINormal) return false
+    return true
+  }, [numeroPI, tipoPI, numeroPIMatriz, numeroPINormal, valorBruto])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true); setErro(null); setMsg(null)
+    try {
+      const payload: any = {
+        numero_pi: numeroPI.trim(),
+        tipo_pi: tipoPI,
+        // anunciante
+        nome_anunciante: nomeAnunciante || undefined,
+        razao_social_anunciante: razaoAnunciante || undefined,
+        cnpj_anunciante: onlyDigits(cnpjAnunciante) || undefined,
+        uf_cliente: ufCliente || undefined,
+        // agência
+        nome_agencia: temAgencia ? (nomeAgencia || undefined) : undefined,
+        razao_social_agencia: temAgencia ? (razaoAgencia || undefined) : undefined,
+        cnpj_agencia: temAgencia ? (onlyDigits(cnpjAgencia) || undefined) : undefined,
+        uf_agencia: temAgencia ? (ufAgencia || undefined) : undefined,
+        // campanha
+        nome_campanha: nomeCampanha || undefined,
+        canal: canal || undefined,
+        perfil_anunciante: perfilAnunciante || undefined,
+        subperfil_anunciante: subperfilAnunciante || undefined,
+        // datas
+        mes_venda: mesVenda || undefined,
+        dia_venda: diaVenda || undefined,
+        vencimento: vencimento || undefined,
+        data_emissao: dataEmissao || undefined,
+        // responsáveis e valores
+        executivo: executivo || undefined,
+        diretoria: diretoria || undefined,
+        valor_bruto: valorBruto ? parseFloat(valorBruto.replace(",", ".")) : undefined,
+        valor_liquido: valorLiquido ? parseFloat(valorLiquido.replace(",", ".")) : undefined,
+        observacoes: (observacoes || "").trim(),
+      }
+      if (tipoPI === "Abatimento") payload.numero_pi_matriz = numeroPIMatriz
+      if (tipoPI === "CS") payload.numero_pi_normal = numeroPINormal
+
+      const res = await postJSON<any>(`${API}/pis`, payload)
+      setMsg(`PI criada: ${res.numero_pi} (${res.tipo_pi})`)
+      setNumeroPI("")
+      // mantém vínculos pra facilitar cadastros em sequência
+    } catch (err: any) {
+      setErro(err?.message || "Erro ao cadastrar PI.")
+    } finally {
+      setLoading(false)
+    }
   }
 
+  // ===== UI (com destaque VERMELHO)
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">Cadastro de Pedido de Inserção</h1>
+    <div className="max-w-6xl mx-auto p-6">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900">Cadastro de Pedido de Inserção</h1>
+        <span className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700 border border-red-200">
+          <span className="h-2 w-2 rounded-full bg-red-600" /> modo cadastro
+        </span>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Seção: Identificação */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Identificação</h2>
+        {/* Identificação */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Identificação</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block font-medium mb-1">Número do PI</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Número do PI</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 placeholder="Digite o número do PI"
                 value={numeroPI}
                 onChange={(e) => setNumeroPI(e.target.value)}
+                required
               />
             </div>
 
             <div>
-              <label className="block font-medium mb-1">Tipo de PI</label>
-              <div className="flex flex-wrap gap-4">
-                {["Matriz", "Normal", "CS", "Abatimento"].map((tipo) => (
-                  <label key={tipo} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="tipoPI"
-                      value={tipo}
-                      checked={tipoPI === tipo}
-                      onChange={() => setTipoPI(tipo)}
-                    />
-                    {tipo}
-                  </label>
-                ))}
+              <label className="block text-sm font-medium text-slate-700 mb-2">Tipo de PI</label>
+              <div className="flex flex-wrap gap-2">
+                {(["Matriz","Normal","CS","Abatimento"] as const).map((tipo) => {
+                  const selected = tipoPI === tipo
+                  return (
+                    <button
+                      key={tipo}
+                      type="button"
+                      onClick={() => setTipoPI(tipo)}
+                      className={[
+                        "px-3 py-2 rounded-full border text-sm transition",
+                        selected
+                          ? "bg-red-600 text-white border-red-600 shadow"
+                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                      ].join(" ")}
+                    >
+                      {tipo}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
+
+          {/* vínculos condicionais */}
+          {tipoPI === "Abatimento" && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div className="md:col-span-3">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Vincular a PI Matriz (com saldo)</label>
+                <select
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  value={numeroPIMatriz}
+                  onChange={(e) => setNumeroPIMatriz(e.target.value)}
+                >
+                  <option value="">-- escolha --</option>
+                  {matrizesAtivas.map((m) => (
+                    <option key={m.numero_pi} value={m.numero_pi}>
+                      {m.numero_pi}{m.nome_campanha ? ` — ${m.nome_campanha}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {tipoPI === "CS" && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Vincular a PI Normal</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={numeroPINormal}
+                onChange={(e) => setNumeroPINormal(e.target.value)}
+              >
+                <option value="">-- escolha --</option>
+                {normaisAtivos.map((n) => (
+                  <option key={n.numero_pi} value={n.numero_pi}>
+                    {n.numero_pi}{n.nome_campanha ? ` — ${n.nome_campanha}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </section>
 
-        {/* Seção: Vinculação condicional */}
-        {(precisaSelecionarMatriz || precisaSelecionarNormal) && (
-          <section>
-            <h2 className="text-lg font-semibold mb-4">Vinculação</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {precisaSelecionarMatriz && (
-                <div>
-                  <label className="block font-medium mb-1">Vincular a PI Matriz (para CS)</label>
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={piMatrizSelecionado}
-                    onChange={(e) => setPiMatrizSelecionado(e.target.value)}
-                  >
-                    <option value="">Selecione...</option>
-                    {piMatrizOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {precisaSelecionarNormal && (
-                <div>
-                  <label className="block font-medium mb-1">Vincular a PI Normal (para Abatimento)</label>
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={piNormalSelecionado}
-                    onChange={(e) => setPiNormalSelecionado(e.target.value)}
-                  >
-                    <option value="">Selecione...</option>
-                    {piNormalOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Seção: Anunciante */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Anunciante</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Anunciante */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Informações do Anunciante</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block font-medium mb-1">CNPJ</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">CNPJ do Anunciante</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  placeholder="Somente números"
+                  value={cnpjAnunciante}
+                  onChange={(e) => setCnpjAnunciante(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={buscarAnunciante}
+                  className="px-3 py-2 rounded-xl border border-red-600 text-red-700 hover:bg-red-50 transition"
+                >
+                  Buscar
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Anunciante</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
-                placeholder="00.000.000/0000-00"
-                value={anuncianteCNPJ}
-                onChange={(e) => setAnuncianteCNPJ(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={nomeAnunciante}
+                onChange={(e) => setNomeAnunciante(e.target.value)}
               />
             </div>
             <div>
-              <label className="block font-medium mb-1">Razão Social</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Razão Social</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
-                placeholder="Nome do Anunciante"
-                value={anuncianteNome}
-                onChange={(e) => setAnuncianteNome(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={razaoAnunciante}
+                onChange={(e) => setRazaoAnunciante(e.target.value)}
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">UF do Cliente</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={ufCliente}
+                onChange={(e) => setUfCliente(e.target.value)}
+              >
+                {UFS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
             </div>
           </div>
         </section>
 
-        {/* Seção: Agência */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Agência</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Agência */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">Agência (opcional)</h2>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={temAgencia}
+                onChange={(e) => setTemAgencia(e.target.checked)}
+                className="h-4 w-4 accent-red-600"
+              />
+              Possui agência?
+            </label>
+          </div>
+
+          <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${temAgencia ? "" : "opacity-60 pointer-events-none"}`}>
             <div>
-              <label className="block font-medium mb-1">CNPJ</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">CNPJ da Agência</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  placeholder="Somente números"
+                  value={cnpjAgencia}
+                  onChange={(e) => setCnpjAgencia(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={buscarAgencia}
+                  className="px-3 py-2 rounded-xl border border-red-600 text-red-700 hover:bg-red-50 transition"
+                >
+                  Buscar
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Agência</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
-                placeholder="00.000.000/0000-00"
-                value={agenciaCNPJ}
-                onChange={(e) => setAgenciaCNPJ(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={nomeAgencia}
+                onChange={(e) => setNomeAgencia(e.target.value)}
               />
             </div>
             <div>
-              <label className="block font-medium mb-1">Razão Social</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Razão Social da Agência</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
-                placeholder="Nome da Agência"
-                value={agenciaNome}
-                onChange={(e) => setAgenciaNome(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={razaoAgencia}
+                onChange={(e) => setRazaoAgencia(e.target.value)}
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">UF da Agência</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={ufAgencia}
+                onChange={(e) => setUfAgencia(e.target.value)}
+              >
+                {UFS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
             </div>
           </div>
         </section>
 
-        {/* Seção: Campanha */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Campanha</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Campanha */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Dados da Campanha</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
-              <label className="block font-medium mb-1">Nome da Campanha</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Campanha</label>
               <input
                 type="text"
-                className="w-full border rounded px-3 py-2"
-                placeholder="Ex.: Campanha Dia dos Pais"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 value={nomeCampanha}
                 onChange={(e) => setNomeCampanha(e.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Canal (Meio)</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={canal}
+                onChange={(e) => setCanal(e.target.value)}
+              >
+                {CANAIS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Perfil do Anunciante</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={perfilAnunciante}
+                onChange={(e) => setPerfilAnunciante(e.target.value)}
+              >
+                {PERFIS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Subperfil do Anunciante</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={subperfilAnunciante}
+                onChange={(e) => setSubperfilAnunciante(e.target.value)}
+              >
+                {SUBPERFIS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
           </div>
         </section>
 
-        {/* Seção: Datas */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Datas</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Datas & Período de Venda */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Datas e Período de Venda</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block font-medium mb-1">Data da Venda</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Mês da Venda (MM/AAAA)</label>
               <input
-                type="date"
-                className="w-full border rounded px-3 py-2"
-                value={dataVenda}
-                onChange={(e) => setDataVenda(e.target.value)}
+                type="text" placeholder="07/2025"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={mesVenda}
+                onChange={(e) => setMesVenda(e.target.value)}
               />
             </div>
             <div>
-              <label className="block font-medium mb-1">Data de Emissão</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Dia da Venda (DD)</label>
               <input
-                type="date"
-                className="w-full border rounded px-3 py-2"
-                value={dataEmissao}
-                onChange={(e) => setDataEmissao(e.target.value)}
+                type="text" placeholder="23"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={diaVenda}
+                onChange={(e) => setDiaVenda(e.target.value)}
               />
             </div>
             <div>
-              <label className="block font-medium mb-1">Vencimento (opcional)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Vencimento</label>
               <input
                 type="date"
-                className="w-full border rounded px-3 py-2"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 value={vencimento}
                 onChange={(e) => setVencimento(e.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Data de Emissão</label>
+              <input
+                type="date"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={dataEmissao}
+                onChange={(e) => setDataEmissao(e.target.value)}
+              />
+            </div>
           </div>
         </section>
 
-        {/* Seção: Valores */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Valores</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Responsáveis & Valores */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Responsáveis e Valores</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block font-medium mb-1">Valor Bruto</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Executivo Responsável</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={executivo}
+                onChange={(e) => setExecutivo(e.target.value)}
+              >
+                {executivos.map((ex) => <option key={ex} value={ex}>{ex}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Diretoria</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={diretoria}
+                onChange={(e) => setDiretoria(e.target.value)}
+              >
+                {DIRETORIAS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Bruto</label>
               <input
-                type="number"
-                step="0.01"
-                className="w-full border rounded px-3 py-2"
-                placeholder="0,00"
+                type="number" step="0.01" placeholder={tipoPI === "Abatimento" ? "Obrigatório para Abatimento" : "ex: 1000.00"}
+                className={[
+                  "w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-4",
+                  "focus:ring-red-100",
+                  tipoPI === "Abatimento" ? "border-red-400" : "border-slate-300"
+                ].join(" ")}
                 value={valorBruto}
                 onChange={(e) => setValorBruto(e.target.value)}
               />
             </div>
             <div>
-              <label className="block font-medium mb-1">Valor Líquido</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Líquido (opcional)</label>
               <input
-                type="number"
-                step="0.01"
-                className="w-full border rounded px-3 py-2"
-                placeholder="0,00"
+                type="number" step="0.01" placeholder="ex: 900.00"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 value={valorLiquido}
                 onChange={(e) => setValorLiquido(e.target.value)}
+              />
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Observações (opcional)</label>
+              <input
+                type="text" placeholder="Escreva observações gerais"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
               />
             </div>
           </div>
         </section>
 
-        {/* Seção: Observações */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Observações</h2>
-          <textarea
-            className="w-full border rounded px-3 py-2 min-h-[100px]"
-            placeholder="Observações adicionais..."
-            value={observacoes}
-            onChange={(e) => setObservacoes(e.target.value)}
-          />
-        </section>
-
-        {/* Mensagens */}
-        {erro && <div className="text-red-600 font-medium">{erro}</div>}
-        {ok && <div className="text-green-700 font-medium">{ok}</div>}
-
+        {/* Ações */}
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={salvando}
-            className="bg-blue-600 disabled:opacity-60 text-white font-semibold px-6 py-2 rounded hover:bg-blue-700 transition"
+            disabled={!podeEnviar || loading}
+            className="bg-red-600 text-white font-semibold px-6 py-2 rounded-xl hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition shadow-sm"
           >
-            {salvando ? "Salvando..." : "Cadastrar PI"}
+            {loading ? "Cadastrando..." : "Cadastrar PI"}
           </button>
-
-          <button
-            type="button"
-            onClick={resetForm}
-            className="border font-semibold px-6 py-2 rounded hover:bg-gray-50 transition"
-          >
-            Limpar
-          </button>
+          {msg && <span className="text-green-700">{msg}</span>}
+          {erro && <span className="text-red-700">{erro}</span>}
         </div>
       </form>
     </div>
-  );
+  )
 }
