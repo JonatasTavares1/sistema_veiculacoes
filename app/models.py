@@ -88,7 +88,7 @@ class PI(Base):
 
     eh_matriz = Column(Boolean, default=False, nullable=False)
 
-    # Relacionamentos corrigidos
+    # Relacionamentos corrigidos (filhos)
     filhos_abatimento = relationship(
         "PI",
         primaryjoin=and_(
@@ -113,6 +113,10 @@ class Produto(Base):
 
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
+
+    # 🚀 novos campos
+    descricao = Column(String, nullable=True)
+    valor_unitario = Column(Float, nullable=True)
 
     veiculacoes = relationship("Veiculacao", back_populates="produto")
 

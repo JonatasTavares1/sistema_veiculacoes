@@ -10,10 +10,8 @@ from app.routes.agencia import router as agencias_router
 from app.routes.entregas import router as entregas_router
 from app.routes.anunciantes import router as anunciantes_router
 from app.routes.executivos import router as executivos_router
-
- # <-- novo
-# from app.routes.anunciantes import router as anunciantes_router  # <-- habilite quando criar
-
+from app.routes.produtos import router as produtos_router
+from app.routes.matrizes import router as matrizes_router    
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
 app.add_middleware(
@@ -33,8 +31,9 @@ app.include_router(pis_router)
 app.include_router(agencias_router)
 app.include_router(entregas_router)
 app.include_router(anunciantes_router)
-app.include_router(executivos_router)  # <-- habilite quando existir
-# app.include_router(anunciantes_router)  # <-- habilite quando existir
+app.include_router(executivos_router)
+app.include_router(produtos_router)
+app.include_router(matrizes_router)
 
 @app.get("/")
 def healthcheck():
