@@ -16,44 +16,41 @@ class PIView(ctk.CTkFrame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
 
+        # ======== FONTES ========
         self.font_titulo_pagina = ctk.CTkFont(size=22, weight="bold")
         self.font_secao = ctk.CTkFont(size=18, weight="bold")
         self.font_label = ctk.CTkFont(size=14, weight="bold")
         self.font_input = ctk.CTkFont(size=15)
 
-        ctk.CTkLabel(
-            self,
-            text="Cadastro de Pedido de Inserção",
-            font=self.font_titulo_pagina
-        ).pack(pady=15)
+        # ======== TÍTULO ========
+        ctk.CTkLabel(self, text="Cadastro de Pedido de Inserção", font=self.font_titulo_pagina).pack(pady=15)
 
         self.scrollable_frame = ctk.CTkScrollableFrame(self, width=930, height=700)
         self.scrollable_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
+        # ======== FUNÇÕES AUXILIARES ========
         def titulo_secao(texto):
-            ctk.CTkLabel(
-                self.scrollable_frame, text=texto,
-                font=self.font_secao, anchor="w"
-            ).pack(pady=(18, 8), padx=20, fill="x")
+            ctk.CTkLabel(self.scrollable_frame, text=texto, font=self.font_secao, anchor="w").pack(
+                pady=(18, 8), padx=20, fill="x"
+            )
 
         def criar_label(texto):
-            ctk.CTkLabel(
-                self.scrollable_frame, text=texto,
-                font=self.font_label, anchor="w"
-            ).pack(pady=(8, 0), padx=20, fill="x")
+            ctk.CTkLabel(self.scrollable_frame, text=texto, font=self.font_label, anchor="w").pack(
+                pady=(8, 0), padx=20, fill="x"
+            )
 
         def criar_entry(titulo):
             criar_label(titulo)
-            e = ctk.CTkEntry(self.scrollable_frame, height=40, font=self.font_input)
-            e.pack(pady=(0, 8), padx=20, fill="x")
-            return e
+            entry = ctk.CTkEntry(self.scrollable_frame, height=40, font=self.font_input)
+            entry.pack(pady=(0, 8), padx=20, fill="x")
+            return entry
 
         def criar_combo(titulo, values, default="Selecione"):
             criar_label(titulo)
-            cb = ctk.CTkComboBox(self.scrollable_frame, values=values, height=40, font=self.font_input)
-            cb.set(default)
-            cb.pack(pady=(0, 8), padx=20, fill="x")
-            return cb
+            combo = ctk.CTkComboBox(self.scrollable_frame, values=values, height=40, font=self.font_input)
+            combo.set(default)
+            combo.pack(pady=(0, 8), padx=20, fill="x")
+            return combo
 
         def criar_combo_uf(titulo, default="DF"):
             ufs = [
@@ -61,22 +58,17 @@ class PIView(ctk.CTkFrame):
                 "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
                 "EX (Exterior)"
             ]
-            criar_label(titulo)
-            cb = ctk.CTkComboBox(self.scrollable_frame, values=ufs, height=40, font=self.font_input)
-            cb.set(default if default in ufs else "DF")
-            cb.pack(pady=(0, 8), padx=20, fill="x")
-            return cb
+            return criar_combo(titulo, ufs, default)
 
-        # ========= CAMPOS =========
+        # ======== IDENTIFICAÇÃO ========
         titulo_secao("Identificação")
         self.numero_entry = criar_entry("Número do PI")
 
-        # Tipo de PI - 4 botões separados
+        # Tipo de PI
         criar_label("Tipo de PI")
         self.tipo_pi_var = StringVar(value="Normal")
         tipos_frame = ctk.CTkFrame(self.scrollable_frame)
         tipos_frame.pack(pady=(2, 10), padx=20, anchor="w")
-
         for tipo in ["Matriz", "Normal", "CS", "Abatimento"]:
             ctk.CTkRadioButton(
                 tipos_frame,
@@ -86,6 +78,7 @@ class PIView(ctk.CTkFrame):
                 command=self.alternar_visibilidade_vinculos
             ).pack(side="left", padx=10)
 
+        # Combos de vínculo
         criar_label("Vincular a PI Matriz (somente Abatimento)")
         self.combo_pi_matriz = ctk.CTkComboBox(self.scrollable_frame, values=[], height=40, font=self.font_input)
         self.combo_pi_matriz.set("Selecione o PI Matriz")
@@ -98,21 +91,19 @@ class PIView(ctk.CTkFrame):
         self.combo_pi_normal.configure(state="disabled")
         self.combo_pi_normal.pack(pady=(0, 10), padx=20, fill="x")
 
-        # Anunciante
+        # ======== ANUNCIANTE ========
         titulo_secao("Informações do Anunciante")
         self.cnpj_anunciante_entry = criar_entry("CNPJ do Anunciante")
         self.nome_anunciante_entry = criar_entry("Nome do Anunciante")
         self.razao_anunciante_entry = criar_entry("Razão Social do Anunciante")
-        self.uf_cliente_entry = criar_combo_uf("UF do Cliente", default="DF")
+        self.uf_cliente_entry = criar_combo_uf("UF do Cliente")
 
         ctk.CTkButton(
-            self.scrollable_frame,
-            text="🔍 Buscar Anunciante",
-            command=self.preencher_anunciante,
-            height=42
+            self.scrollable_frame, text="🔍 Buscar Anunciante",
+            command=self.preencher_anunciante, height=42
         ).pack(pady=(2, 14), padx=20, anchor="w")
 
-        # Agência
+        # ======== AGÊNCIA ========
         self.agencia_var = ctk.BooleanVar(value=True)
         self.checkbox_agencia = ctk.CTkCheckBox(
             self.scrollable_frame,
@@ -126,84 +117,65 @@ class PIView(ctk.CTkFrame):
         self.cnpj_agencia_entry = criar_entry("CNPJ da Agência")
         self.nome_agencia_entry = criar_entry("Nome da Agência")
         self.razao_agencia_entry = criar_entry("Razão Social da Agência")
-        self.uf_agencia_entry = criar_combo_uf("UF da Agência", default="DF")
+        self.uf_agencia_entry = criar_combo_uf("UF da Agência")
 
         self.botao_buscar_agencia = ctk.CTkButton(
-            self.scrollable_frame,
-            text="🔍 Buscar Agência",
-            command=self.preencher_agencia,
-            height=42
+            self.scrollable_frame, text="🔍 Buscar Agência",
+            command=self.preencher_agencia, height=42
         )
         self.botao_buscar_agencia.pack(pady=(2, 14), padx=20, anchor="w")
         self.alternar_agencia()
 
-        # Campanha
+        # ======== CAMPANHA ========
         titulo_secao("Dados da Campanha")
         self.nome_campanha_entry = criar_entry("Nome da Campanha")
-        self.canal_entry = criar_combo(
-            "Canal (Meio)",
-            [
-                "SITE", "YOUTUBE", "INSTAGRAM", "FACEBOOK", "TIKTOK", "TWITTER", "DOOH",
-                "GOOGLE", "PROGRAMMATIC", "RADIO", "PORTAL", "REVISTA", "JORNAL",
-                "INFLUENCIADOR", "TV", "OUTROS"
-            ],
-            default="Selecione"
-        )
-        self.perfil_entry = criar_combo(
-            "Perfil do Anunciante",
-            ["Privado", "Governo estadual", "Governo federal"],
-            default="Selecione"
-        )
-        self.subperfil_entry = criar_combo(
-            "Subperfil do Anunciante",
-            [
-                "Privado", "Governo estadual", "GDF - DETRAN", "Sistema S Federal", "Governo Federal",
-                "GDF - TERRACAP", "Sistema S Regional", "CLDF", "GDF - SECOM", "GDF - BRB",
-                "Governo Estadual - RJ", "Privado - PATROCINIO", "Privado - Ambipar",
-                "Governo Federal - PATROCINIO", "Privado - BYD", "Privado - Gestao Executiva",
-                "Gestao Executiva - PATROCINIO"
-            ],
-            default="Selecione"
-        )
+        self.canal_entry = criar_combo("Canal (Meio)", [
+            "SITE", "YOUTUBE", "INSTAGRAM", "FACEBOOK", "TIKTOK", "TWITTER", "DOOH",
+            "GOOGLE", "PROGRAMMATIC", "RADIO", "PORTAL", "REVISTA", "JORNAL",
+            "INFLUENCIADOR", "TV", "OUTROS"
+        ])
+        self.perfil_entry = criar_combo("Perfil do Anunciante", [
+            "Privado", "Governo estadual", "Governo federal"
+        ])
+        self.subperfil_entry = criar_combo("Subperfil do Anunciante", [
+            "Privado", "Governo estadual", "GDF - DETRAN", "Sistema S Federal", "Governo Federal",
+            "GDF - TERRACAP", "Sistema S Regional", "CLDF", "GDF - SECOM", "GDF - BRB",
+            "Governo Estadual - RJ", "Privado - PATROCINIO", "Privado - Ambipar",
+            "Governo Federal - PATROCINIO", "Privado - BYD", "Privado - Gestao Executiva",
+            "Gestao Executiva - PATROCINIO"
+        ])
 
-        # Datas
+        # ======== DATAS ========
         titulo_secao("Datas e Período de Venda")
         self.mes_venda_entry = criar_entry("Mês da Venda (ex: 07/2025)")
         self.dia_venda_entry = criar_entry("Dia da Venda (ex: 23)")
         self.vencimento_entry = criar_entry("Vencimento (dd/mm/aaaa)")
         self.data_emissao_entry = criar_entry("Data de Emissão (dd/mm/aaaa)")
 
-        # Responsáveis e Valores
+        # ======== VALORES E RESPONSÁVEIS ========
         titulo_secao("Responsáveis e Valores")
-        self.executivo_entry = criar_combo(
-            "Executivo Responsável",
-            [
-                "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
-                "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
-                "Flavia Cabral", "Paula Caroline", "Leila Santos", "Jessica Ribeiro",
-                "Paula Campos"
-            ],
-            default="Selecione"
-        )
-        self.diretoria_entry = criar_combo(
-            "Diretoria",
-            ["Governo Federal", "Governo Estadual", "Rafael Augusto"],
-            default="Selecione"
-        )
+        self.executivo_entry = criar_combo("Executivo Responsável", [
+            "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
+            "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
+            "Flavia Cabral", "Paula Caroline", "Leila Santos", "Jessica Ribeiro",
+            "Paula Campos"
+        ])
+        self.diretoria_entry = criar_combo("Diretoria", [
+            "Governo Federal", "Governo Estadual", "Rafael Augusto"
+        ])
         self.valor_bruto_entry = criar_entry("Valor Bruto (ex: 1000.00)")
         self.valor_liquido_entry = criar_entry("Valor Líquido (ex: 900.00)")
         self.obs_entry = criar_entry("Observações (opcional)")
 
-        # Botão salvar
+        # ======== BOTÃO FINAL ========
         ctk.CTkButton(
-            self.scrollable_frame,
-            text="💾 Cadastrar PI",
-            command=self.cadastrar_pi,
-            height=46
+            self.scrollable_frame, text="💾 Cadastrar PI",
+            command=self.cadastrar_pi, height=46
         ).pack(pady=20, padx=20, anchor="w")
 
-    # =================== LÓGICA ===================
-    def alternar_visibilidade_vinculos(self, *args):
+    # ===================== MÉTODOS =====================
+
+    def alternar_visibilidade_vinculos(self):
         tipo = self.tipo_pi_var.get()
         if tipo == "Abatimento":
             self.preencher_pis_matriz()
@@ -222,11 +194,11 @@ class PIView(ctk.CTkFrame):
             self.combo_pi_normal.configure(state="disabled")
 
     def preencher_pis_matriz(self):
-        pis_matriz_disponiveis = [
+        pis_disponiveis = [
             pi for pi in listar_pis_matriz_ativos()
             if calcular_saldo_restante(pi.numero_pi) > 0
         ]
-        self.combo_pi_matriz.configure(values=[pi.numero_pi for pi in pis_matriz_disponiveis])
+        self.combo_pi_matriz.configure(values=[pi.numero_pi for pi in pis_disponiveis])
 
     def preencher_pis_normal(self):
         pis_normais = listar_pis_normal_ativos()
@@ -236,7 +208,8 @@ class PIView(ctk.CTkFrame):
         estado = "normal" if self.agencia_var.get() else "disabled"
         for widget in (
             self.cnpj_agencia_entry, self.nome_agencia_entry,
-            self.razao_agencia_entry, self.uf_agencia_entry, self.botao_buscar_agencia
+            self.razao_agencia_entry, self.uf_agencia_entry,
+            self.botao_buscar_agencia
         ):
             widget.configure(state=estado)
 
@@ -272,16 +245,9 @@ class PIView(ctk.CTkFrame):
 
     def cadastrar_pi(self):
         try:
-            tipo_pi = self.tipo_pi_segmented.get()
-            numero_pi_matriz = None
-            numero_pi_normal = None
-            if tipo_pi == "Abatimento" and self.combo_pi_matriz.get() != "Selecione o PI Matriz":
-                numero_pi_matriz = self.combo_pi_matriz.get()
-            if tipo_pi == "CS" and self.combo_pi_normal.get() != "Selecione o PI Normal":
-                numero_pi_normal = self.combo_pi_normal.get()
-
-            uf_cliente_val = "EX" if self.uf_cliente_entry.get().startswith("EX") else self.uf_cliente_entry.get()
-            uf_agencia_val = "EX" if self.uf_agencia_entry.get().startswith("EX") else self.uf_agencia_entry.get()
+            tipo_pi = self.tipo_pi_var.get()
+            numero_pi_matriz = self.combo_pi_matriz.get() if tipo_pi == "Abatimento" else None
+            numero_pi_normal = self.combo_pi_normal.get() if tipo_pi == "CS" else None
 
             criar_pi(
                 numero_pi=self.numero_entry.get().strip(),
@@ -291,19 +257,19 @@ class PIView(ctk.CTkFrame):
                 nome_anunciante=self.nome_anunciante_entry.get().strip(),
                 razao_social_anunciante=self.razao_anunciante_entry.get().strip(),
                 cnpj_anunciante=self.cnpj_anunciante_entry.get().strip(),
-                uf_cliente=uf_cliente_val,
-                executivo=self.executivo_entry.get().strip(),
-                diretoria=self.diretoria_entry.get().strip(),
+                uf_cliente=self.uf_cliente_entry.get(),
+                executivo=self.executivo_entry.get(),
+                diretoria=self.diretoria_entry.get(),
                 nome_campanha=self.nome_campanha_entry.get().strip(),
                 nome_agencia=self.nome_agencia_entry.get().strip(),
                 razao_social_agencia=self.razao_agencia_entry.get().strip(),
                 cnpj_agencia=self.cnpj_agencia_entry.get().strip(),
-                uf_agencia=uf_agencia_val,
+                uf_agencia=self.uf_agencia_entry.get(),
                 mes_venda=self.mes_venda_entry.get().strip(),
                 dia_venda=self.dia_venda_entry.get().strip(),
-                canal=self.canal_entry.get().strip(),
-                perfil_anunciante=self.perfil_entry.get().strip(),
-                subperfil_anunciante=self.subperfil_entry.get().strip(),
+                canal=self.canal_entry.get(),
+                perfil_anunciante=self.perfil_entry.get(),
+                subperfil_anunciante=self.subperfil_entry.get(),
                 valor_bruto=float(self.valor_bruto_entry.get().replace(",", ".").strip()),
                 valor_liquido=float(self.valor_liquido_entry.get().replace(",", ".").strip()),
                 vencimento=datetime.strptime(self.vencimento_entry.get().strip(), "%d/%m/%Y").date(),
@@ -313,14 +279,14 @@ class PIView(ctk.CTkFrame):
             messagebox.showinfo("Sucesso", "PI cadastrado com sucesso!")
             self.limpar_campos()
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao cadastrar PI: {e}")
+            messagebox.showerror("Erro", f"Erro ao cadastrar PI:\n{e}")
 
     def limpar_campos(self):
         for widget in self.scrollable_frame.winfo_children():
             if isinstance(widget, ctk.CTkEntry):
                 widget.delete(0, "end")
             elif isinstance(widget, ctk.CTkComboBox):
-                if widget is self.uf_cliente_entry or widget is self.uf_agencia_entry:
+                if widget in (self.uf_cliente_entry, self.uf_agencia_entry):
                     widget.set("DF")
                 elif widget is self.combo_pi_matriz:
                     widget.set("Selecione o PI Matriz")
@@ -330,5 +296,5 @@ class PIView(ctk.CTkFrame):
                     widget.configure(state="disabled")
                 else:
                     widget.set("Selecione")
-        self.tipo_pi_segmented.set("Normal")
+        self.tipo_pi_var.set("Normal")
         self.alternar_visibilidade_vinculos()
