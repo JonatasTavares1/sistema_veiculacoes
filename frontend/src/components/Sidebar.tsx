@@ -1,3 +1,4 @@
+// src/components/Sidebar.tsx
 import { NavLink } from "react-router-dom"
 
 type Item = { to: string; label: string }
@@ -7,12 +8,28 @@ export default function Sidebar({ open, items }: Props) {
   return (
     <aside
       className={[
-        "transition-all duration-200",
-        open ? "w-60" : "w-16",
-        "bg-white border-r border-slate-200 min-h-[calc(100vh-56px)]"
+        "text-white shadow-2xl",
+        "bg-gradient-to-b from-red-700 via-red-700 to-red-800",
+        "transition-all duration-300",
+        open ? "w-96" : "w-24", // BEM MAIOR ABERTO/FECHADO
+        "min-h-[calc(100vh-56px)]"
       ].join(" ")}
     >
-      <nav className="p-2">
+      {/* Branding / topo */}
+      <div className="px-6 py-6 border-b border-white/10">
+        <div className="flex items-center gap-5">
+          <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center text-4xl font-black">
+            PI
+          </div>
+          <div className={open ? "block" : "hidden"}>
+            <div className="text-3xl font-semibold leading-none">Menu</div>
+            <div className="text-lg text-white/85 mt-1">Navegação</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Itens */}
+      <nav className="p-4">
         {items.map((item) => (
           <NavLink
             key={item.to}
@@ -20,19 +37,48 @@ export default function Sidebar({ open, items }: Props) {
             end={item.to === "/"}
             className={({ isActive }) =>
               [
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm mb-1",
+                "group flex items-center rounded-2xl px-5 py-4 mb-2",
+                "text-2xl font-semibold", // LETRAS MAIORES
+                "transition-colors",
                 isActive
-                  ? "bg-red-50 text-red-700 border border-red-200"
-                  : "text-slate-700 hover:bg-slate-50"
+                  ? "bg-white/20 ring-1 ring-white/20 shadow-inner"
+                  : "hover:bg-white/10"
               ].join(" ")
             }
             title={item.label}
           >
-            <span className="inline-block w-4 text-center">•</span>
-            <span className={open ? "block" : "hidden"}>{item.label}</span>
+            {({ isActive }) => (
+              <>
+                {/* Indicador lateral maior */}
+                <span
+                  className={[
+                    "mr-5 h-10 w-2 rounded-full transition-all",
+                    isActive ? "bg-white" : "bg-white/30 group-hover:bg-white/50"
+                  ].join(" ")}
+                />
+                {/* Ícone quando fechado (maior) */}
+                <span
+                  className={[
+                    "inline-flex h-12 w-12 items-center justify-center rounded-2xl text-3xl",
+                    isActive ? "bg-white/25" : "bg-white/10 group-hover:bg-white/20"
+                  ].join(" ")}
+                >
+                  •
+                </span>
+                {/* Rótulo grandão */}
+                <span className={(open ? "ml-5 block" : "ml-0 hidden") + " truncate"}>
+                  {item.label}
+                </span>
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
+
+      {/* Rodapé opcional */}
+      <div className="mt-auto p-6 text-base text-white/85 hidden">
+        v2 • Sistema de Veiculações
+      </div>
     </aside>
   )
 }
