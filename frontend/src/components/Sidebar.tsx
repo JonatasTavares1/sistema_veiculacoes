@@ -1,4 +1,3 @@
-// src/components/Sidebar.tsx
 import { NavLink } from "react-router-dom"
 
 type Item = { to: string; label: string }
@@ -8,12 +7,15 @@ export default function Sidebar({ open, items }: Props) {
   return (
     <aside
       className={[
+        "relative z-20", // garante que fica acima do main
         "text-white shadow-2xl",
         "bg-gradient-to-b from-red-700 via-red-700 to-red-800",
         "transition-all duration-300",
-        open ? "w-96" : "w-24", // BEM MAIOR ABERTO/FECHADO
-        "min-h-[calc(100vh-56px)]"
+        open ? "w-96" : "w-24",
+        "min-h-[calc(100vh-80px)]" // <-- header 80px
       ].join(" ")}
+      role="navigation"
+      aria-label="Menu lateral"
     >
       {/* Branding / topo */}
       <div className="px-6 py-6 border-b border-white/10">
@@ -38,7 +40,7 @@ export default function Sidebar({ open, items }: Props) {
             className={({ isActive }) =>
               [
                 "group flex items-center rounded-2xl px-5 py-4 mb-2",
-                "text-2xl font-semibold", // LETRAS MAIORES
+                "text-2xl font-semibold",
                 "transition-colors",
                 isActive
                   ? "bg-white/20 ring-1 ring-white/20 shadow-inner"
@@ -49,14 +51,12 @@ export default function Sidebar({ open, items }: Props) {
           >
             {({ isActive }) => (
               <>
-                {/* Indicador lateral maior */}
                 <span
                   className={[
                     "mr-5 h-10 w-2 rounded-full transition-all",
                     isActive ? "bg-white" : "bg-white/30 group-hover:bg-white/50"
                   ].join(" ")}
                 />
-                {/* Ícone quando fechado (maior) */}
                 <span
                   className={[
                     "inline-flex h-12 w-12 items-center justify-center rounded-2xl text-3xl",
@@ -65,7 +65,6 @@ export default function Sidebar({ open, items }: Props) {
                 >
                   •
                 </span>
-                {/* Rótulo grandão */}
                 <span className={(open ? "ml-5 block" : "ml-0 hidden") + " truncate"}>
                   {item.label}
                 </span>
@@ -74,11 +73,6 @@ export default function Sidebar({ open, items }: Props) {
           </NavLink>
         ))}
       </nav>
-
-      {/* Rodapé opcional */}
-      <div className="mt-auto p-6 text-base text-white/85 hidden">
-        v2 • Sistema de Veiculações
-      </div>
     </aside>
   )
 }
