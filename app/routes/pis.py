@@ -16,7 +16,7 @@ def get_db():
     finally:
         db.close()
 
-# Auxiliares (dropdowns + saldo)
+# -------- Auxiliares (dropdowns + saldo) --------
 @router.get("/matriz/ativos", response_model=List[PISimpleOut])
 def listar_matriz_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_matriz_ativos(db)
@@ -32,39 +32,43 @@ def saldo_matriz(numero_pi: str, db: Session = Depends(get_db)):
     saldo = pi_crud.calcular_saldo_restante(db, numero_pi)
     return {"numero_pi_matriz": numero_pi, "saldo_restante": saldo}
 
-# CRUD
+# -------- CRUD --------
 @router.get("", response_model=List[PIOut])
 def listar_todos(db: Session = Depends(get_db)):
     regs = pi_crud.list_all(db)
-    return [PIOut(id=r.id, numero_pi=r.numero_pi, tipo_pi=r.tipo_pi, nome_campanha=r.nome_campanha) for r in regs]
+    # devolve o ORM inteiro e deixa o Pydantic serializar tudo
+    return regs
 
 @router.get("/{pi_id:int}", response_model=PIOut)
 def obter_por_id(pi_id: int, db: Session = Depends(get_db)):
     reg = pi_crud.get_by_id(db, pi_id)
     if not reg:
         raise HTTPException(status_code=404, detail="PI não encontrado.")
-    return PIOut(id=reg.id, numero_pi=reg.numero_pi, tipo_pi=reg.tipo_pi, nome_campanha=reg.nome_campanha)
+    return reg
 
 @router.get("/numero/{numero_pi}", response_model=PIOut)
 def obter_por_numero(numero_pi: str, db: Session = Depends(get_db)):
     reg = pi_crud.get_by_numero(db, numero_pi)
     if not reg:
         raise HTTPException(status_code=404, detail="PI não encontrado.")
-    return PIOut(id=reg.id, numero_pi=reg.numero_pi, tipo_pi=reg.tipo_pi, nome_campanha=reg.nome_campanha)
+    return reg
 
 @router.post("", response_model=PIOut, status_code=status.HTTP_201_CREATED)
 def criar_pi(body: PICreate, db: Session = Depends(get_db)):
     try:
-        novo = pi_crud.create(db, body.dict())
-        return PIOut(id=novo.id, numero_pi=novo.numero_pi, tipo_pi=novo.tipo_pi, nome_campanha=novo.nome_campanha)
+        # se estiver em Pydantic v2, prefira model_dump()
+        dados = body.model_dump()
+        novo = pi_crud.create(db, dados)
+        return novo
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 @router.put("/{pi_id:int}", response_model=PIOut)
 def atualizar_pi(pi_id: int, body: PIUpdate, db: Session = Depends(get_db)):
     try:
-        upd = pi_crud.update(db, pi_id, body.dict(exclude_unset=True))
-        return PIOut(id=upd.id, numero_pi=upd.numero_pi, tipo_pi=upd.tipo_pi, nome_campanha=upd.nome_campanha)
+        dados = body.model_dump(exclude_unset=True)
+        upd = pi_crud.update(db, pi_id, dados)
+        return upd
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
