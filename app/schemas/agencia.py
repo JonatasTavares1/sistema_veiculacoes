@@ -1,6 +1,6 @@
 # app/schemas/agencia.py
 from typing import Optional
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 class AgenciaBase(BaseModel):
     razao_social_agencia: Optional[str] = None
@@ -9,6 +9,14 @@ class AgenciaBase(BaseModel):
     executivo: Optional[str] = None
     email_agencia: Optional[EmailStr] = None
     data_cadastro: Optional[str] = None
+
+    # permite enviar "" no e-mail (tratamos como None)
+    @field_validator("email_agencia", mode="before")
+    @classmethod
+    def empty_email_to_none(cls, v):
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
 class AgenciaCreate(AgenciaBase):
     nome_agencia: str = Field(..., min_length=1)

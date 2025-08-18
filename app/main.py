@@ -11,7 +11,8 @@ from app.routes.entregas import router as entregas_router
 from app.routes.anunciantes import router as anunciantes_router
 from app.routes.executivos import router as executivos_router
 from app.routes.produtos import router as produtos_router
-from app.routes.matrizes import router as matrizes_router    
+from app.routes.matrizes import router as matrizes_router
+from app.routes.veiculacoes import router as veiculacoes_router    
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
 app.add_middleware(
@@ -34,6 +35,7 @@ app.include_router(anunciantes_router)
 app.include_router(executivos_router)
 app.include_router(produtos_router)
 app.include_router(matrizes_router)
+app.include_router(veiculacoes_router)
 
 @app.get("/")
 def healthcheck():
