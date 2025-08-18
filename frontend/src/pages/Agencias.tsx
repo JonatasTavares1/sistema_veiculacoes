@@ -34,8 +34,22 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!r.ok) {
-    const t = await r.text().catch(() => "")
-    throw new Error(`${r.status} ${r.statusText}${t ? " - " + t : ""}`)
+    let msg = `${r.status} ${r.statusText}`
+    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    throw new Error(msg)
+  }
+  return r.json()
+}
+async function putJSON<T>(url: string, body: any): Promise<T> {
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`
+    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    throw new Error(msg)
   }
   return r.json()
 }
@@ -48,7 +62,7 @@ const UFS = [
 function digits(s: string) { return (s || "").replace(/\D+/g, "") }
 function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
 
-// --------- CNPJ: formatação progressiva (sem underscores) ---------
+// --------- CNPJ: formatação progressiva (para inputs) ---------
 function formatCNPJPartial(v: string) {
   const d = digits(v).slice(0, 14)
   if (d.length <= 2) return d
@@ -56,6 +70,17 @@ function formatCNPJPartial(v: string) {
   if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
   if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
   return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
+}
+
+// ✅ CNPJ para exibição (tabela/export), sempre tenta 00.000.000/0000-00
+function formatCNPJDisplay(v?: string | null) {
+  const d = digits(v || "")
+  if (d.length === 14) {
+    return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
+  }
+  if (!d) return ""
+  // fallback para comprimentos parciais
+  return formatCNPJPartial(d)
 }
 
 // --------- Export helpers ---------
@@ -80,8 +105,25 @@ function jsonToCSV(rows: Record<string, any>[]) {
   const headers = Object.keys(rows[0])
   const head = headers.map(csvEscape).join(";")
   const body = rows.map(r => headers.map(h => csvEscape(r[h])).join(";")).join("\n")
-  // BOM para Excel PT-BR
   return "\uFEFF" + head + "\n" + body
+}
+
+// ---- transforma ""/espaços em null (recursivo) ----
+function deepClean<T = any>(obj: T): T {
+  if (obj === null || obj === undefined) return obj
+  if (typeof obj === "string") {
+    const t = obj.trim()
+    return (t === "" ? null : (t as any))
+  }
+  if (Array.isArray(obj)) return obj.map(deepClean) as any
+  if (typeof obj === "object") {
+    const out: any = {}
+    for (const [k, v] of Object.entries(obj as any)) {
+      out[k] = deepClean(v as any)
+    }
+    return out
+  }
+  return obj
 }
 
 export default function Agencias() {
@@ -105,6 +147,12 @@ export default function Agencias() {
 
   // filtros
   const [busca, setBusca] = useState("")
+
+  // editor
+  const [editOpen, setEditOpen] = useState(false)
+  const [editItem, setEditItem] = useState<Agencia | null>(null)
+  const [editErro, setEditErro] = useState<string | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -174,14 +222,15 @@ export default function Agencias() {
     if (msg) { alert(msg); return }
     setSalvando(true); setErro(null)
     try {
-      const body = {
-        nome_agencia: nome.trim(),
-        razao_social_agencia: razao.trim(),
-        cnpj_agencia: cnpj.trim(), // já formatado
+      const raw = {
+        nome_agencia: nome,
+        razao_social_agencia: razao,
+        cnpj_agencia: cnpj, // já formatado
         uf_agencia: uf,
         executivo,
-        email_agencia: email.trim() || null,
+        email_agencia: email, // "" vira null no deepClean
       }
+      const body = deepClean(raw)
       await postJSON(`${API}/agencias`, body)
       setNome(""); setRazao(""); setCnpj(""); setUf("DF"); setEmail(""); setExecutivo("")
       await carregar()
@@ -199,7 +248,7 @@ export default function Agencias() {
     const data = rows.map(a => ({
       Nome: a.nome_agencia,
       "Razão Social": a.razao_social_agencia || "",
-      CNPJ: a.cnpj_agencia,
+      CNPJ: formatCNPJDisplay(a.cnpj_agencia), // ✅ exporta mascarado
       UF: a.uf_agencia || "",
       Executivo: a.executivo || "",
       Email: a.email_agencia || "",
@@ -208,15 +257,12 @@ export default function Agencias() {
     const nomeArq = `agencias_${new Date().toISOString().slice(0,10)}.xlsx`
 
     try {
-      // tenta xlsx (SheetJS)
-      // Instale se quiser usar sempre:  npm i xlsx
       const XLSX = await import("xlsx")
       const ws = XLSX.utils.json_to_sheet(data)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, "Agências")
       XLSX.writeFile(wb, nomeArq)
     } catch {
-      // fallback: CSV
       const csv = jsonToCSV(data)
       downloadBlob(csv, nomeArq.replace(/\.xlsx$/, ".csv"), "text/csv;charset=utf-8;")
       alert("Exportei em CSV (fallback). Para .xlsx nativo, instale a lib 'xlsx'.")
@@ -225,13 +271,69 @@ export default function Agencias() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
+    const qDigits = digits(q)
     if (!q) return lista
-    return lista.filter(a =>
-      a.nome_agencia.toLowerCase().includes(q) ||
-      (a.cnpj_agencia || "").toLowerCase().includes(q) ||
-      (a.executivo || "").toLowerCase().includes(q)
-    )
+    return lista.filter(a => {
+      const cnpjDigits = digits(a.cnpj_agencia || "")
+      return (
+        a.nome_agencia.toLowerCase().includes(q) ||
+        (a.cnpj_agencia || "").toLowerCase().includes(q) ||
+        (qDigits && cnpjDigits.includes(qDigits)) ||
+        (a.executivo || "").toLowerCase().includes(q)
+      )
+    })
   }, [lista, busca])
+
+  // ------- Editor -------
+  function abrirEditor(a: Agencia) {
+    setEditErro(null)
+    setEditItem({
+      ...a,
+      razao_social_agencia: a.razao_social_agencia || "",
+      email_agencia: a.email_agencia || "",
+      uf_agencia: a.uf_agencia || "DF",
+      cnpj_agencia: formatCNPJPartial(a.cnpj_agencia || ""),
+      executivo: a.executivo || "",
+    })
+    setEditOpen(true)
+  }
+  function fecharEditor() {
+    setEditOpen(false)
+    setEditItem(null)
+    setEditErro(null)
+  }
+  function campoEdit<K extends keyof Agencia>(k: K, v: Agencia[K]) {
+    if (!editItem) return
+    setEditItem({ ...editItem, [k]: v })
+  }
+  async function salvarEdicao() {
+    if (!editItem) return
+    if (!editItem.nome_agencia?.trim()) { setEditErro("Nome é obrigatório."); return }
+    const dig = digits(editItem.cnpj_agencia || "")
+    if (dig.length !== 14) { setEditErro("O CNPJ deve conter 14 dígitos."); return }
+    if (!editItem.executivo?.trim()) { setEditErro("Executivo é obrigatório."); return }
+    if (!emailOk(editItem.email_agencia || "")) { setEditErro("Email inválido."); return }
+
+    setSavingEdit(true); setEditErro(null)
+    try {
+      const raw = {
+        nome_agencia: editItem.nome_agencia,
+        razao_social_agencia: editItem.razao_social_agencia ?? "",
+        cnpj_agencia: editItem.cnpj_agencia,
+        uf_agencia: editItem.uf_agencia || "",
+        executivo: editItem.executivo,
+        email_agencia: editItem.email_agencia ?? "",
+      }
+      const body = deepClean(raw)
+      await putJSON(`${API}/agencias/${editItem.id}`, body)
+      fecharEditor()
+      await carregar()
+    } catch (e: any) {
+      setEditErro(e?.message || "Falha ao salvar edição.")
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -377,7 +479,7 @@ export default function Agencias() {
               <table className="min-w-full divide-y divide-red-200">
                 <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
                   <tr>
-                    {["Nome", "CNPJ", "UF", "Executivo", "Email", "Data de Cadastro"].map(h => (
+                    {["Nome", "CNPJ", "UF", "Executivo", "Email", "Data de Cadastro", "Ações"].map(h => (
                       <th
                         key={h}
                         className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide"
@@ -407,7 +509,9 @@ export default function Agencias() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        <span className="font-mono">{a.cnpj_agencia}</span>
+                        <span className="font-mono">
+                          {formatCNPJDisplay(a.cnpj_agencia)} {/* ✅ mascarado na lista */}
+                        </span>
                       </td>
 
                       <td className="px-6 py-4">
@@ -436,6 +540,16 @@ export default function Agencias() {
                       <td className="px-6 py-4 text-slate-700 text-sm">
                         {a.data_cadastro || "—"}
                       </td>
+
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => abrirEditor(a)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                          title="Editar"
+                        >
+                          ✏️ Editar
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -444,6 +558,108 @@ export default function Agencias() {
           </div>
         )}
       </section>
+
+      {/* Modal de EDIÇÃO */}
+      {editOpen && editItem && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharEditor} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
+            <div className="p-6 border-b flex items-start justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar Agência</div>
+                <div className="mt-1 text-2xl font-extrabold text-slate-900">
+                  {editItem.nome_agencia}
+                </div>
+              </div>
+              <button
+                onClick={fecharEditor}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                ✖ Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {editErro && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+                  {editErro}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                <input
+                  value={editItem.nome_agencia || ""}
+                  onChange={(e) => campoEdit("nome_agencia", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
+                <input
+                  value={editItem.razao_social_agencia || ""}
+                  onChange={(e) => campoEdit("razao_social_agencia", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">CNPJ</label>
+                <input
+                  value={editItem.cnpj_agencia || ""}
+                  onChange={(e) => campoEdit("cnpj_agencia", formatCNPJPartial(e.target.value))}
+                  onBlur={() => campoEdit("cnpj_agencia", formatCNPJPartial(editItem.cnpj_agencia || ""))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                <select
+                  value={editItem.uf_agencia || "DF"}
+                  onChange={(e) => campoEdit("uf_agencia", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                >
+                  {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                <select
+                  value={editItem.executivo || ""}
+                  onChange={(e) => campoEdit("executivo", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                >
+                  <option value="">— Selecione —</option>
+                  {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                <input
+                  value={editItem.email_agencia || ""}
+                  onChange={(e) => campoEdit("email_agencia", e.target.value)}
+                  placeholder="contato@agencia.com.br"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={salvarEdicao}
+                  disabled={savingEdit}
+                  className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {savingEdit ? "Salvando..." : "Salvar alterações"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

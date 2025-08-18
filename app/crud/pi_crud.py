@@ -25,6 +25,14 @@ def _normalize_tipo(tipo: str | None) -> str:
         return "CS"
     return t.capitalize()
 
+def _clean_empty_strings(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Converte strings vazias/espaços em None, mantendo os outros tipos."""
+    for k, v in list(d.items()):
+        if isinstance(v, str):
+            t = v.strip()
+            d[k] = t if t != "" else None
+    return d
+
 # -------- basic queries --------
 def get_by_id(db: Session, pi_id: int) -> Optional[PI]:
     return db.query(PI).get(pi_id)
@@ -61,7 +69,12 @@ def calcular_valor_abatido(db: Session, numero_pi_matriz: str) -> float:
     filhos = list_abatimentos_of_matriz(db, numero_pi_matriz)
     return sum((f.valor_bruto or 0.0) for f in filhos)
 
-def calcular_saldo_restante(db: Session, numero_pi_matriz: str, *, ignorar_pi_id: Optional[int] = None) -> float:
+def calcular_saldo_restante(
+    db: Session,
+    numero_pi_matriz: str,
+    *,
+    ignorar_pi_id: Optional[int] = None
+) -> float:
     matriz = get_by_numero(db, numero_pi_matriz)
     if not matriz or matriz.tipo_pi != "Matriz":
         return 0.0
@@ -82,6 +95,9 @@ def list_normal_ativos(db: Session) -> List[PI]:
 
 # -------- CRUD --------
 def create(db: Session, dados: Dict[str, Any]) -> PI:
+    # normaliza strings vazias para None
+    dados = _clean_empty_strings(dados)
+
     # normalizações
     dados["tipo_pi"] = _normalize_tipo(dados.get("tipo_pi"))
     dados["vencimento"] = _parse_date_maybe(dados.get("vencimento"))
@@ -168,6 +184,9 @@ def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
     if not pi:
         raise ValueError(f"PI com ID {pi_id} não encontrado.")
 
+    # converte "" -> None
+    dados = _clean_empty_strings(dados)
+
     # duplicidade de numero_pi
     novo_num = dados.get("numero_pi")
     if novo_num and novo_num != pi.numero_pi and get_by_numero(db, novo_num):
@@ -178,16 +197,16 @@ def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
         dados["vencimento"] = _parse_date_maybe(dados.get("vencimento"))
     if "data_emissao" in dados:
         dados["data_emissao"] = _parse_date_maybe(dados.get("data_emissao"))
-    if "tipo_pi" in dados and dados["tipo_pi"]:
+    if "tipo_pi" in dados and dados["tipo_pi"] is not None:
         dados["tipo_pi"] = _normalize_tipo(dados["tipo_pi"])
     if "perfil_anunciante" in dados:
         dados["perfil"] = dados.pop("perfil_anunciante")
     if "subperfil_anunciante" in dados:
         dados["subperfil"] = dados.pop("subperfil_anunciante")
 
-    # aplica campos existentes
+    # aplica campos EXISTENTES, inclusive None (para limpar)
     for campo, valor in dados.items():
-        if hasattr(pi, campo) and valor is not None:
+        if hasattr(pi, campo):
             setattr(pi, campo, valor)
 
     # revalida regras por tipo

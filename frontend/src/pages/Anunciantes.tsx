@@ -15,7 +15,7 @@ type Anunciante = {
   id: number
   nome_anunciante: string
   razao_social_anunciante?: string | null
-  cnpj_anunciante: string            // aqui pode vir CPF ou CNPJ
+  cnpj_anunciante: string            // aqui pode vir CPF ou CNPJ (formatado)
   uf_cliente?: string | null
   executivo: string
   email_anunciante?: string | null
@@ -34,8 +34,22 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!r.ok) {
-    const t = await r.text().catch(() => "")
-    throw new Error(`${r.status} ${r.statusText}${t ? " - " + t : ""}`)
+    let msg = `${r.status} ${r.statusText}`
+    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    throw new Error(msg)
+  }
+  return r.json()
+}
+async function putJSON<T>(url: string, body: any): Promise<T> {
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`
+    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    throw new Error(msg)
   }
   return r.json()
 }
@@ -67,7 +81,7 @@ function formatCnpjPartial(v: string) {
 function formatDocPartial(v: string) {
   const d = digits(v)
   if (d.length <= 11) return formatCpfPartial(v)      // até 11 vai no padrão CPF
-  return formatCnpjPartial(v)                          // acima de 11, CNPJ
+  return formatCnpjPartial(v)                         // acima de 11, CNPJ
 }
 function normalizeDocForSave(v: string) {
   // Mantém com pontuação (frontend envia assim), backend só armazena string.
@@ -99,8 +113,29 @@ function jsonToCSV(rows: Record<string, any>[]) {
   return "\uFEFF" + head + "\n" + body // BOM p/ Excel PT-BR
 }
 
+// ---- transforma ""/espacos em null (recursivo) ----
+function deepClean<T = any>(obj: T): T {
+  if (obj === null || obj === undefined) return obj
+  if (typeof obj === "string") {
+    const t = obj.trim()
+    return (t === "" ? null : (t as any))
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deepClean) as any
+  }
+  if (typeof obj === "object") {
+    const out: any = {}
+    for (const [k, v] of Object.entries(obj as any)) {
+      const cleaned = deepClean(v as any)
+      out[k] = cleaned
+    }
+    return out
+  }
+  return obj
+}
+
 export default function Anunciantes() {
-  // form
+  // form (criação)
   const [nome, setNome] = useState("")
   const [razao, setRazao] = useState("")
   const [doc, setDoc] = useState("")           // CPF ou CNPJ
@@ -120,6 +155,12 @@ export default function Anunciantes() {
 
   // filtros
   const [busca, setBusca] = useState("")
+
+  // editor inline
+  const [editOpen, setEditOpen] = useState(false)
+  const [editItem, setEditItem] = useState<Anunciante | null>(null)
+  const [editErro, setEditErro] = useState<string | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -176,30 +217,31 @@ export default function Anunciantes() {
     }
   }
 
-  function validar(): string | null {
+  function validarCriacao(): string | null {
     if (!nome.trim()) return "Nome é obrigatório."
     const d = digits(doc)
     if (!(d.length === 11 || d.length === 14)) {
       return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
     }
-    if (!executivo || executivo === "Selecione o Executivo") return "Executivo é obrigatório."
+    if (!executivo) return "Executivo é obrigatório."
     if (!emailOk(email)) return "Email inválido."
     return null
   }
 
   async function salvar() {
-    const msg = validar()
+    const msg = validarCriacao()
     if (msg) { alert(msg); return }
     setSalvando(true); setErro(null)
     try {
-      const body = {
-        nome_anunciante: nome.trim(),
-        razao_social_anunciante: razao.trim(),
+      const rawBody = {
+        nome_anunciante: nome,
+        razao_social_anunciante: razao,
         cnpj_anunciante: normalizeDocForSave(doc), // aceita CPF ou CNPJ
         uf_cliente: uf,
         executivo,
-        email_anunciante: email.trim() || null,
+        email_anunciante: email, // será convertido para null se vazio
       }
+      const body = deepClean(rawBody)
       await postJSON(`${API}/anunciantes`, body)
       setNome(""); setRazao(""); setDoc(""); setUf("DF"); setEmail(""); setExecutivo("")
       await carregar()
@@ -250,6 +292,56 @@ export default function Anunciantes() {
 
   // máscara de exibição na tabela (garante pontuação correta)
   function maskDocDisplay(v: string) { return formatDocPartial(v) }
+
+  // ------- Editor -------
+  function abrirEditor(a: Anunciante) {
+    setEditErro(null)
+    setEditItem({
+      ...a,
+      cnpj_anunciante: formatDocPartial(a.cnpj_anunciante || ""),
+      email_anunciante: a.email_anunciante || "",
+      razao_social_anunciante: a.razao_social_anunciante || "",
+      uf_cliente: a.uf_cliente || "DF",
+      executivo: a.executivo || "",
+    })
+    setEditOpen(true)
+  }
+  function fecharEditor() {
+    setEditOpen(false)
+    setEditItem(null)
+    setEditErro(null)
+  }
+  function campoEdit<K extends keyof Anunciante>(k: K, v: Anunciante[K]) {
+    if (!editItem) return
+    setEditItem({ ...editItem, [k]: v })
+  }
+  async function salvarEdicao() {
+    if (!editItem) return
+    // validações mínimas (permite limpar email e razão social; executivo continua obrigatório)
+    if (!editItem.nome_anunciante?.trim()) { setEditErro("Nome é obrigatório."); return }
+    if (!editItem.executivo?.trim()) { setEditErro("Executivo é obrigatório."); return }
+    if (!emailOk(editItem.email_anunciante || "")) { setEditErro("Email inválido."); return }
+
+    setSavingEdit(true); setEditErro(null)
+    try {
+      const raw = {
+        nome_anunciante: editItem.nome_anunciante,
+        razao_social_anunciante: editItem.razao_social_anunciante ?? "",
+        cnpj_anunciante: normalizeDocForSave(editItem.cnpj_anunciante || ""),
+        uf_cliente: editItem.uf_cliente || "",
+        executivo: editItem.executivo,
+        email_anunciante: editItem.email_anunciante ?? "",
+      }
+      const body = deepClean(raw)
+      await putJSON(`${API}/anunciantes/${editItem.id}`, body)
+      fecharEditor()
+      await carregar()
+    } catch (e: any) {
+      setEditErro(e?.message || "Falha ao salvar edição.")
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -395,7 +487,7 @@ export default function Anunciantes() {
               <table className="min-w-full divide-y divide-red-200">
                 <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
                   <tr>
-                    {["Nome", "Documento", "UF", "Executivo", "Email", "Data de Cadastro"].map(h => (
+                    {["Nome", "Documento", "UF", "Executivo", "Email", "Data de Cadastro", "Ações"].map(h => (
                       <th
                         key={h}
                         className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide"
@@ -454,6 +546,16 @@ export default function Anunciantes() {
                       <td className="px-6 py-4 text-slate-700 text-sm">
                         {a.data_cadastro || "—"}
                       </td>
+
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => abrirEditor(a)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                          title="Editar"
+                        >
+                          ✏️ Editar
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -462,6 +564,108 @@ export default function Anunciantes() {
           </div>
         )}
       </section>
+
+      {/* Modal de EDIÇÃO */}
+      {editOpen && editItem && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharEditor} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
+            <div className="p-6 border-b flex items-start justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar Anunciante</div>
+                <div className="mt-1 text-2xl font-extrabold text-slate-900">
+                  {editItem.nome_anunciante}
+                </div>
+              </div>
+              <button
+                onClick={fecharEditor}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                ✖ Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {editErro && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+                  {editErro}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                <input
+                  value={editItem.nome_anunciante || ""}
+                  onChange={(e) => campoEdit("nome_anunciante", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
+                <input
+                  value={editItem.razao_social_anunciante || ""}
+                  onChange={(e) => campoEdit("razao_social_anunciante", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Documento (CPF/CNPJ)</label>
+                <input
+                  value={editItem.cnpj_anunciante || ""}
+                  onChange={(e) => campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))}
+                  onBlur={() => campoEdit("cnpj_anunciante", formatDocPartial(editItem.cnpj_anunciante || ""))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                <select
+                  value={editItem.uf_cliente || "DF"}
+                  onChange={(e) => campoEdit("uf_cliente", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                >
+                  {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                <select
+                  value={editItem.executivo || ""}
+                  onChange={(e) => campoEdit("executivo", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                >
+                  <option value="">— Selecione —</option>
+                  {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                <input
+                  value={editItem.email_anunciante || ""}
+                  onChange={(e) => campoEdit("email_anunciante", e.target.value)}
+                  placeholder="contato@empresa.com.br"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={salvarEdicao}
+                  disabled={savingEdit}
+                  className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {savingEdit ? "Salvando..." : "Salvar alterações"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
