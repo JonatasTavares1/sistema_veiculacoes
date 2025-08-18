@@ -33,7 +33,6 @@ const DEFAULT_EXECUTIVOS = [
 ]
 const DIRETORIAS = ["Governo Federal", "Governo Estadual", "Rafael Augusto"]
 
-function digits(s: string) { return (s || "").replace(/\D+/g, "") }
 function fmtMoney(v?: number | null) {
   if (v == null || Number.isNaN(v)) return "R$ 0,00"
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -45,6 +44,27 @@ function parseISODateToBR(s?: string | null) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
 }
+function toDate(s?: string | null): Date | null {
+  if (!s) return null
+  // tenta ISO YYYY-MM-DD
+  const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m1) return new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]))
+  // tenta BR DD/MM/YYYY
+  const m2 = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s)
+  if (m2) return new Date(Number(m2[3]), Number(m2[2]) - 1, Number(m2[1]))
+  return null
+}
+// normaliza "mes_venda" para "YYYY-MM" (aceita "MM/AAAA" ou "YYYY-MM")
+function mesToYM(s?: string | null): string {
+  if (!s) return ""
+  const t = s.trim()
+  const m1 = /^(\d{2})\/(\d{4})$/.exec(t) // MM/AAAA
+  if (m1) return `${m1[2]}-${m1[1]}`
+  const m2 = /^(\d{4})-(\d{2})$/.exec(t) // YYYY-MM
+  if (m2) return t
+  return ""
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -80,6 +100,9 @@ export default function PIs() {
   const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento">("Todos")
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
+  const [emissaoDe, setEmissaoDe] = useState<string>("")   // YYYY-MM-DD
+  const [emissaoAte, setEmissaoAte] = useState<string>("") // YYYY-MM-DD
+  const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("") // YYYY-MM (input month)
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
@@ -117,7 +140,12 @@ export default function PIs() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
+    const dIni = emissaoDe ? new Date(emissaoDe) : null
+    const dFim = emissaoAte ? new Date(emissaoAte) : null
+    const ymFiltro = mesVendaFiltro // já em YYYY-MM
+
     return lista.filter(p => {
+      // texto
       const okBusca =
         !q ||
         (p.numero_pi || "").toLowerCase().includes(q) ||
@@ -125,13 +153,28 @@ export default function PIs() {
         (p.nome_agencia || "").toLowerCase().includes(q) ||
         (p.cnpj_agencia || "").toLowerCase().includes(q)
 
+      // tipo / diretoria / executivo
       const okTipo = (tipo === "Todos") || (p.tipo_pi === tipo)
       const okDir = (diretoria === "Todos") || ((p.diretoria || "") === diretoria)
       const okExec = (executivo === "Todos") || ((p.executivo || "") === executivo)
 
-      return okBusca && okTipo && okDir && okExec
+      // período de emissão
+      let okEmissao = true
+      if (dIni || dFim) {
+        const d = toDate(p.data_emissao)
+        if (!d) okEmissao = false
+        else {
+          if (dIni && d < dIni) okEmissao = false
+          if (dFim && d > dFim) okEmissao = false
+        }
+      }
+
+      // mês/ano da venda (comparando em YYYY-MM)
+      const okMes = !ymFiltro || (mesToYM(p.mes_venda) === ymFiltro)
+
+      return okBusca && okTipo && okDir && okExec && okEmissao && okMes
     })
-  }, [lista, busca, tipo, diretoria, executivo])
+  }, [lista, busca, tipo, diretoria, executivo, emissaoDe, emissaoAte, mesVendaFiltro])
 
   async function exportarXLSX() {
     const rows = filtrada.map((pi) => ({
@@ -181,6 +224,7 @@ export default function PIs() {
     setFilhos([])
     try {
       if (pi.tipo_pi === "Matriz") {
+        // ajuste conforme suas rotas reais
         const [saldo, abats] = await Promise.all([
           getJSON<{ valor_abatido: number, saldo_restante: number }>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/saldo`),
           getJSON<PIItem[]>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/abatimentos`)
@@ -208,7 +252,6 @@ export default function PIs() {
   // ------- Editor inline --------
   function abrirEditor(pi: PIItem) {
     setEditError(null)
-    // cria um rascunho (strings para inputs)
     setEditDraft({
       ...pi,
       data_emissao: parseISODateToBR(pi.data_emissao),
@@ -255,7 +298,7 @@ export default function PIs() {
         numero_pi_normal: (editDraft.tipo_pi === "CS") ? (editDraft.numero_pi_normal || null) : null,
         nome_anunciante: editDraft.nome_anunciante || null,
         nome_agencia: editDraft.nome_agencia || null,
-        data_emissao: (editDraft.data_emissao || "").trim() || null, // aceita dd/mm/aaaa
+        data_emissao: (editDraft.data_emissao || "").trim() || null, // dd/mm/aaaa também funciona no backend
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -268,16 +311,13 @@ export default function PIs() {
         observacoes: editDraft.observacoes || null,
       }
 
-      // PUT /pis/{id}  (ajuste se sua rota for diferente)
       const atualizado = await putJSON<PIItem>(`${API}/pis/${editDraft.id}`, payload)
 
-      // fecha editor, recarrega lista e sincroniza painel de detalhes se for o mesmo
       fecharEditor()
       await carregar()
       if (detalhePI && detalhePI.id === atualizado.id) {
-        // atualiza os dados mostrados no detalhe
         const ref = (await getJSON<PIItem[]>(`${API}/pis`)).find(p => p.id === atualizado.id)
-        if (ref) abrirDetalhes(ref) // reabre com dados atualizados
+        if (ref) abrirDetalhes(ref)
       }
     } catch (e: any) {
       setEditError(e?.message || "Falha ao salvar.")
@@ -310,7 +350,7 @@ export default function PIs() {
 
       {/* Filtros */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-6 gap-4">
           <div className="xl:col-span-2">
             <label className="block text-xl font-semibold text-slate-800 mb-2">Buscar</label>
             <input
@@ -356,6 +396,36 @@ export default function PIs() {
               <option>Todos</option>
               {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Emissão — De</label>
+            <input
+              type="date"
+              value={emissaoDe}
+              onChange={(e) => setEmissaoDe(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Emissão — Até</label>
+            <input
+              type="date"
+              value={emissaoAte}
+              onChange={(e) => setEmissaoAte(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Mês da Venda</label>
+            <input
+              type="month"
+              value={mesVendaFiltro}
+              onChange={(e) => setMesVendaFiltro(e.target.value)} // YYYY-MM
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+            />
           </div>
         </div>
       </section>
