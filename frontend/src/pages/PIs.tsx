@@ -1,6 +1,5 @@
 // src/pages/PIs.tsx
 import { useEffect, useMemo, useState } from "react"
-import { Link } from "react-router-dom"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
@@ -51,6 +50,25 @@ async function getJSON<T>(url: string): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
 }
+async function putJSON<T>(url: string, body: any): Promise<T> {
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`
+    try {
+      const t = await r.json()
+      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
+    } catch {
+      const t = await r.text().catch(() => "")
+      if (t) msg += ` - ${t}`
+    }
+    throw new Error(msg)
+  }
+  return r.json()
+}
 
 export default function PIs() {
   const [lista, setLista] = useState<PIItem[]>([])
@@ -65,11 +83,17 @@ export default function PIs() {
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
-  // detalhe
+  // detalhe (painel de leitura)
   const [detalhePI, setDetalhePI] = useState<PIItem | null>(null)
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [saldoInfo, setSaldoInfo] = useState<{ valor_abatido: number, saldo_restante: number } | null>(null)
-  const [filhos, setFilhos] = useState<PIItem[]>([]) // abatimentos (para Matriz) ou CS (para Normal)
+  const [filhos, setFilhos] = useState<PIItem[]>([])
+
+  // editor inline (painel de edição)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editDraft, setEditDraft] = useState<PIItem | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -134,7 +158,6 @@ export default function PIs() {
     const ws = xlsx.utils.json_to_sheet(rows, {
       header: Object.keys(rows[0] || {}),
     })
-    // formata moeda em string pt-BR
     const colMoney = ["Valor Total (R$)", "Valor Líquido (R$)"]
     rows.forEach((r, i) => {
       colMoney.forEach((k) => {
@@ -158,7 +181,6 @@ export default function PIs() {
     setFilhos([])
     try {
       if (pi.tipo_pi === "Matriz") {
-        // saldo + abatimentos via rotas de matrizes
         const [saldo, abats] = await Promise.all([
           getJSON<{ valor_abatido: number, saldo_restante: number }>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/saldo`),
           getJSON<PIItem[]>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/abatimentos`)
@@ -166,11 +188,9 @@ export default function PIs() {
         setSaldoInfo(saldo)
         setFilhos(abats || [])
       } else if (pi.tipo_pi === "Normal") {
-        // CS vinculados derivados da lista já carregada
         const cs = lista.filter(x => x.tipo_pi === "CS" && (x.numero_pi_normal || "") === pi.numero_pi)
         setFilhos(cs)
       } else {
-        // CS ou Abatimento: só mostra vínculo (pai)
         setFilhos([])
       }
     } catch {
@@ -183,6 +203,87 @@ export default function PIs() {
     setDetalhePI(null)
     setSaldoInfo(null)
     setFilhos([])
+  }
+
+  // ------- Editor inline --------
+  function abrirEditor(pi: PIItem) {
+    setEditError(null)
+    // cria um rascunho (strings para inputs)
+    setEditDraft({
+      ...pi,
+      data_emissao: parseISODateToBR(pi.data_emissao),
+    })
+    setEditOpen(true)
+  }
+  function fecharEditor() {
+    setEditOpen(false)
+    setEditDraft(null)
+    setEditError(null)
+  }
+
+  function campo(k: keyof PIItem, v: any) {
+    if (!editDraft) return
+    setEditDraft({ ...editDraft, [k]: v })
+  }
+
+  function trataNumero(s: string): number | null {
+    const t = (s || "").trim()
+    if (!t) return null
+    const n = Number(t.replace(/\./g, "").replace(",", "."))
+    return Number.isFinite(n) ? n : null
+  }
+
+  function validaDraft(d: PIItem): string | null {
+    if (!d.numero_pi?.trim()) return "Número do PI é obrigatório."
+    const tp = (d.tipo_pi || "").trim()
+    if (!tp) return "Tipo do PI é obrigatório."
+    if (tp === "CS" && !(d.numero_pi_normal || "").trim()) return "PI Normal é obrigatório para CS."
+    if (tp === "Abatimento" && !(d.numero_pi_matriz || "").trim()) return "PI Matriz é obrigatório para Abatimento."
+    return null
+  }
+
+  async function salvarEditor() {
+    if (!editDraft) return
+    const msg = validaDraft(editDraft)
+    if (msg) { setEditError(msg); return }
+    setSavingEdit(true); setEditError(null)
+    try {
+      const payload: any = {
+        numero_pi: editDraft.numero_pi?.trim(),
+        tipo_pi: editDraft.tipo_pi,
+        numero_pi_matriz: (editDraft.tipo_pi === "Abatimento") ? (editDraft.numero_pi_matriz || null) : null,
+        numero_pi_normal: (editDraft.tipo_pi === "CS") ? (editDraft.numero_pi_normal || null) : null,
+        nome_anunciante: editDraft.nome_anunciante || null,
+        nome_agencia: editDraft.nome_agencia || null,
+        data_emissao: (editDraft.data_emissao || "").trim() || null, // aceita dd/mm/aaaa
+        valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
+        valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
+        uf_cliente: editDraft.uf_cliente || null,
+        canal: editDraft.canal || null,
+        nome_campanha: editDraft.nome_campanha || null,
+        diretoria: editDraft.diretoria || null,
+        executivo: editDraft.executivo || null,
+        dia_venda: (editDraft.dia_venda ?? "") as any || null,
+        mes_venda: editDraft.mes_venda || null,
+        observacoes: editDraft.observacoes || null,
+      }
+
+      // PUT /pis/{id}  (ajuste se sua rota for diferente)
+      const atualizado = await putJSON<PIItem>(`${API}/pis/${editDraft.id}`, payload)
+
+      // fecha editor, recarrega lista e sincroniza painel de detalhes se for o mesmo
+      fecharEditor()
+      await carregar()
+      if (detalhePI && detalhePI.id === atualizado.id) {
+        // atualiza os dados mostrados no detalhe
+        const ref = (await getJSON<PIItem[]>(`${API}/pis`)).find(p => p.id === atualizado.id)
+        if (ref) abrirDetalhes(ref) // reabre com dados atualizados
+      }
+    } catch (e: any) {
+      setEditError(e?.message || "Falha ao salvar.")
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   return (
@@ -336,13 +437,13 @@ export default function PIs() {
                             >
                               🔎 Detalhes
                             </button>
-                            <Link
-                              to={`/pis/cadastro?numero_pi=${encodeURIComponent(pi.numero_pi)}`}
+                            <button
+                              onClick={() => abrirEditor(pi)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Abrir no cadastro (pré-preencher futuramente)"
+                              title="Editar na mesma página"
                             >
                               ✏️ Editar
-                            </Link>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -355,9 +456,9 @@ export default function PIs() {
         )}
       </section>
 
-      {/* Painel de detalhes */}
+      {/* Painel de detalhes (leitura) */}
       {detalhePI && (
-        <div className="fixed inset-0 z-50">
+        <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
           <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b">
@@ -380,12 +481,20 @@ export default function PIs() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={fecharDetalhes}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  ✖ Fechar
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { fecharDetalhes(); abrirEditor(detalhePI) }}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    ✏️ Editar
+                  </button>
+                  <button
+                    onClick={fecharDetalhes}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    ✖ Fechar
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -502,6 +611,214 @@ export default function PIs() {
                   )}
                 </section>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Painel de EDIÇÃO inline */}
+      {editOpen && editDraft && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharEditor} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-white shadow-2xl overflow-y-auto">
+            <div className="p-6 border-b flex items-start justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar PI</div>
+                <div className="mt-1 text-3xl font-extrabold text-slate-900">
+                  <span className="font-mono">{editDraft.numero_pi}</span>
+                </div>
+              </div>
+              <button
+                onClick={fecharEditor}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                ✖ Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {editError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+                  {editError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Número do PI</label>
+                  <input
+                    value={editDraft.numero_pi || ""}
+                    onChange={(e) => campo("numero_pi", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de PI</label>
+                  <select
+                    value={editDraft.tipo_pi}
+                    onChange={(e) => campo("tipo_pi", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    {["Matriz", "Normal", "CS", "Abatimento"].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                {/* Vínculos dinâmicos */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">PI Matriz (para Abatimento)</label>
+                  <input
+                    value={editDraft.numero_pi_matriz || ""}
+                    onChange={(e) => campo("numero_pi_matriz", e.target.value)}
+                    disabled={editDraft.tipo_pi !== "Abatimento"}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">PI Normal (para CS)</label>
+                  <input
+                    value={editDraft.numero_pi_normal || ""}
+                    onChange={(e) => campo("numero_pi_normal", e.target.value)}
+                    disabled={editDraft.tipo_pi !== "CS"}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente (Anunciante)</label>
+                  <input
+                    value={editDraft.nome_anunciante || ""}
+                    onChange={(e) => campo("nome_anunciante", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Agência</label>
+                  <input
+                    value={editDraft.nome_agencia || ""}
+                    onChange={(e) => campo("nome_agencia", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Data de Emissão (dd/mm/aaaa)</label>
+                  <input
+                    value={editDraft.data_emissao || ""}
+                    onChange={(e) => campo("data_emissao", e.target.value)}
+                    placeholder="dd/mm/aaaa"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Bruto (R$)</label>
+                  <input
+                    value={String(editDraft.valor_bruto ?? "")}
+                    onChange={(e) => campo("valor_bruto" as any, e.target.value as any)}
+                    placeholder="1000,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Líquido (R$)</label>
+                  <input
+                    value={String(editDraft.valor_liquido ?? "")}
+                    onChange={(e) => campo("valor_liquido" as any, e.target.value as any)}
+                    placeholder="900,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Praça (UF do Cliente)</label>
+                  <input
+                    value={editDraft.uf_cliente || ""}
+                    onChange={(e) => campo("uf_cliente", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Meio (Canal)</label>
+                  <input
+                    value={editDraft.canal || ""}
+                    onChange={(e) => campo("canal", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Campanha</label>
+                  <input
+                    value={editDraft.nome_campanha || ""}
+                    onChange={(e) => campo("nome_campanha", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Diretoria</label>
+                  <select
+                    value={editDraft.diretoria || ""}
+                    onChange={(e) => campo("diretoria", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">—</option>
+                    {DIRETORIAS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                  <select
+                    value={editDraft.executivo || ""}
+                    onChange={(e) => campo("executivo", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">—</option>
+                    {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Dia da Venda</label>
+                  <input
+                    value={String(editDraft.dia_venda ?? "")}
+                    onChange={(e) => campo("dia_venda" as any, e.target.value as any)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Mês/Ano da Venda (mm/aaaa)</label>
+                  <input
+                    value={editDraft.mes_venda || ""}
+                    onChange={(e) => campo("mes_venda", e.target.value)}
+                    placeholder="07/2025"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Observações</label>
+                  <textarea
+                    value={editDraft.observacoes || ""}
+                    onChange={(e) => campo("observacoes", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 min-h-[90px]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={salvarEditor}
+                  disabled={savingEdit}
+                  className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {savingEdit ? "Salvando..." : "Salvar alterações"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
