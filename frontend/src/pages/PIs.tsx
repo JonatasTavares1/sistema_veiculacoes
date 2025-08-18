@@ -44,16 +44,6 @@ function parseISODateToBR(s?: string | null) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
 }
-function toDate(s?: string | null): Date | null {
-  if (!s) return null
-  // tenta ISO YYYY-MM-DD
-  const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (m1) return new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]))
-  // tenta BR DD/MM/YYYY
-  const m2 = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s)
-  if (m2) return new Date(Number(m2[3]), Number(m2[2]) - 1, Number(m2[1]))
-  return null
-}
 // normaliza "mes_venda" para "YYYY-MM" (aceita "MM/AAAA" ou "YYYY-MM")
 function mesToYM(s?: string | null): string {
   if (!s) return ""
@@ -100,9 +90,9 @@ export default function PIs() {
   const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento">("Todos")
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
-  const [emissaoDe, setEmissaoDe] = useState<string>("")   // YYYY-MM-DD
-  const [emissaoAte, setEmissaoAte] = useState<string>("") // YYYY-MM-DD
   const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("") // YYYY-MM (input month)
+  const [diaVendaDe, setDiaVendaDe] = useState<string>("")         // 1..31
+  const [diaVendaAte, setDiaVendaAte] = useState<string>("")       // 1..31
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
@@ -140,9 +130,14 @@ export default function PIs() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    const dIni = emissaoDe ? new Date(emissaoDe) : null
-    const dFim = emissaoAte ? new Date(emissaoAte) : null
-    const ymFiltro = mesVendaFiltro // já em YYYY-MM
+    const ymFiltro = mesVendaFiltro // YYYY-MM
+
+    // parse bounds (se só um preencher, vira igualdade)
+    const deNum = diaVendaDe ? Math.max(1, Math.min(31, parseInt(diaVendaDe, 10))) : null
+    const ateNum = diaVendaAte ? Math.max(1, Math.min(31, parseInt(diaVendaAte, 10))) : null
+    const haveDiaFiltro = deNum != null || ateNum != null
+    const minDia = deNum ?? ateNum ?? null
+    const maxDia = ateNum ?? deNum ?? null
 
     return lista.filter(p => {
       // texto
@@ -158,43 +153,45 @@ export default function PIs() {
       const okDir = (diretoria === "Todos") || ((p.diretoria || "") === diretoria)
       const okExec = (executivo === "Todos") || ((p.executivo || "") === executivo)
 
-      // período de emissão
-      let okEmissao = true
-      if (dIni || dFim) {
-        const d = toDate(p.data_emissao)
-        if (!d) okEmissao = false
-        else {
-          if (dIni && d < dIni) okEmissao = false
-          if (dFim && d > dFim) okEmissao = false
+      // mês/ano da venda
+      const okMes = !ymFiltro || (mesToYM(p.mes_venda) === ymFiltro)
+
+      // dia da venda (range inclusivo)
+      let okDia = true
+      if (haveDiaFiltro) {
+        const diaRaw = p.dia_venda
+        const dia = Number(String(diaRaw ?? "").trim())
+        if (!Number.isFinite(dia)) {
+          okDia = false
+        } else {
+          if (minDia != null && dia < minDia) okDia = false
+          if (maxDia != null && dia > maxDia) okDia = false
         }
       }
 
-      // mês/ano da venda (comparando em YYYY-MM)
-      const okMes = !ymFiltro || (mesToYM(p.mes_venda) === ymFiltro)
-
-      return okBusca && okTipo && okDir && okExec && okEmissao && okMes
+      return okBusca && okTipo && okDir && okExec && okMes && okDia
     })
-  }, [lista, busca, tipo, diretoria, executivo, emissaoDe, emissaoAte, mesVendaFiltro])
+  }, [lista, busca, tipo, diretoria, executivo, mesVendaFiltro, diaVendaDe, diaVendaAte])
 
   async function exportarXLSX() {
     const rows = filtrada.map((pi) => ({
-      "ID": pi.id,
-      "PI": pi.numero_pi,
+      ID: pi.id,
+      PI: pi.numero_pi,
       "Tipo de PI": pi.tipo_pi,
       "PI Matriz": (pi.tipo_pi === "CS" || pi.tipo_pi === "Abatimento") ? (pi.numero_pi_matriz || "") : "",
-      "Cliente": pi.nome_anunciante || "",
+      Cliente: pi.nome_anunciante || "",
       "Agência": pi.nome_agencia || "",
       "CNPJ Agência": pi.cnpj_agencia || "",
       "Data de Emissão": parseISODateToBR(pi.data_emissao),
       "Valor Total (R$)": (pi.valor_bruto ?? 0),
       "Valor Líquido (R$)": (pi.valor_liquido ?? 0),
       "Praça": pi.uf_cliente || "",
-      "Meio": pi.canal || "",
-      "Campanha": pi.nome_campanha || "",
-      "Diretoria": pi.diretoria || "",
-      "Executivo": pi.executivo || "",
+      Meio: pi.canal || "",
+      Campanha: pi.nome_campanha || "",
+      Diretoria: pi.diretoria || "",
+      Executivo: pi.executivo || "",
       "Data da Venda": (pi.dia_venda && pi.mes_venda) ? `${pi.dia_venda}/${pi.mes_venda}` : "",
-      "Observações": pi.observacoes || "",
+      Observações: pi.observacoes || "",
     }))
 
     const xlsx = await import("xlsx")
@@ -224,7 +221,6 @@ export default function PIs() {
     setFilhos([])
     try {
       if (pi.tipo_pi === "Matriz") {
-        // ajuste conforme suas rotas reais
         const [saldo, abats] = await Promise.all([
           getJSON<{ valor_abatido: number, saldo_restante: number }>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/saldo`),
           getJSON<PIItem[]>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/abatimentos`)
@@ -298,7 +294,7 @@ export default function PIs() {
         numero_pi_normal: (editDraft.tipo_pi === "CS") ? (editDraft.numero_pi_normal || null) : null,
         nome_anunciante: editDraft.nome_anunciante || null,
         nome_agencia: editDraft.nome_agencia || null,
-        data_emissao: (editDraft.data_emissao || "").trim() || null, // dd/mm/aaaa também funciona no backend
+        data_emissao: (editDraft.data_emissao || "").trim() || null, // dd/mm/aaaa também funciona
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -398,34 +394,48 @@ export default function PIs() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Emissão — De</label>
-            <input
-              type="date"
-              value={emissaoDe}
-              onChange={(e) => setEmissaoDe(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Emissão — Até</label>
-            <input
-              type="date"
-              value={emissaoAte}
-              onChange={(e) => setEmissaoAte(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Mês da Venda</label>
-            <input
-              type="month"
-              value={mesVendaFiltro}
-              onChange={(e) => setMesVendaFiltro(e.target.value)} // YYYY-MM
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            />
+          {/* BLOCO ÚNICO: Venda (mês + dia de/até) */}
+          <div className="xl:col-span-2">
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Venda</label>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <div className="text-sm text-slate-600 mb-1">Mês</div>
+                <input
+                  type="month"
+                  value={mesVendaFiltro}
+                  onChange={(e) => setMesVendaFiltro(e.target.value)} // YYYY-MM
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                />
+              </div>
+              <div>
+                <div className="text-sm text-slate-600 mb-1">Dia — De</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={diaVendaDe}
+                  onChange={(e) => setDiaVendaDe(e.target.value)}
+                  placeholder="1"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                />
+              </div>
+              <div>
+                <div className="text-sm text-slate-600 mb-1">Dia — Até</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={diaVendaAte}
+                  onChange={(e) => setDiaVendaAte(e.target.value)}
+                  placeholder="31"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </section>
