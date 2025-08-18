@@ -46,11 +46,43 @@ const UFS = [
 ]
 
 function digits(s: string) { return (s || "").replace(/\D+/g, "") }
-function formatCNPJ(cnpj: string) {
-  const d = digits(cnpj).padEnd(14, "_").slice(0, 14)
+function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
+
+// --------- CNPJ: formatação progressiva (sem underscores) ---------
+function formatCNPJPartial(v: string) {
+  const d = digits(v).slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`
+  if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
   return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
 }
-function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
+
+// --------- Export helpers ---------
+function downloadBlob(content: string | Blob, filename: string, mime: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function csvEscape(v: any) {
+  const s = (v ?? "").toString().replace(/"/g, '""')
+  return `"${s}"`
+}
+function jsonToCSV(rows: Record<string, any>[]) {
+  if (!rows.length) return ""
+  const headers = Object.keys(rows[0])
+  const head = headers.map(csvEscape).join(";")
+  const body = rows.map(r => headers.map(h => csvEscape(r[h])).join(";")).join("\n")
+  // BOM para Excel PT-BR
+  return "\uFEFF" + head + "\n" + body
+}
 
 export default function Agencias() {
   // form
@@ -131,10 +163,7 @@ export default function Agencias() {
   function validar(): string | null {
     if (!nome.trim()) return "Nome é obrigatório."
     const dig = digits(cnpj)
-    if (!cnpj.includes(".") || !cnpj.includes("-")) {
-      if (dig.length === 14) setCnpj(formatCNPJ(dig))
-      else return "O CNPJ deve conter 14 dígitos (ex.: 12.345.678/0001-90)."
-    }
+    if (dig.length !== 14) return "O CNPJ deve conter 14 dígitos (ex.: 12.345.678/0001-90)."
     if (!executivo || executivo === "Selecione o Executivo") return "Executivo é obrigatório."
     if (!emailOk(email)) return "Email inválido."
     return null
@@ -148,7 +177,7 @@ export default function Agencias() {
       const body = {
         nome_agencia: nome.trim(),
         razao_social_agencia: razao.trim(),
-        cnpj_agencia: cnpj.trim(),
+        cnpj_agencia: cnpj.trim(), // já formatado
         uf_agencia: uf,
         executivo,
         email_agencia: email.trim() || null,
@@ -161,6 +190,36 @@ export default function Agencias() {
       setErro(e?.message || "Erro ao cadastrar agência.")
     } finally {
       setSalvando(false)
+    }
+  }
+
+  // --------- Exportar Excel / CSV ---------
+  async function exportarPlanilha(rows: Agencia[]) {
+    if (!rows?.length) { alert("Nada para exportar."); return }
+    const data = rows.map(a => ({
+      Nome: a.nome_agencia,
+      "Razão Social": a.razao_social_agencia || "",
+      CNPJ: a.cnpj_agencia,
+      UF: a.uf_agencia || "",
+      Executivo: a.executivo || "",
+      Email: a.email_agencia || "",
+      "Data de Cadastro": a.data_cadastro || "",
+    }))
+    const nomeArq = `agencias_${new Date().toISOString().slice(0,10)}.xlsx`
+
+    try {
+      // tenta xlsx (SheetJS)
+      // Instale se quiser usar sempre:  npm i xlsx
+      const XLSX = await import("xlsx")
+      const ws = XLSX.utils.json_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Agências")
+      XLSX.writeFile(wb, nomeArq)
+    } catch {
+      // fallback: CSV
+      const csv = jsonToCSV(data)
+      downloadBlob(csv, nomeArq.replace(/\.xlsx$/, ".csv"), "text/csv;charset=utf-8;")
+      alert("Exportei em CSV (fallback). Para .xlsx nativo, instale a lib 'xlsx'.")
     }
   }
 
@@ -220,7 +279,8 @@ export default function Agencias() {
                 <label className="block text-xl font-semibold text-slate-800 mb-2">CNPJ</label>
                 <input
                   value={cnpj}
-                  onChange={(e) => setCnpj(e.target.value)}
+                  onChange={(e) => setCnpj(formatCNPJPartial(e.target.value))}
+                  onBlur={() => setCnpj(formatCNPJPartial(cnpj))}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                   placeholder="12.345.678/0001-90"
                 />
@@ -228,7 +288,7 @@ export default function Agencias() {
               <button
                 type="button"
                 onClick={autoPreencherPorCNPJ}
-                disabled={buscandoCNPJ}
+                disabled={buscandoCNPJ || digits(cnpj).length !== 14}
                 className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
                 title="Buscar dados pelo CNPJ"
               >
@@ -293,6 +353,14 @@ export default function Agencias() {
               placeholder="Buscar por nome, CNPJ ou executivo"
               className="w-72 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
+            <button
+              onClick={() => exportarPlanilha(filtrada)}
+              disabled={!filtrada.length}
+              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60"
+              title="Exportar para Excel"
+            >
+              ⬇️ Exportar Excel
+            </button>
             <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
           </div>
         </div>

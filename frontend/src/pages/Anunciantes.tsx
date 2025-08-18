@@ -15,7 +15,7 @@ type Anunciante = {
   id: number
   nome_anunciante: string
   razao_social_anunciante?: string | null
-  cnpj_anunciante: string // pode conter CPF ou CNPJ
+  cnpj_anunciante: string            // aqui pode vir CPF ou CNPJ
   uf_cliente?: string | null
   executivo: string
   email_anunciante?: string | null
@@ -45,53 +45,65 @@ const UFS = [
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
 ]
 
-// ---------- Utils: CPF/CNPJ ----------
 function digits(s: string) { return (s || "").replace(/\D+/g, "") }
-function allSame(s: string) { return /^(\d)\1+$/.test(s) }
+function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
 
-function formatCPF(cpf: string) {
-  const d = digits(cpf).slice(0, 11).padEnd(11, "_")
+// ---- Formatação progressiva CPF/CNPJ (sem padding/underscore) ----
+function formatCpfPartial(v: string) {
+  const d = digits(v).slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
+  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
   return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`
 }
-function formatCNPJ(cnpj: string) {
-  const d = digits(cnpj).slice(0, 14).padEnd(14, "_")
+function formatCnpjPartial(v: string) {
+  const d = digits(v).slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`
+  if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
   return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
 }
-function validateCPF(v: string) {
+function formatDocPartial(v: string) {
   const d = digits(v)
-  if (d.length !== 11 || allSame(d)) return false
-  let sum = 0
-  for (let i = 0; i < 9; i++) sum += parseInt(d[i], 10) * (10 - i)
-  let rest = (sum * 10) % 11; if (rest === 10) rest = 0
-  if (rest !== parseInt(d[9], 10)) return false
-  sum = 0
-  for (let i = 0; i < 10; i++) sum += parseInt(d[i], 10) * (11 - i)
-  rest = (sum * 10) % 11; if (rest === 10) rest = 0
-  return rest === parseInt(d[10], 10)
+  if (d.length <= 11) return formatCpfPartial(v)      // até 11 vai no padrão CPF
+  return formatCnpjPartial(v)                          // acima de 11, CNPJ
 }
-function validateCNPJ(v: string) {
-  const d = digits(v)
-  if (d.length !== 14 || allSame(d)) return false
-  const calc = (len: number) => {
-    const weights = len === 12
-      ? [5,4,3,2,9,8,7,6,5,4,3,2]
-      : [6,5,4,3,2,9,8,7,6,5,4,3,2]
-    let sum = 0
-    for (let i = 0; i < weights.length; i++) sum += parseInt(d[i], 10) * weights[i]
-    const rest = sum % 11
-    return rest < 2 ? 0 : 11 - rest
-  }
-  const dig1 = calc(12)
-  const dig2 = calc(13)
-  return dig1 === parseInt(d[12], 10) && dig2 === parseInt(d[13], 10)
+function normalizeDocForSave(v: string) {
+  // Mantém com pontuação (frontend envia assim), backend só armazena string.
+  // Se quiser enviar só dígitos: return digits(v)
+  return formatDocPartial(v)
 }
-function emailValido(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
+
+// ---- Export helpers (xlsx se possível; fallback CSV) ----
+function downloadBlob(content: string | Blob, filename: string, mime: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+function csvEscape(v: any) {
+  const s = (v ?? "").toString().replace(/"/g, '""')
+  return `"${s}"`
+}
+function jsonToCSV(rows: Record<string, any>[]) {
+  if (!rows.length) return ""
+  const headers = Object.keys(rows[0])
+  const head = headers.map(csvEscape).join(";")
+  const body = rows.map(r => headers.map(h => csvEscape(r[h])).join(";")).join("\n")
+  return "\uFEFF" + head + "\n" + body // BOM p/ Excel PT-BR
+}
 
 export default function Anunciantes() {
   // form
   const [nome, setNome] = useState("")
   const [razao, setRazao] = useState("")
-  const [doc, setDoc] = useState("") // CPF ou CNPJ
+  const [doc, setDoc] = useState("")           // CPF ou CNPJ
   const [uf, setUf] = useState("DF")
   const [email, setEmail] = useState("")
   const [executivo, setExecutivo] = useState("")
@@ -104,18 +116,10 @@ export default function Anunciantes() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
-  const [buscandoDoc, setBuscandoDoc] = useState(false)
+  const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
 
   // filtros
   const [busca, setBusca] = useState("")
-
-  // status do documento
-  const docInfo = useMemo(() => {
-    const d = digits(doc)
-    if (d.length === 11) return { tipo: "CPF" as const, valido: validateCPF(d), format: formatCPF }
-    if (d.length === 14) return { tipo: "CNPJ" as const, valido: validateCNPJ(d), format: formatCNPJ }
-    return { tipo: d.length <= 11 ? ("CPF" as const) : ("CNPJ" as const), valido: false, format: d.length <= 11 ? formatCPF : formatCNPJ }
-  }, [doc])
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -137,21 +141,21 @@ export default function Anunciantes() {
   }
   useEffect(() => { carregar() }, [])
 
-  // auto preenche apenas quando for CNPJ válido
-  async function autoPreencherPorDocumento() {
-    const d = digits(doc)
-    if (!(d.length === 14 && validateCNPJ(d))) {
-      alert("Auto-preenchimento disponível apenas para CNPJ válido.")
+  // auto-preencher SÓ para CNPJ (14 dígitos)
+  async function autoPreencherPorCNPJ() {
+    const num = digits(doc)
+    if (num.length !== 14) {
+      alert("Para preencher automático, informe um CNPJ (14 dígitos).")
       return
     }
-    setBuscandoDoc(true)
+    setBuscandoCNPJ(true)
     setErro(null)
     try {
       let data: any | null = null
       try {
-        data = await getJSON<any>(`${API}/anunciantes/cnpj/${d}`)
+        data = await getJSON<any>(`${API}/anunciantes/cnpj/${num}`)
       } catch {
-        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${d}`)
+        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${num}`)
         if (r.ok) data = await r.json()
       }
       if (data) {
@@ -163,23 +167,23 @@ export default function Anunciantes() {
         if (ufApi && UFS.includes(ufApi)) setUf(ufApi)
         alert("Dados preenchidos automaticamente pelo CNPJ.")
       } else {
-        alert("Documento não encontrado.")
+        alert("CNPJ não encontrado.")
       }
     } catch {
-      alert("Erro ao consultar documento.")
+      alert("Erro ao consultar CNPJ.")
     } finally {
-      setBuscandoDoc(false)
+      setBuscandoCNPJ(false)
     }
   }
 
   function validar(): string | null {
-    const d = digits(doc)
-    const cpfOk = d.length === 11 && validateCPF(d)
-    const cnpjOk = d.length === 14 && validateCNPJ(d)
     if (!nome.trim()) return "Nome é obrigatório."
-    if (!cpfOk && !cnpjOk) return "Informe um CPF (11) ou CNPJ (14) válido."
+    const d = digits(doc)
+    if (!(d.length === 11 || d.length === 14)) {
+      return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
+    }
     if (!executivo || executivo === "Selecione o Executivo") return "Executivo é obrigatório."
-    if (!emailValido(email)) return "Email inválido."
+    if (!emailOk(email)) return "Email inválido."
     return null
   }
 
@@ -188,11 +192,10 @@ export default function Anunciantes() {
     if (msg) { alert(msg); return }
     setSalvando(true); setErro(null)
     try {
-      const docFmt = docInfo.tipo === "CPF" ? formatCPF(doc) : formatCNPJ(doc)
       const body = {
         nome_anunciante: nome.trim(),
         razao_social_anunciante: razao.trim(),
-        cnpj_anunciante: docFmt.trim(), // campo legado, pode conter CPF ou CNPJ
+        cnpj_anunciante: normalizeDocForSave(doc), // aceita CPF ou CNPJ
         uf_cliente: uf,
         executivo,
         email_anunciante: email.trim() || null,
@@ -208,7 +211,33 @@ export default function Anunciantes() {
     }
   }
 
-  // lista filtrada
+  // ---- Exportar Excel / CSV ----
+  async function exportarPlanilha(rows: Anunciante[]) {
+    if (!rows?.length) { alert("Nada para exportar."); return }
+    const data = rows.map(a => ({
+      Nome: a.nome_anunciante,
+      "Razão Social": a.razao_social_anunciante || "",
+      Documento: a.cnpj_anunciante,
+      UF: a.uf_cliente || "",
+      Executivo: a.executivo || "",
+      Email: a.email_anunciante || "",
+      "Data de Cadastro": a.data_cadastro || "",
+    }))
+    const nomeArq = `anunciantes_${new Date().toISOString().slice(0,10)}.xlsx`
+
+    try {
+      const XLSX = await import("xlsx")
+      const ws = XLSX.utils.json_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Anunciantes")
+      XLSX.writeFile(wb, nomeArq)
+    } catch {
+      const csv = jsonToCSV(data)
+      downloadBlob(csv, nomeArq.replace(/\.xlsx$/, ".csv"), "text/csv;charset=utf-8;")
+      alert("Exportei em CSV (fallback). Para .xlsx nativo, instale a lib 'xlsx'.")
+    }
+  }
+
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return lista
@@ -219,40 +248,15 @@ export default function Anunciantes() {
     )
   }, [lista, busca])
 
-  // ✅ Exporta XLSX a partir da lista filtrada
-  async function exportarXLSX() {
-    try {
-      const xlsx = await import("xlsx")
-      const dados = filtrada.map(a => ({
-        Nome: a.nome_anunciante,
-        Documento: a.cnpj_anunciante,
-        UF: a.uf_cliente || "",
-        Executivo: a.executivo,
-        Email: a.email_anunciante || "",
-        DataCadastro: a.data_cadastro || "",
-      }))
-      const wb = xlsx.utils.book_new()
-      const ws = xlsx.utils.json_to_sheet(dados)
-      xlsx.utils.book_append_sheet(wb, ws, "Anunciantes")
-      const hoje = new Date().toISOString().slice(0,10)
-      xlsx.writeFile(wb, `anunciantes_${hoje}.xlsx`)
-    } catch (err) {
-      alert("Não foi possível exportar. Instale a dependência com:\n\nnpm i xlsx")
-    }
-  }
+  // máscara de exibição na tabela (garante pontuação correta)
+  function maskDocDisplay(v: string) { return formatDocPartial(v) }
 
   return (
     <div className="space-y-8">
-      {/* Título + ações */}
+      {/* Título */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-4xl font-extrabold text-slate-900">Cadastro de Anunciante</h1>
         <div className="flex items-center gap-3">
-          <button
-            onClick={exportarXLSX}
-            className="px-5 py-3 rounded-2xl bg-white border border-red-300 text-red-700 text-lg font-semibold hover:bg-red-50 transition shadow-sm"
-          >
-            📁 Exportar Excel
-          </button>
           <button
             onClick={carregar}
             className="px-5 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 transition shadow-sm"
@@ -287,40 +291,26 @@ export default function Anunciantes() {
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div>
             <div className="flex items-end gap-3">
               <div className="flex-1">
-                <label className="block text-xl font-semibold text-slate-800 mb-2">CPF ou CNPJ</label>
+                <label className="block text-xl font-semibold text-slate-800 mb-2">Documento (CPF ou CNPJ)</label>
                 <input
                   value={doc}
-                  onChange={(e) => setDoc(e.target.value)}
-                  onBlur={() => {
-                    const d = digits(doc)
-                    if (d.length === 11 && validateCPF(d)) setDoc(formatCPF(d))
-                    else if (d.length === 14 && validateCNPJ(d)) setDoc(formatCNPJ(d))
-                  }}
+                  onChange={(e) => setDoc(formatDocPartial(e.target.value))}
+                  onBlur={() => setDoc(formatDocPartial(doc))}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                  placeholder="Digite CPF (11) ou CNPJ (14)"
+                  placeholder="CPF: 000.000.000-00  •  CNPJ: 00.000.000/0000-00"
                 />
-                <div className="mt-1 text-sm">
-                  <span className={[
-                    "inline-flex items-center rounded-full px-2.5 py-0.5",
-                    docInfo.valido
-                      ? "bg-green-100 text-green-800 border border-green-200"
-                      : digits(doc).length ? "bg-red-100 text-red-800 border border-red-200" : "bg-slate-100 text-slate-700 border border-slate-200"
-                  ].join(" ")}>
-                    {docInfo.tipo} {digits(doc).length ? (docInfo.valido ? "válido" : "inválido") : ""}
-                  </span>
-                </div>
               </div>
               <button
                 type="button"
-                onClick={autoPreencherPorDocumento}
-                disabled={buscandoDoc || !(docInfo.tipo === "CNPJ" && docInfo.valido)}
+                onClick={autoPreencherPorCNPJ}
+                disabled={buscandoCNPJ || digits(doc).length !== 14}
                 className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
-                title="Buscar dados (apenas CNPJ válido)"
+                title="Buscar dados pelo CNPJ"
               >
-                {buscandoDoc ? "Buscando..." : "🔍 Doc"}
+                {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
               </button>
             </div>
           </div>
@@ -381,48 +371,95 @@ export default function Anunciantes() {
               placeholder="Buscar por nome, documento ou executivo"
               className="w-72 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
-            <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
             <button
-              onClick={exportarXLSX}
-              className="px-4 py-2 rounded-xl bg-white border border-red-300 text-red-700 text-base font-medium hover:bg-red-50 transition"
+              onClick={() => exportarPlanilha(filtrada)}
+              disabled={!filtrada.length}
+              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60"
+              title="Exportar para Excel"
             >
-              📁 Exportar Excel
+              ⬇️ Exportar Excel
             </button>
+            <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
           </div>
         </div>
 
         {loading ? (
           <div className="p-4 text-slate-600 text-lg">Carregando…</div>
+        ) : filtrada.length === 0 ? (
+          <div className="p-8 rounded-2xl border border-dashed border-slate-300 text-center text-slate-600">
+            Nenhum anunciante cadastrado.
+          </div>
         ) : (
-          <>
-            {filtrada.length === 0 ? (
-              <div className="p-4 text-slate-600 text-lg">Nenhum anunciante cadastrado.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left">
-                  <thead>
-                    <tr className="bg-red-600/90 text-white">
-                      {["Nome", "Documento", "UF", "Executivo", "Email", "Data de Cadastro"].map(h => (
-                        <th key={h} className="px-4 py-3 text-base font-semibold">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtrada.map((a) => (
-                      <tr key={a.id} className="border-b last:border-none hover:bg-red-50">
-                        <td className="px-4 py-3 text-base text-slate-800">{a.nome_anunciante}</td>
-                        <td className="px-4 py-3 text-base text-slate-800">{a.cnpj_anunciante}</td>
-                        <td className="px-4 py-3 text-base text-slate-800">{a.uf_cliente || ""}</td>
-                        <td className="px-4 py-3 text-base text-slate-800">{a.executivo}</td>
-                        <td className="px-4 py-3 text-base text-slate-800">{a.email_anunciante || ""}</td>
-                        <td className="px-4 py-3 text-base text-slate-800">{a.data_cadastro || ""}</td>
-                      </tr>
+          <div className="overflow-hidden rounded-2xl border border-red-200 shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-red-200">
+                <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
+                  <tr>
+                    {["Nome", "Documento", "UF", "Executivo", "Email", "Data de Cadastro"].map(h => (
+                      <th
+                        key={h}
+                        className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide"
+                      >
+                        {h}
+                      </th>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-red-100">
+                  {filtrada.map((a, idx) => (
+                    <tr
+                      key={a.id}
+                      className={[
+                        "transition",
+                        idx % 2 === 0 ? "bg-white" : "bg-red-50/40",
+                        "hover:bg-red-50"
+                      ].join(" ")}
+                    >
+                      <td className="px-6 py-4 text-slate-900 text-base font-medium">
+                        <div className="flex flex-col">
+                          <span className="truncate">{a.nome_anunciante}</span>
+                          {a.razao_social_anunciante ? (
+                            <span className="text-sm text-slate-500 truncate">{a.razao_social_anunciante}</span>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
+                        <span className="font-mono">{maskDocDisplay(a.cnpj_anunciante)}</span>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-xs font-semibold">
+                          {a.uf_cliente || "—"}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
+                        <div className="truncate">{a.executivo || "—"}</div>
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
+                        {a.email_anunciante ? (
+                          <a
+                            href={`mailto:${a.email_anunciante}`}
+                            className="underline decoration-red-300 hover:decoration-red-500 break-all"
+                          >
+                            {a.email_anunciante}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-700 text-sm">
+                        {a.data_cadastro || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </section>
     </div>
