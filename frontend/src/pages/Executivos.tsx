@@ -1,15 +1,17 @@
+// src/pages/Executivos.tsx
 import { useEffect, useMemo, useState } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
 type TipoRegistro = "Agência" | "Anunciante"
 
-// Estrutura de cada linha da tabela (seguindo o controller Python)
 type Linha = {
   ID: number
   Nome: string
   "Razão Social": string
-  CNPJ: string
+  CNPJ?: string
+  CPF?: string
+  Documento?: string
   UF: string
   Executivo: string
 }
@@ -19,17 +21,6 @@ async function getJSON<T>(url: string): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
 }
-
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-
 async function putJSON<T>(url: string, body: any): Promise<T> {
   const r = await fetch(url, {
     method: "PUT",
@@ -40,23 +31,65 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   return r.json()
 }
 
+/* -------------------- helpers doc (CPF/CNPJ) -------------------- */
+function digits(s: string) { return (s || "").replace(/\D+/g, "") }
+
+function isDocKey(key: string) {
+  return /^(cnpj|cpf|documento)$/i.test(key.trim())
+}
+
+function formatCPF(d: string) {
+  const v = digits(d).slice(0, 11)
+  if (v.length !== 11) return d || ""
+  return `${v.slice(0,3)}.${v.slice(3,6)}.${v.slice(6,9)}-${v.slice(9)}`
+}
+function formatCNPJ(d: string) {
+  const v = digits(d).slice(0, 14)
+  if (v.length !== 14) return d || ""
+  return `${v.slice(0,2)}.${v.slice(2,5)}.${v.slice(5,8)}/${v.slice(8,12)}-${v.slice(12)}`
+}
+function formatDocDisplay(v?: string | null) {
+  const d = digits(v || "")
+  if (d.length === 11) return formatCPF(d)
+  if (d.length === 14) return formatCNPJ(d)
+  return v || ""
+}
+
+// formatação progressiva para inputs
+function formatCPFPartial(v: string) {
+  const d = digits(v).slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
+  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`
+}
+function formatCNPJPartial(v: string) {
+  const d = digits(v).slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`
+  if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
+}
+function formatDocPartial(v: string) {
+  const d = digits(v)
+  if (d.length <= 11) return formatCPFPartial(v)
+  return formatCNPJPartial(v)
+}
+
 export default function Executivos() {
-  // filtros
   const [tipo, setTipo] = useState<TipoRegistro>("Agência")
   const [executivos, setExecutivos] = useState<string[]>([])
   const [executivoSel, setExecutivoSel] = useState<string>("")
 
-  // dados
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // edição (modal)
   const [editAberto, setEditAberto] = useState(false)
   const [editOriginal, setEditOriginal] = useState<Linha | null>(null)
   const [editCampos, setEditCampos] = useState<Record<string, string>>({})
 
-  // carregar lista de executivos (combina Agências e Anunciantes no backend)
   useEffect(() => {
     (async () => {
       try {
@@ -69,7 +102,6 @@ export default function Executivos() {
     })()
   }, [])
 
-  // buscar por executivo
   async function buscar() {
     if (!executivoSel) {
       alert("Selecione um executivo.")
@@ -78,7 +110,6 @@ export default function Executivos() {
     setLoading(true)
     setErro(null)
     try {
-      // supondo endpoint GET /executivos/busca?tipo=Agência&executivo=Nome
       const params = new URLSearchParams({ tipo, executivo: executivoSel })
       const dados = await getJSON<Linha[]>(`${API}/executivos/busca?${params.toString()}`)
       setLinhas(Array.isArray(dados) ? dados : [])
@@ -89,7 +120,6 @@ export default function Executivos() {
     }
   }
 
-  // ver todos (sem filtrar por executivo)
   async function verTodos() {
     setLoading(true)
     setErro(null)
@@ -104,23 +134,22 @@ export default function Executivos() {
     }
   }
 
-  // exportar CSV (sem libs externas)
   function exportarCSV() {
     if (!linhas.length) {
       alert("Nenhum dado para exportar.")
       return
     }
     const cols = Object.keys(linhas[0])
-    const csv = [
-      cols.join(";"),
-      ...linhas.map(l =>
-        cols.map(c => {
-          const v = (l as any)[c] ?? ""
-          const s = String(v).replaceAll('"', '""')
-          return `"${s}"`
-        }).join(";")
-      )
-    ].join("\n")
+    const header = cols.join(";")
+    const body = linhas.map(l =>
+      cols.map(c => {
+        let v = (l as any)[c] ?? ""
+        if (isDocKey(c)) v = formatDocDisplay(String(v))
+        const s = String(v).replaceAll('"', '""')
+        return `"${s}"`
+      }).join(";")
+    ).join("\n")
+    const csv = header + "\n" + body
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
     const nome = `${(executivoSel || "todos").replace(/\s+/g, "_")}_${tipo.toLowerCase()}.csv`
@@ -134,28 +163,26 @@ export default function Executivos() {
     URL.revokeObjectURL(url)
   }
 
-  // abrir modal de edição
   function abrirEdicao(item: Linha) {
     setEditOriginal(item)
     const { ID, ...rest } = item
     const campos: Record<string, string> = {}
-    Object.entries(rest).forEach(([k, v]) => (campos[k] = String(v ?? "")))
+    Object.entries(rest).forEach(([k, v]) => {
+      campos[k] = isDocKey(k) ? formatDocPartial(String(v ?? "")) : String(v ?? "")
+    })
     setEditCampos(campos)
     setEditAberto(true)
   }
 
-  // salvar edição
   async function salvarEdicao() {
     if (!editOriginal) return
     try {
-      // Ex.: PUT /executivos/editar (ajuste conforme seu backend)
       await putJSON(`${API}/executivos/editar`, {
         tipo,
         item_id: editOriginal.ID,
-        novos_dados: editCampos,
+        novos_dados: editCampos, // documento já vai formatado
       })
 
-      // refletir no estado local
       setLinhas(prev =>
         prev.map(l =>
           l.ID === editOriginal.ID ? ({ ID: l.ID, ...editCampos } as any as Linha) : l
@@ -167,15 +194,16 @@ export default function Executivos() {
     }
   }
 
-  // excluir (simulado, como no Tkinter)
   function excluir(item: Linha) {
     if (!confirm(`Deseja excluir o registro:\n${JSON.stringify(item, null, 2)} ?`)) return
-    // Aqui só removemos da tela (simulado). Se criar endpoint, chame-o antes.
     setLinhas(prev => prev.filter(l => l.ID !== item.ID))
     alert("Registro removido (simulado).")
   }
 
-  const colunas = useMemo(() => (linhas[0] ? [...Object.keys(linhas[0]), "Ações"] : []), [linhas])
+  const colunas = useMemo(
+    () => (linhas[0] ? [...Object.keys(linhas[0]), "Ações"] : []),
+    [linhas]
+  )
 
   return (
     <div className="space-y-8">
@@ -270,7 +298,7 @@ export default function Executivos() {
                       <tr key={linha.ID} className="border-b last:border-none hover:bg-red-50">
                         {Object.entries(linha).map(([k, v]) => (
                           <td key={k} className="px-4 py-3 text-slate-800 text-base">
-                            {String(v ?? "")}
+                            {isDocKey(k) ? formatDocDisplay(String(v)) : String(v ?? "")}
                           </td>
                         ))}
                         <td className="px-4 py-3">
@@ -325,7 +353,10 @@ export default function Executivos() {
                   <input
                     value={editCampos[campo]}
                     onChange={(e) =>
-                      setEditCampos((prev) => ({ ...prev, [campo]: e.target.value }))
+                      setEditCampos((prev) => ({
+                        ...prev,
+                        [campo]: isDocKey(campo) ? formatDocPartial(e.target.value) : e.target.value
+                      }))
                     }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                   />

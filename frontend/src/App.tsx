@@ -6,7 +6,8 @@ import Matrizes from "./pages/Matrizes"
 import Executivos from "./pages/Executivos"
 import Anunciantes from "./pages/Anunciantes"
 import Agencias from "./pages/Agencias"
-import PIs from "./pages/PIs"   
+import PIs from "./pages/PIs" 
+import Produtos from "./pages/Produtos"  
 function Home() {
   return <div className="p-6 text-2xl">Bem-vindo 👋</div>
 }
@@ -15,6 +16,7 @@ export default function App() {
   return (
     <AppLayout>
       <Routes>
+        <Route path="/produtos" element={<Produtos />} />
         <Route path="/pis" element={<PIs />} />
         <Route path="/" element={<Home />} />
         <Route path="/pis/cadastro" element={<CadastroPI />} />
