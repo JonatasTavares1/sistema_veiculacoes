@@ -25,6 +25,33 @@ type PIItem = {
   observacoes?: string | null
 }
 
+/** Tipagens para o detalhe (Produtos & Veiculações) */
+type VeiculacaoOut = {
+  id: number
+  canal?: string | null
+  formato?: string | null
+  data_inicio?: string | null // ISO
+  data_fim?: string | null    // ISO
+  quantidade?: number | null
+  valor?: number | null
+}
+type ProdutoOut = {
+  id: number
+  nome: string
+  descricao?: string | null
+  total_produto: number
+  veiculacoes: VeiculacaoOut[]
+}
+type PiDetalheOut = {
+  id: number
+  numero_pi: string
+  anunciante?: string | null
+  campanha?: string | null
+  emissao?: string | null // ISO
+  total_pi: number        // soma dos valores das veiculações
+  produtos: ProdutoOut[]
+}
+
 const DEFAULT_EXECUTIVOS = [
   "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
   "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
@@ -43,6 +70,18 @@ function parseISODateToBR(s?: string | null) {
   if (m) return `${m[3]}/${m[2]}/${m[1]}`
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
+}
+function formatISO(iso?: string | null) {
+  if (!iso) return "—"
+  try {
+    const d = new Date(iso)
+    const dd = String(d.getDate()).padStart(2, "0")
+    const mm = String(d.getMonth() + 1).padStart(2, "0")
+    const yyyy = d.getFullYear()
+    return `${dd}/${mm}/${yyyy}`
+  } catch {
+    return iso
+  }
 }
 // normaliza "mes_venda" para "YYYY-MM" (aceita "MM/AAAA" ou "YYYY-MM")
 function mesToYM(s?: string | null): string {
@@ -101,6 +140,8 @@ export default function PIs() {
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [saldoInfo, setSaldoInfo] = useState<{ valor_abatido: number, saldo_restante: number } | null>(null)
   const [filhos, setFilhos] = useState<PIItem[]>([])
+  const [detalheProdutos, setDetalheProdutos] = useState<PiDetalheOut | null>(null)
+  const [erroDetalheProdutos, setErroDetalheProdutos] = useState<string | null>(null)
 
   // editor inline (painel de edição)
   const [editOpen, setEditOpen] = useState(false)
@@ -114,6 +155,7 @@ export default function PIs() {
       const pis = await getJSON<PIItem[]>(`${API}/pis`)
       setLista(Array.isArray(pis) ? pis : [])
 
+      // executivos
       const exsFromApi = await getJSON<string[]>(`${API}/executivos`).catch(() => [])
       const exsFromData = Array.from(new Set(pis.map(p => (p.executivo || "").trim()).filter(Boolean)))
       const merged = Array.from(new Set([...(Array.isArray(exsFromApi) ? exsFromApi : []), ...DEFAULT_EXECUTIVOS, ...exsFromData]))
@@ -203,7 +245,7 @@ export default function PIs() {
       colMoney.forEach((k) => {
         const cell = xlsx.utils.encode_cell({ r: i + 1, c: Object.keys(rows[0]).indexOf(k) })
         const v = r[k as keyof typeof r] as number
-        ws[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
+        ;(ws as any)[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
       })
     })
 
@@ -219,22 +261,35 @@ export default function PIs() {
     setLoadingDetalhe(true)
     setSaldoInfo(null)
     setFilhos([])
+    setDetalheProdutos(null)
+    setErroDetalheProdutos(null)
     try {
+      // ---- Produtos & Veiculações (novo) ----
+      getJSON<PiDetalheOut>(`${API}/pis/numero/${encodeURIComponent(pi.numero_pi)}/detalhe`)
+        .then((det) => setDetalheProdutos(det))
+        .catch((e) => setErroDetalheProdutos(e?.message || "Não foi possível carregar os produtos/veiculações."))
+
+      // ---- Vínculos (sem depender de rotas extras) ----
       if (pi.tipo_pi === "Matriz") {
-        const [saldo, abats] = await Promise.all([
-          getJSON<{ valor_abatido: number, saldo_restante: number }>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/saldo`),
-          getJSON<PIItem[]>(`${API}/matrizes/${encodeURIComponent(pi.numero_pi)}/abatimentos`)
-        ])
-        setSaldoInfo(saldo)
-        setFilhos(abats || [])
+        // saldo: /pis/{numero_pi}/saldo (conforme seu back)
+        const saldoResp = await getJSON<{ numero_pi_matriz: string, saldo_restante: number }>(
+          `${API}/pis/${encodeURIComponent(pi.numero_pi)}/saldo`
+        ).catch(() => ({ numero_pi_matriz: pi.numero_pi, saldo_restante: 0 }))
+
+        // lista abatimentos a partir de /pis e filtragem local
+        const all = await getJSON<PIItem[]>(`${API}/pis`).catch(() => [] as PIItem[])
+        const abats = all.filter(x => x.tipo_pi === "Abatimento" && (x.numero_pi_matriz || "") === pi.numero_pi)
+        const valor_abatido = abats.reduce((acc, it) => acc + (it.valor_bruto || 0), 0)
+        setSaldoInfo({ valor_abatido, saldo_restante: saldoResp.saldo_restante })
+        setFilhos(abats)
       } else if (pi.tipo_pi === "Normal") {
-        const cs = lista.filter(x => x.tipo_pi === "CS" && (x.numero_pi_normal || "") === pi.numero_pi)
+        // CS vinculados: filtra localmente
+        const all = await getJSON<PIItem[]>(`${API}/pis`).catch(() => [] as PIItem[])
+        const cs = all.filter(x => x.tipo_pi === "CS" && (x.numero_pi_normal || "") === pi.numero_pi)
         setFilhos(cs)
       } else {
         setFilhos([])
       }
-    } catch {
-      // silencioso
     } finally {
       setLoadingDetalhe(false)
     }
@@ -243,6 +298,8 @@ export default function PIs() {
     setDetalhePI(null)
     setSaldoInfo(null)
     setFilhos([])
+    setDetalheProdutos(null)
+    setErroDetalheProdutos(null)
   }
 
   // ------- Editor inline --------
@@ -540,7 +597,7 @@ export default function PIs() {
       {detalhePI && (
         <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-white shadow-2xl overflow-y-auto">
+          <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -579,8 +636,8 @@ export default function PIs() {
             </div>
 
             <div className="p-6 space-y-8">
-              {/* Resumo */}
-              <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Resumo topo */}
+              <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="rounded-2xl border border-slate-200 p-4">
                   <div className="text-sm text-slate-500">Cliente</div>
                   <div className="text-lg font-semibold">{detalhePI.nome_anunciante || "—"}</div>
@@ -590,18 +647,25 @@ export default function PIs() {
                   <div className="text-lg font-semibold">{detalhePI.nome_agencia || "—"}</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Data de Emissão</div>
+                  <div className="text-sm text-slate-500">Emissão</div>
                   <div className="text-lg font-semibold">{parseISODateToBR(detalhePI.data_emissao) || "—"}</div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Valores</div>
-                  <div className="text-lg font-semibold">
-                    {fmtMoney(detalhePI.valor_bruto)} <span className="text-slate-500">bruto</span> • {fmtMoney(detalhePI.valor_liquido)} <span className="text-slate-500">líquido</span>
-                  </div>
                 </div>
               </section>
 
-              {/* Cards específicos por tipo */}
+              {/* Chips de totais */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 text-sm font-semibold border border-neutral-200">
+                  Bruto: {fmtMoney(detalhePI.valor_bruto)}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 text-sm font-semibold border border-neutral-200">
+                  Líquido: {fmtMoney(detalhePI.valor_liquido)}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-sm font-semibold border border-red-200">
+                  Total de Veiculações: {detalheProdutos ? fmtMoney(detalheProdutos.total_pi) : (erroDetalheProdutos ? "—" : "Carregando…")}
+                </span>
+              </div>
+
+              {/* Blocos de vínculos (Matriz / Normal) */}
               {detalhePI.tipo_pi === "Matriz" && (
                 <section className="space-y-4">
                   <div className="flex flex-wrap items-center gap-3">
@@ -691,6 +755,76 @@ export default function PIs() {
                   )}
                 </section>
               )}
+
+              {/* ====== NOVO: Produtos & Veiculações ====== */}
+              <section className="space-y-4">
+                <h3 className="text-xl font-semibold">Produtos &amp; Veiculações</h3>
+
+                {erroDetalheProdutos && (
+                  <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+                    {erroDetalheProdutos}
+                  </div>
+                )}
+
+                {!erroDetalheProdutos && !detalheProdutos && (
+                  <div className="text-slate-600">Carregando produtos…</div>
+                )}
+
+                {detalheProdutos && detalheProdutos.produtos.length === 0 && (
+                  <div className="rounded-2xl border border-slate-200 p-6 text-slate-600">
+                    Nenhum produto vinculado a este PI.
+                  </div>
+                )}
+
+                {detalheProdutos && detalheProdutos.produtos.map((produto) => (
+                  <article key={produto.id} className="bg-neutral-50 border border-neutral-200 rounded-2xl overflow-hidden">
+                    <header className="flex items-center justify-between p-4">
+                      <div>
+                        <h4 className="text-lg font-bold text-slate-900">{produto.nome}</h4>
+                        {produto.descricao && <p className="text-slate-600 text-sm">{produto.descricao}</p>}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-slate-500 text-xs uppercase">Total do Produto</div>
+                        <div className="text-lg font-bold">{fmtMoney(produto.total_produto)}</div>
+                      </div>
+                    </header>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-neutral-200/60">
+                          <tr className="text-left">
+                            <th className="px-4 py-3 border-b border-neutral-300">ID</th>
+                            <th className="px-4 py-3 border-b border-neutral-300">Canal</th>
+                            <th className="px-4 py-3 border-b border-neutral-300">Formato</th>
+                            <th className="px-4 py-3 border-b border-neutral-300">Início</th>
+                            <th className="px-4 py-3 border-b border-neutral-300">Fim</th>
+                            <th className="px-4 py-3 border-b border-neutral-300">Qtd</th>
+                            <th className="px-4 py-3 border-b border-neutral-300 text-right">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...produto.veiculacoes]
+                            .sort((a, b) => {
+                              const ai = a.data_inicio ? new Date(a.data_inicio).getTime() : 0
+                              const bi = b.data_inicio ? new Date(b.data_inicio).getTime() : 0
+                              return ai - bi
+                            })
+                            .map(v => (
+                              <tr key={v.id} className="odd:bg-white even:bg-neutral-100/60">
+                                <td className="px-4 py-2">{v.id}</td>
+                                <td className="px-4 py-2">{v.canal || "—"}</td>
+                                <td className="px-4 py-2">{v.formato || "—"}</td>
+                                <td className="px-4 py-2">{formatISO(v.data_inicio)}</td>
+                                <td className="px-4 py-2">{formatISO(v.data_fim)}</td>
+                                <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
+                                <td className="px-4 py-2 text-right font-medium">{fmtMoney(v.valor)}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                ))}
+              </section>
             </div>
           </div>
         </div>
