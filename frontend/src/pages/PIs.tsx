@@ -1,5 +1,5 @@
 // src/pages/PIs.tsx
-import { useEffect, useMemo, useState } from "react"
+import type { useEffect, useMemo, useState } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 

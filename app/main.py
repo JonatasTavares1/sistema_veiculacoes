@@ -1,4 +1,3 @@
-# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,13 +11,20 @@ from app.routes.anunciantes import router as anunciantes_router
 from app.routes.executivos import router as executivos_router
 from app.routes.produtos import router as produtos_router
 from app.routes.matrizes import router as matrizes_router
-from app.routes.veiculacoes import router as veiculacoes_router    
+from app.routes.veiculacoes import router as veiculacoes_router
+
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
+# CORS — não usar "*" com allow_credentials=True
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=False,   # se precisar de cookies, troque para True e mantenha origens explícitas
     allow_methods=["*"],
     allow_headers=["*"],
 )
