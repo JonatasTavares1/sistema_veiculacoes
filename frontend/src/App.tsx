@@ -8,6 +8,8 @@ import Anunciantes from "./pages/Anunciantes"
 import Agencias from "./pages/Agencias"
 import PIs from "./pages/PIs" 
 import Produtos from "./pages/Produtos"  
+import Veiculacoes from "./pages/Veiculacoes"
+import Entregas from "./pages/Entregas"
 function Home() {
   return <div className="p-6 text-2xl">Bem-vindo 👋</div>
 }
@@ -16,6 +18,8 @@ export default function App() {
   return (
     <AppLayout>
       <Routes>
+        <Route path="/entregas" element={<Entregas />} />
+        <Route path="/veiculacoes" element={<Veiculacoes />} />
         <Route path="/produtos" element={<Produtos />} />
         <Route path="/pis" element={<PIs />} />
         <Route path="/" element={<Home />} />
