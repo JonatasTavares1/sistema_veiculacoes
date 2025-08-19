@@ -3,14 +3,53 @@ import { useEffect, useMemo, useState } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
-type Produto = {
+type ProdutoListItem = {
+  id: number
+  pi_id: number
+  numero_pi?: string | null
+  nome: string
+  descricao?: string | null
+  veiculacoes: number
+  total_produto: number
+}
+
+type VeiculacaoItem = {
+  id?: number
+  canal?: string | null
+  formato?: string | null
+  data_inicio?: string | null // yyyy-mm-dd
+  data_fim?: string | null    // yyyy-mm-dd
+  quantidade?: number | null
+  valor?: number | null
+}
+
+type ProdutoDetalhe = {
   id: number
   nome: string
   descricao?: string | null
-  valor_unitario?: number | null
+  total_produto: number
+  veiculacoes: VeiculacaoItem[]
 }
 
-// -------- helpers HTTP --------
+type PedidoCriacao = {
+  numero_pi?: string | null
+  pi_id?: number | null
+  nome: string
+  descricao?: string | null
+  veiculacoes: VeiculacaoItem[]
+}
+
+function fmtMoney(v?: number | null) {
+  if (v == null || Number.isNaN(v)) return "R$ 0,00"
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
+function parseISODateToBR(s?: string | null) {
+  if (!s) return ""
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
+  return s
+}
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -25,12 +64,9 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
     try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
+      const t = await r.json()
+      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
@@ -44,104 +80,63 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
     try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
+      const t = await r.json()
+      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
 }
-async function delJSON(url: string): Promise<void> {
+async function del(url: string): Promise<void> {
   const r = await fetch(url, { method: "DELETE" })
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
     try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
+      const t = await r.json()
+      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
+    } catch {}
     throw new Error(msg)
   }
 }
 
-// -------- format helpers --------
-function fmtBRL(v?: number | null) {
-  if (v == null || Number.isNaN(v)) return "—"
-  try {
-    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-  } catch {
-    return String(v)
-  }
-}
-// "1.234,56" -> 1234.56 | "" -> null
-function parseNumeroBRL(txt: string): number | null {
-  const t = (txt || "").trim()
+function trataNumeroBR(s: string): number | null {
+  const t = (s || "").trim()
   if (!t) return null
   const n = Number(t.replace(/\./g, "").replace(",", "."))
   return Number.isFinite(n) ? n : null
 }
 
-// ---- Export helpers (xlsx se possível; fallback CSV) ----
-function downloadBlob(content: string | Blob, filename: string, mime: string) {
-  const blob = content instanceof Blob ? content : new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-function csvEscape(v: any) {
-  const s = (v ?? "").toString().replace(/"/g, '""')
-  return `"${s}"`
-}
-function jsonToCSV(rows: Record<string, any>[]) {
-  if (!rows.length) return ""
-  const headers = Object.keys(rows[0])
-  const head = headers.map(csvEscape).join(";")
-  const body = rows.map(r => headers.map(h => csvEscape(r[h])).join(";")).join("\n")
-  return "\uFEFF" + head + "\n" + body // BOM p/ Excel PT-BR
-}
-
 export default function Produtos() {
-  // form (criação)
-  const [nome, setNome] = useState("")
-  const [descricao, setDescricao] = useState("")
-  const [valorTxt, setValorTxt] = useState("") // string pt-BR
-
-  // dados
-  const [lista, setLista] = useState<Produto[]>([])
+  const [lista, setLista] = useState<ProdutoListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [salvando, setSalvando] = useState(false)
 
-  // busca (servidor + client)
-  const [busca, setBusca] = useState("")       // manda como ?termo= (nome, ilike)
-  const [filtroDesc, setFiltroDesc] = useState("") // filtro local na descrição
+  // filtros
+  const [busca, setBusca] = useState("")
+  const [piNumeroFiltro, setPiNumeroFiltro] = useState("")
 
-  // edição (modal)
-  const [editOpen, setEditOpen] = useState(false)
-  const [edit, setEdit] = useState<Produto | null>(null)
-  const [editNome, setEditNome] = useState("")
-  const [editDescricao, setEditDescricao] = useState("")
-  const [editValorTxt, setEditValorTxt] = useState("")
-  const [editSaving, setEditSaving] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
+  // editor (criar/editar)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [mode, setMode] = useState<"create" | "edit">("create")
+  const [editId, setEditId] = useState<number | null>(null)
+  const [numeroPIInput, setNumeroPIInput] = useState("") // usado no create
+  const [produtoNome, setProdutoNome] = useState("")
+  const [produtoDesc, setProdutoDesc] = useState<string>("")
+  const [veics, setVeics] = useState<VeiculacaoItem[]>([])
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
-  // ------- carregar listagem -------
-  async function carregar(term?: string) {
+  const [opcoesNomes, setOpcoesNomes] = useState<string[]>([])
+
+  async function carregar() {
     setLoading(true); setErro(null)
     try {
-      const qs = term ? `?${new URLSearchParams({ termo: term }).toString()}` : ""
-      const itens = await getJSON<Produto[]>(`${API}/produtos${qs}`)
-      setLista(Array.isArray(itens) ? itens : [])
+      const qs = new URLSearchParams()
+      if (piNumeroFiltro.trim()) qs.set("pi_numero", piNumeroFiltro.trim())
+      const data = await getJSON<ProdutoListItem[]>(`${API}/produtos${qs.toString() ? `?${qs}` : ""}`)
+      setLista(Array.isArray(data) ? data : [])
+      const nomes = await getJSON<string[]>(`${API}/produtos/opcoes-nome`).catch(() => [])
+      setOpcoesNomes(nomes || [])
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar produtos.")
     } finally {
@@ -149,119 +144,148 @@ export default function Produtos() {
     }
   }
   useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [piNumeroFiltro])
 
-  // ------- computado (filtro local por descrição) -------
   const filtrada = useMemo(() => {
-    const f = filtroDesc.trim().toLowerCase()
-    if (!f) return lista
-    return lista.filter(p => (p.descricao || "").toLowerCase().includes(f))
-  }, [lista, filtroDesc])
-
-  // ------- ações de busca -------
-  function onBuscar() { carregar(busca.trim() || undefined) }
-  function onVerTodos() {
-    setBusca("")
-    carregar()
-  }
-
-  // ------- cadastro -------
-  async function salvarNovo() {
-    if (!nome.trim()) { alert("Nome é obrigatório."); return }
-    const valor = parseNumeroBRL(valorTxt)
-    if (valor != null && valor < 0) { alert("Valor não pode ser negativo."); return }
-
-    setSalvando(true); setErro(null)
-    try {
-      const body = {
-        nome: nome.trim(),
-        descricao: descricao.trim() || null,
-        valor_unitario: valor,
-      }
-      await postJSON(`${API}/produtos`, body)
-      setNome(""); setDescricao(""); setValorTxt("")
-      await carregar(busca.trim() || undefined)
-      alert("Produto cadastrado com sucesso!")
-    } catch (e: any) {
-      setErro(e?.message || "Erro ao cadastrar produto.")
-    } finally {
-      setSalvando(false)
-    }
-  }
-
-  // ------- edição -------
-  function abrirEdicao(p: Produto) {
-    setEdit(p)
-    setEditNome(p.nome || "")
-    setEditDescricao(p.descricao || "")
-    setEditValorTxt(
-      p.valor_unitario == null
-        ? ""
-        : p.valor_unitario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const q = busca.trim().toLowerCase()
+    return lista.filter(p =>
+      !q ||
+      p.nome.toLowerCase().includes(q) ||
+      (p.numero_pi || "").toLowerCase().includes(q)
     )
-    setEditError(null)
-    setEditOpen(true)
-  }
-  function fecharEdicao() {
-    setEditOpen(false)
-    setEdit(null)
-    setEditError(null)
-  }
-  async function salvarEdicao() {
-    if (!edit) return
-    if (!editNome.trim()) { setEditError("Nome é obrigatório."); return }
-    const valor = parseNumeroBRL(editValorTxt)
-    if (valor != null && valor < 0) { setEditError("Valor não pode ser negativo."); return }
+  }, [lista, busca])
 
-    setEditSaving(true); setEditError(null)
+  // Editor helpers
+  function addVeic() {
+    setVeics(v => [...v, { canal: "", formato: "", data_inicio: "", data_fim: "", quantidade: null, valor: null }])
+  }
+  function updVeic(i: number, patch: Partial<VeiculacaoItem>) {
+    setVeics(v => v.map((row, idx) => idx === i ? { ...row, ...patch } : row))
+  }
+  function delVeic(i: number) {
+    setVeics(v => v.filter((_, idx) => idx !== i))
+  }
+
+  function abrirCreate() {
+    setMode("create")
+    setEditId(null)
+    setNumeroPIInput("")
+    setProdutoNome("")
+    setProdutoDesc("")
+    setVeics([])
+    setFormError(null)
+    setDrawerOpen(true)
+  }
+
+  async function abrirEdit(produtoId: number) {
+    setMode("edit")
+    setEditId(produtoId)
+    setNumeroPIInput("") // não usa em edição
+    setFormError(null)
+    setSaving(false)
     try {
-      const body = {
-        nome: editNome.trim(),               // ProdutoUpdate permite nome opcional
-        descricao: editDescricao.trim() || null,
-        valor_unitario: valor,
+      const det = await getJSON<ProdutoDetalhe>(`${API}/produtos/${produtoId}/detalhe`)
+      setProdutoNome(det.nome || "")
+      setProdutoDesc(det.descricao || "")
+      const rows = (det.veiculacoes || []).map(v => ({
+        id: v.id,
+        canal: v.canal || "",
+        formato: v.formato || "",
+        data_inicio: (v.data_inicio || "").slice(0, 10), // yyyy-mm-dd
+        data_fim: (v.data_fim || "").slice(0, 10),
+        quantidade: v.quantidade ?? null,
+        valor: v.valor ?? null,
+      }))
+      setVeics(rows)
+      setDrawerOpen(true)
+    } catch (e: any) {
+      setErro(e?.message || "Falha ao abrir produto.")
+    }
+  }
+
+  function fecharDrawer() {
+    setDrawerOpen(false)
+    setFormError(null)
+  }
+
+  async function salvar() {
+    setFormError(null)
+    if (!produtoNome.trim()) { setFormError("Informe o nome do produto."); return }
+    if (mode === "create" && !numeroPIInput.trim()) { setFormError("Informe o número do PI para vincular."); return }
+
+    setSaving(true)
+    try {
+      const payloadVeics: VeiculacaoItem[] = veics.map(v => ({
+        id: v.id,
+        canal: (v.canal || "").trim() || null,
+        formato: (v.formato || "").trim() || null,
+        data_inicio: (v.data_inicio || "").trim() || null, // input date -> yyyy-mm-dd
+        data_fim: (v.data_fim || "").trim() || null,
+        quantidade: v.quantidade == null ? null : Number(v.quantidade),
+        valor: v.valor == null ? null : Number(v.valor),
+      }))
+
+      if (mode === "create") {
+        const body: PedidoCriacao = {
+          numero_pi: numeroPIInput.trim(),
+          nome: produtoNome.trim(),
+          descricao: produtoDesc || null,
+          veiculacoes: payloadVeics,
+        }
+        await postJSON<ProdutoDetalhe>(`${API}/produtos`, body)
+      } else if (mode === "edit" && editId != null) {
+        const body = {
+          nome: produtoNome.trim(),
+          descricao: produtoDesc || null,
+          veiculacoes: payloadVeics,
+        }
+        await putJSON<ProdutoDetalhe>(`${API}/produtos/${editId}`, body)
       }
-      const upd = await putJSON<Produto>(`${API}/produtos/${edit.id}`, body)
-      // atualiza local
-      setLista(prev => prev.map(x => x.id === upd.id ? upd : x))
-      fecharEdicao()
+      fecharDrawer()
+      await carregar()
     } catch (e: any) {
-      setEditError(e?.message || "Erro ao salvar.")
+      setFormError(e?.message || "Falha ao salvar.")
     } finally {
-      setEditSaving(false)
+      setSaving(false)
     }
   }
 
-  // ------- exclusão -------
-  async function excluir(p: Produto) {
-    if (!confirm(`Excluir o produto "${p.nome}"?`)) return
+  async function remover(produtoId: number) {
+    if (!confirm("Confirmar exclusão do produto e suas veiculações?")) return
     try {
-      await delJSON(`${API}/produtos/${p.id}`)
-      setLista(prev => prev.filter(x => x.id !== p.id))
+      await del(`${API}/produtos/${produtoId}`)
+      await carregar()
     } catch (e: any) {
-      alert(e?.message || "Erro ao excluir produto.")
+      alert(e?.message || "Falha ao excluir.")
     }
   }
 
-  // ------- export -------
-  async function exportarPlanilha(rows: Produto[]) {
-    if (!rows?.length) { alert("Nada para exportar."); return }
-    const data = rows.map(p => ({
-      ID: p.id,
-      Nome: p.nome,
-      Descrição: p.descricao || "",
-      "Valor Unitário (R$)": p.valor_unitario ?? "",
+  async function exportarXLSX() {
+    const rows = filtrada.map((p) => ({
+      "Produto ID": p.id,
+      "PI": p.numero_pi || "",
+      "Nome do Produto": p.nome,
+      "Descrição": p.descricao || "",
+      "Veiculações (qtd)": p.veiculacoes,
+      "Total do Produto (R$)": p.total_produto,
     }))
-    const nomeArq = `produtos_${new Date().toISOString().slice(0,10)}.xlsx`
-    try {
-      const XLSX = await import("xlsx")
-      const ws = XLSX.utils.json_to_sheet(data)
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, "Produtos")
-      XLSX.writeFile(wb, nomeArq)
-    } catch {
-      const csv = jsonToCSV(data)
-      downloadBlob(csv, nomeArq.replace(/\.xlsx$/, ".csv"), "text/csv;charset=utf-8;")
-      alert("Exportei em CSV (fallback). Para .xlsx nativo, instale a lib 'xlsx'.")
-    }
+
+    const xlsx = await import("xlsx")
+    const ws = xlsx.utils.json_to_sheet(rows, {
+      header: Object.keys(rows[0] || {}),
+    })
+    const moneyCol = "Total do Produto (R$)"
+    rows.forEach((r, i) => {
+      const cell = xlsx.utils.encode_cell({ r: i + 1, c: Object.keys(rows[0]).indexOf(moneyCol) })
+      const v = r[moneyCol as keyof typeof r] as number
+      // formatar como texto BRL
+      ;(ws as any)[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
+    })
+    const wb = xlsx.utils.book_new()
+    xlsx.utils.book_append_sheet(wb, ws, "Produtos")
+    const now = new Date()
+    const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, "-")
+    xlsx.writeFile(wb, `produtos_${stamp}.xlsx`)
   }
 
   return (
@@ -271,167 +295,96 @@ export default function Produtos() {
         <h1 className="text-4xl font-extrabold text-slate-900">Produtos</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => exportarPlanilha(filtrada)}
-            disabled={!filtrada.length}
-            className="px-5 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50 disabled:opacity-60"
-            title="Exportar para Excel"
+            onClick={exportarXLSX}
+            className="px-5 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50"
           >
             📤 Exportar XLSX
           </button>
           <button
-            onClick={() => carregar(busca.trim() || undefined)}
+            onClick={carregar}
             className="px-5 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 transition shadow-sm"
           >
             Atualizar
           </button>
+          <button
+            onClick={abrirCreate}
+            className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 transition shadow-sm"
+          >
+            ➕ Novo Produto
+          </button>
         </div>
       </div>
 
-      {/* Formulário de cadastro */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{erro}</div>}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Nome do Produto</label>
-            <input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Mídia TV 30s"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Valor Unitário (R$)</label>
-            <input
-              value={valorTxt}
-              onChange={(e) => setValorTxt(e.target.value)}
-              placeholder="1.000,00"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Descrição</label>
-            <input
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="(opcional)"
-            />
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <button
-            onClick={salvarNovo}
-            disabled={salvando}
-            className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
-          >
-            {salvando ? "Salvando..." : "Cadastrar Produto"}
-          </button>
-        </div>
-      </section>
-
-      {/* Filtros de busca */}
+      {/* Filtros */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-2">
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Buscar por nome (servidor)</label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Buscar</label>
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") onBuscar() }}
-              placeholder="Digite o nome e pressione Enter"
+              placeholder="Nome do produto ou PI"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Filtrar por descrição (local)</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Filtrar por Nº do PI</label>
             <input
-              value={filtroDesc}
-              onChange={(e) => setFiltroDesc(e.target.value)}
-              placeholder="Trecho da descrição"
+              value={piNumeroFiltro}
+              onChange={(e) => setPiNumeroFiltro(e.target.value)}
+              placeholder="Ex.: 12345"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
-          </div>
-          <div className="flex items-end gap-2">
-            <button
-              onClick={onBuscar}
-              className="px-5 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 transition shadow-sm w-full"
-            >
-              Buscar
-            </button>
-            <button
-              onClick={onVerTodos}
-              className="px-5 py-3 rounded-2xl border border-slate-300 text-slate-700 text-lg hover:bg-slate-50 w-full"
-            >
-              Ver Todos
-            </button>
           </div>
         </div>
       </section>
 
       {/* Lista */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 className="text-2xl font-bold text-slate-900">Produtos cadastrados</h2>
-          <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
-        </div>
-
+      <section>
         {loading ? (
           <div className="p-4 text-slate-600 text-lg">Carregando…</div>
+        ) : erro ? (
+          <div className="p-4 text-red-700 text-lg">{erro}</div>
         ) : filtrada.length === 0 ? (
           <div className="p-8 rounded-2xl border border-dashed border-slate-300 text-center text-slate-600">
             Nenhum produto encontrado.
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-red-200 shadow-sm">
+            <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-red-100">
+              <div className="text-slate-700">{filtrada.length} registro(s)</div>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-red-200">
                 <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
                   <tr>
-                    {["ID", "Nome", "Valor Unitário", "Descrição", "Ações"].map(h => (
-                      <th key={h} className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide">
-                        {h}
-                      </th>
+                    {["ID","PI","Produto","Descrição","Veiculações","Total (R$)","Ações"].map(h => (
+                      <th key={h} className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-red-100">
                   {filtrada.map((p, idx) => (
-                    <tr
-                      key={p.id}
-                      className={[
-                        "transition",
-                        idx % 2 === 0 ? "bg-white" : "bg-red-50/40",
-                        "hover:bg-red-50"
-                      ].join(" ")}
-                    >
+                    <tr key={p.id} className={["transition", idx % 2 === 0 ? "bg-white" : "bg-red-50/40", "hover:bg-red-50"].join(" ")}>
                       <td className="px-6 py-4 text-slate-900 text-base font-medium">{p.id}</td>
-                      <td className="px-6 py-4 text-slate-900 text-base font-medium">
-                        <div className="truncate">{p.nome}</div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-900 text-base font-semibold">
-                        {fmtBRL(p.valor_unitario ?? null)}
-                      </td>
-                      <td className="px-6 py-4 text-slate-800 text-base">
-                        <div className="truncate max-w-[420px]">{p.descricao || "—"}</div>
-                      </td>
+                      <td className="px-6 py-4 text-slate-900 text-base font-medium"><span className="font-mono">{p.numero_pi || "—"}</span></td>
+                      <td className="px-6 py-4 text-slate-800 text-base">{p.nome}</td>
+                      <td className="px-6 py-4 text-slate-800 text-base"><div className="max-w-[360px] truncate">{p.descricao || "—"}</div></td>
+                      <td className="px-6 py-4 text-slate-800 text-base">{p.veiculacoes}</td>
+                      <td className="px-6 py-4 text-slate-900 text-base font-semibold">{fmtMoney(p.total_produto)}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => abrirEdicao(p)}
+                            onClick={() => abrirEdit(p.id)}
                             className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                            title="Editar"
+                            title="Editar produto e veiculações"
                           >
                             ✏️ Editar
                           </button>
                           <button
-                            onClick={() => excluir(p)}
+                            onClick={() => remover(p.id)}
                             className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                            title="Excluir"
+                            title="Excluir produto"
                           >
                             🗑️ Excluir
                           </button>
@@ -446,20 +399,22 @@ export default function Produtos() {
         )}
       </section>
 
-      {/* Modal de edição */}
-      {editOpen && edit && (
+      {/* Drawer de Criação/Edição */}
+      {drawerOpen && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={fecharEdicao} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharDrawer} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b flex items-start justify-between">
               <div>
-                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar Produto</div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">
+                  {mode === "create" ? "Novo Produto" : "Editar Produto"}
+                </div>
                 <div className="mt-1 text-3xl font-extrabold text-slate-900">
-                  <span className="truncate">{edit.nome}</span>
+                  {mode === "create" ? "Criar" : "Atualizar"}
                 </div>
               </div>
               <button
-                onClick={fecharEdicao}
+                onClick={fecharDrawer}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 ✖ Fechar
@@ -467,49 +422,104 @@ export default function Produtos() {
             </div>
 
             <div className="p-6 space-y-6">
-              {editError && (
+              {formError && (
                 <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-                  {editError}
+                  {formError}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {mode === "create" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Número do PI (vincular)</label>
+                    <input
+                      value={numeroPIInput}
+                      onChange={(e) => setNumeroPIInput(e.target.value)}
+                      placeholder="Ex.: 123456"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    />
+                    <div className="text-xs text-slate-500 mt-1">
+                      Dica: o PI precisa existir. Você também pode criar o produto direto pelo cadastro do PI.
+                    </div>
+                  </div>
+                )}
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome do Produto</label>
                   <input
-                    value={editNome}
-                    onChange={(e) => setEditNome(e.target.value)}
+                    list="opcoes-produtos"
+                    value={produtoNome}
+                    onChange={(e) => setProdutoNome(e.target.value)}
+                    placeholder="Digite ou escolha"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                  <datalist id="opcoes-produtos">
+                    {opcoesNomes.map(n => <option key={n} value={n} />)}
+                  </datalist>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Descrição (opcional)</label>
+                  <input
+                    value={produtoDesc}
+                    onChange={(e) => setProdutoDesc(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Unitário (R$)</label>
-                  <input
-                    value={editValorTxt}
-                    onChange={(e) => setEditValorTxt(e.target.value)}
-                    placeholder="1.000,00"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                  />
+              {/* Veiculações */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-lg font-semibold">Veiculações</div>
+                  <button
+                    onClick={addVeic}
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                  >
+                    ➕ Adicionar veiculação
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Descrição</label>
-                  <textarea
-                    value={editDescricao}
-                    onChange={(e) => setEditDescricao(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 min-h-[90px]"
-                  />
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        {["Canal","Formato","Início","Fim","Qtde","Valor (R$)",""].map(h => (
+                          <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-slate-600">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {veics.length === 0 ? (
+                        <tr><td className="px-3 py-3 text-slate-600" colSpan={7}>Nenhuma veiculação. Adicione acima.</td></tr>
+                      ) : veics.map((v, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-2"><input value={v.canal || ""} onChange={e => updVeic(i, { canal: e.target.value })} className="w-36 rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2"><input value={v.formato || ""} onChange={e => updVeic(i, { formato: e.target.value })} className="w-36 rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2"><input type="date" value={v.data_inicio || ""} onChange={e => updVeic(i, { data_inicio: e.target.value })} className="rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2"><input type="date" value={v.data_fim || ""} onChange={e => updVeic(i, { data_fim: e.target.value })} className="rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2"><input type="number" min={0} value={v.quantidade ?? ""} onChange={e => updVeic(i, { quantidade: e.target.value ? Number(e.target.value) : null })} className="w-24 rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2"><input inputMode="decimal" placeholder="0,00" value={v.valor ?? ""} onChange={e => {
+                            const n = trataNumeroBR(e.target.value)
+                            updVeic(i, { valor: n })
+                          }} className="w-32 rounded border border-slate-300 px-2 py-1" /></td>
+                          <td className="px-3 py-2">
+                            <button onClick={() => delVeic(i)} className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
               <div className="pt-2">
                 <button
-                  onClick={salvarEdicao}
-                  disabled={editSaving}
+                  onClick={salvar}
+                  disabled={saving}
                   className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
                 >
-                  {editSaving ? "Salvando..." : "Salvar alterações"}
+                  {saving ? "Salvando..." : (mode === "create" ? "Criar produto" : "Salvar alterações")}
                 </button>
               </div>
             </div>

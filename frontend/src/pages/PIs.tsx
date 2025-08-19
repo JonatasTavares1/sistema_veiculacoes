@@ -1,5 +1,5 @@
 // src/pages/PIs.tsx
-import type { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
@@ -25,31 +25,43 @@ type PIItem = {
   observacoes?: string | null
 }
 
-/** Tipagens para o detalhe (Produtos & Veiculações) */
-type VeiculacaoOut = {
-  id: number
-  canal?: string | null
-  formato?: string | null
-  data_inicio?: string | null // ISO
-  data_fim?: string | null    // ISO
+type VeicDraft = {
+  id?: number
+  canal?: string
+  formato?: string
+  data_inicio?: string | null
+  data_fim?: string | null
   quantidade?: number | null
   valor?: number | null
 }
-type ProdutoOut = {
-  id: number
+type ProdutoDraft = {
+  id?: number
   nome: string
   descricao?: string | null
-  total_produto: number
-  veiculacoes: VeiculacaoOut[]
+  veiculacoes: VeicDraft[]
 }
-type PiDetalheOut = {
+type PiDetalhe = {
   id: number
   numero_pi: string
   anunciante?: string | null
   campanha?: string | null
-  emissao?: string | null // ISO
-  total_pi: number        // soma dos valores das veiculações
-  produtos: ProdutoOut[]
+  emissao?: string | null
+  total_pi: number
+  produtos: Array<{
+    id: number
+    nome: string
+    descricao?: string | null
+    total_produto: number
+    veiculacoes: Array<{
+      id: number
+      canal?: string | null
+      formato?: string | null
+      data_inicio?: string | null
+      data_fim?: string | null
+      quantidade?: number | null
+      valor?: number | null
+    }>
+  }>
 }
 
 const DEFAULT_EXECUTIVOS = [
@@ -62,7 +74,7 @@ const DIRETORIAS = ["Governo Federal", "Governo Estadual", "Rafael Augusto"]
 
 function fmtMoney(v?: number | null) {
   if (v == null || Number.isNaN(v)) return "R$ 0,00"
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+  return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
 function parseISODateToBR(s?: string | null) {
   if (!s) return ""
@@ -71,25 +83,12 @@ function parseISODateToBR(s?: string | null) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
 }
-function formatISO(iso?: string | null) {
-  if (!iso) return "—"
-  try {
-    const d = new Date(iso)
-    const dd = String(d.getDate()).padStart(2, "0")
-    const mm = String(d.getMonth() + 1).padStart(2, "0")
-    const yyyy = d.getFullYear()
-    return `${dd}/${mm}/${yyyy}`
-  } catch {
-    return iso
-  }
-}
-// normaliza "mes_venda" para "YYYY-MM" (aceita "MM/AAAA" ou "YYYY-MM")
 function mesToYM(s?: string | null): string {
   if (!s) return ""
   const t = s.trim()
-  const m1 = /^(\d{2})\/(\d{4})$/.exec(t) // MM/AAAA
+  const m1 = /^(\d{2})\/(\d{4})$/.exec(t)
   if (m1) return `${m1[2]}-${m1[1]}`
-  const m2 = /^(\d{4})-(\d{2})$/.exec(t) // YYYY-MM
+  const m2 = /^(\d{4})-(\d{2})$/.exec(t)
   if (m2) return t
   return ""
 }
@@ -97,6 +96,25 @@ function mesToYM(s?: string | null): string {
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json()
+}
+async function postJSON<T>(url: string, body: any): Promise<T> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`
+    try {
+      const t = await r.json()
+      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
+    } catch {
+      const t = await r.text().catch(() => "")
+      if (t) msg += ` - ${t}`
+    }
+    throw new Error(msg)
+  }
   return r.json()
 }
 async function putJSON<T>(url: string, body: any): Promise<T> {
@@ -129,25 +147,29 @@ export default function PIs() {
   const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento">("Todos")
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
-  const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("") // YYYY-MM (input month)
-  const [diaVendaDe, setDiaVendaDe] = useState<string>("")         // 1..31
-  const [diaVendaAte, setDiaVendaAte] = useState<string>("")       // 1..31
+  const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("")
+  const [diaVendaDe, setDiaVendaDe] = useState<string>("")
+  const [diaVendaAte, setDiaVendaAte] = useState<string>("")
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
-  // detalhe (painel de leitura)
-  const [detalhePI, setDetalhePI] = useState<PIItem | null>(null)
-  const [loadingDetalhe, setLoadingDetalhe] = useState(false)
-  const [saldoInfo, setSaldoInfo] = useState<{ valor_abatido: number, saldo_restante: number } | null>(null)
-  const [filhos, setFilhos] = useState<PIItem[]>([])
-  const [detalheProdutos, setDetalheProdutos] = useState<PiDetalheOut | null>(null)
-  const [erroDetalheProdutos, setErroDetalheProdutos] = useState<string | null>(null)
+  // detalhe
+  const [detalhePI, setDetalhePI] = useState<PiDetalhe | null>(null)
+  const [detalheLoading, setDetalheLoading] = useState(false)
 
-  // editor inline (painel de edição)
+  // editor PI básico (como já tinha)
   const [editOpen, setEditOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<PIItem | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+
+  // editor de Produtos & Veiculações (NOVO)
+  const [pvOpen, setPvOpen] = useState(false)
+  const [pvPiId, setPvPiId] = useState<number | null>(null)
+  const [pvProdutos, setPvProdutos] = useState<ProdutoDraft[]>([])
+  const [pvSaving, setPvSaving] = useState(false)
+  const [pvError, setPvError] = useState<string | null>(null)
+  const [produtoNomes, setProdutoNomes] = useState<string[]>([])
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -155,7 +177,6 @@ export default function PIs() {
       const pis = await getJSON<PIItem[]>(`${API}/pis`)
       setLista(Array.isArray(pis) ? pis : [])
 
-      // executivos
       const exsFromApi = await getJSON<string[]>(`${API}/executivos`).catch(() => [])
       const exsFromData = Array.from(new Set(pis.map(p => (p.executivo || "").trim()).filter(Boolean)))
       const merged = Array.from(new Set([...(Array.isArray(exsFromApi) ? exsFromApi : []), ...DEFAULT_EXECUTIVOS, ...exsFromData]))
@@ -170,11 +191,20 @@ export default function PIs() {
   }
   useEffect(() => { carregar() }, [])
 
+  // carregar opções de nomes de produto (autocomplete)
+  async function carregarNomesProdutos() {
+    try {
+      const nomes = await getJSON<string[]>(`${API}/produtos/opcoes-nome`)
+      setProdutoNomes(nomes || [])
+    } catch {
+      setProdutoNomes([])
+    }
+  }
+  useEffect(() => { carregarNomesProdutos() }, [])
+
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    const ymFiltro = mesVendaFiltro // YYYY-MM
-
-    // parse bounds (se só um preencher, vira igualdade)
+    const ymFiltro = mesVendaFiltro
     const deNum = diaVendaDe ? Math.max(1, Math.min(31, parseInt(diaVendaDe, 10))) : null
     const ateNum = diaVendaAte ? Math.max(1, Math.min(31, parseInt(diaVendaAte, 10))) : null
     const haveDiaFiltro = deNum != null || ateNum != null
@@ -182,7 +212,6 @@ export default function PIs() {
     const maxDia = ateNum ?? deNum ?? null
 
     return lista.filter(p => {
-      // texto
       const okBusca =
         !q ||
         (p.numero_pi || "").toLowerCase().includes(q) ||
@@ -190,27 +219,21 @@ export default function PIs() {
         (p.nome_agencia || "").toLowerCase().includes(q) ||
         (p.cnpj_agencia || "").toLowerCase().includes(q)
 
-      // tipo / diretoria / executivo
       const okTipo = (tipo === "Todos") || (p.tipo_pi === tipo)
       const okDir = (diretoria === "Todos") || ((p.diretoria || "") === diretoria)
       const okExec = (executivo === "Todos") || ((p.executivo || "") === executivo)
-
-      // mês/ano da venda
       const okMes = !ymFiltro || (mesToYM(p.mes_venda) === ymFiltro)
 
-      // dia da venda (range inclusivo)
       let okDia = true
       if (haveDiaFiltro) {
         const diaRaw = p.dia_venda
         const dia = Number(String(diaRaw ?? "").trim())
-        if (!Number.isFinite(dia)) {
-          okDia = false
-        } else {
+        if (!Number.isFinite(dia)) okDia = false
+        else {
           if (minDia != null && dia < minDia) okDia = false
           if (maxDia != null && dia > maxDia) okDia = false
         }
       }
-
       return okBusca && okTipo && okDir && okExec && okMes && okDia
     })
   }, [lista, busca, tipo, diretoria, executivo, mesVendaFiltro, diaVendaDe, diaVendaAte])
@@ -245,7 +268,7 @@ export default function PIs() {
       colMoney.forEach((k) => {
         const cell = xlsx.utils.encode_cell({ r: i + 1, c: Object.keys(rows[0]).indexOf(k) })
         const v = r[k as keyof typeof r] as number
-        ;(ws as any)[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
+        ws[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
       })
     })
 
@@ -256,53 +279,23 @@ export default function PIs() {
     xlsx.writeFile(wb, `pis_${stamp}.xlsx`)
   }
 
-  async function abrirDetalhes(pi: PIItem) {
-    setDetalhePI(pi)
-    setLoadingDetalhe(true)
-    setSaldoInfo(null)
-    setFilhos([])
-    setDetalheProdutos(null)
-    setErroDetalheProdutos(null)
+  // detalhe carregando /pis/{id}/detalhe
+  async function abrirDetalhesPorId(pi_id: number) {
+    setDetalheLoading(true)
     try {
-      // ---- Produtos & Veiculações (novo) ----
-      getJSON<PiDetalheOut>(`${API}/pis/numero/${encodeURIComponent(pi.numero_pi)}/detalhe`)
-        .then((det) => setDetalheProdutos(det))
-        .catch((e) => setErroDetalheProdutos(e?.message || "Não foi possível carregar os produtos/veiculações."))
-
-      // ---- Vínculos (sem depender de rotas extras) ----
-      if (pi.tipo_pi === "Matriz") {
-        // saldo: /pis/{numero_pi}/saldo (conforme seu back)
-        const saldoResp = await getJSON<{ numero_pi_matriz: string, saldo_restante: number }>(
-          `${API}/pis/${encodeURIComponent(pi.numero_pi)}/saldo`
-        ).catch(() => ({ numero_pi_matriz: pi.numero_pi, saldo_restante: 0 }))
-
-        // lista abatimentos a partir de /pis e filtragem local
-        const all = await getJSON<PIItem[]>(`${API}/pis`).catch(() => [] as PIItem[])
-        const abats = all.filter(x => x.tipo_pi === "Abatimento" && (x.numero_pi_matriz || "") === pi.numero_pi)
-        const valor_abatido = abats.reduce((acc, it) => acc + (it.valor_bruto || 0), 0)
-        setSaldoInfo({ valor_abatido, saldo_restante: saldoResp.saldo_restante })
-        setFilhos(abats)
-      } else if (pi.tipo_pi === "Normal") {
-        // CS vinculados: filtra localmente
-        const all = await getJSON<PIItem[]>(`${API}/pis`).catch(() => [] as PIItem[])
-        const cs = all.filter(x => x.tipo_pi === "CS" && (x.numero_pi_normal || "") === pi.numero_pi)
-        setFilhos(cs)
-      } else {
-        setFilhos([])
-      }
+      const det = await getJSON<PiDetalhe>(`${API}/pis/${pi_id}/detalhe`)
+      setDetalhePI(det)
+    } catch {
+      setDetalhePI(null)
     } finally {
-      setLoadingDetalhe(false)
+      setDetalheLoading(false)
     }
   }
   function fecharDetalhes() {
     setDetalhePI(null)
-    setSaldoInfo(null)
-    setFilhos([])
-    setDetalheProdutos(null)
-    setErroDetalheProdutos(null)
   }
 
-  // ------- Editor inline --------
+  // ------- Editor PI básico (mantém) --------
   function abrirEditor(pi: PIItem) {
     setEditError(null)
     setEditDraft({
@@ -316,32 +309,18 @@ export default function PIs() {
     setEditDraft(null)
     setEditError(null)
   }
-
   function campo(k: keyof PIItem, v: any) {
     if (!editDraft) return
     setEditDraft({ ...editDraft, [k]: v })
   }
-
   function trataNumero(s: string): number | null {
     const t = (s || "").trim()
     if (!t) return null
     const n = Number(t.replace(/\./g, "").replace(",", "."))
     return Number.isFinite(n) ? n : null
   }
-
-  function validaDraft(d: PIItem): string | null {
-    if (!d.numero_pi?.trim()) return "Número do PI é obrigatório."
-    const tp = (d.tipo_pi || "").trim()
-    if (!tp) return "Tipo do PI é obrigatório."
-    if (tp === "CS" && !(d.numero_pi_normal || "").trim()) return "PI Normal é obrigatório para CS."
-    if (tp === "Abatimento" && !(d.numero_pi_matriz || "").trim()) return "PI Matriz é obrigatório para Abatimento."
-    return null
-  }
-
   async function salvarEditor() {
     if (!editDraft) return
-    const msg = validaDraft(editDraft)
-    if (msg) { setEditError(msg); return }
     setSavingEdit(true); setEditError(null)
     try {
       const payload: any = {
@@ -351,7 +330,7 @@ export default function PIs() {
         numero_pi_normal: (editDraft.tipo_pi === "CS") ? (editDraft.numero_pi_normal || null) : null,
         nome_anunciante: editDraft.nome_anunciante || null,
         nome_agencia: editDraft.nome_agencia || null,
-        data_emissao: (editDraft.data_emissao || "").trim() || null, // dd/mm/aaaa também funciona
+        data_emissao: (editDraft.data_emissao || "").trim() || null,
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -363,19 +342,103 @@ export default function PIs() {
         mes_venda: editDraft.mes_venda || null,
         observacoes: editDraft.observacoes || null,
       }
-
-      const atualizado = await putJSON<PIItem>(`${API}/pis/${editDraft.id}`, payload)
-
+      await putJSON<PIItem>(`${API}/pis/${editDraft.id}`, payload)
       fecharEditor()
       await carregar()
-      if (detalhePI && detalhePI.id === atualizado.id) {
-        const ref = (await getJSON<PIItem[]>(`${API}/pis`)).find(p => p.id === atualizado.id)
-        if (ref) abrirDetalhes(ref)
-      }
+      if (detalhePI && detalhePI.id === editDraft.id) abrirDetalhesPorId(editDraft.id)
     } catch (e: any) {
       setEditError(e?.message || "Falha ao salvar.")
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  // ------- Editor Produtos & Veiculações (NOVO) -------
+  async function abrirPv(pi_id: number) {
+    setPvError(null)
+    setPvPiId(pi_id)
+    // carrega do detalhe
+    try {
+      const det = await getJSON<PiDetalhe>(`${API}/pis/${pi_id}/detalhe`)
+      const drafts: ProdutoDraft[] = (det.produtos || []).map(p => ({
+        id: p.id,
+        nome: p.nome,
+        descricao: p.descricao || null,
+        veiculacoes: (p.veiculacoes || []).map(v => ({
+          id: v.id,
+          canal: v.canal || "",
+          formato: v.formato || "",
+          data_inicio: v.data_inicio ? String(v.data_inicio) : "",
+          data_fim: v.data_fim ? String(v.data_fim) : "",
+          quantidade: v.quantidade ?? null,
+          valor: v.valor ?? null,
+        }))
+      }))
+      setPvProdutos(drafts)
+      setPvOpen(true)
+    } catch (e: any) {
+      setPvError(e?.message || "Falha ao abrir Produtos & Veiculações.")
+      setPvProdutos([])
+      setPvOpen(true)
+    }
+  }
+  function fecharPv() {
+    setPvOpen(false)
+    setPvPiId(null)
+    setPvProdutos([])
+    setPvError(null)
+  }
+  function addProduto() {
+    setPvProdutos(p => [...p, { nome: "", descricao: "", veiculacoes: [] }])
+  }
+  function rmProduto(idx: number) {
+    setPvProdutos(p => p.filter((_, i) => i !== idx))
+  }
+  function setProduto(idx: number, patch: Partial<ProdutoDraft>) {
+    setPvProdutos(p => p.map((it, i) => i === idx ? { ...it, ...patch } : it))
+  }
+  function addVeic(pIdx: number) {
+    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
+      ...it,
+      veiculacoes: [...it.veiculacoes, { canal: "", formato: "", data_inicio: "", data_fim: "", quantidade: null, valor: null }]
+    } : it))
+  }
+  function rmVeic(pIdx: number, vIdx: number) {
+    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
+      ...it,
+      veiculacoes: it.veiculacoes.filter((_, j) => j !== vIdx)
+    } : it))
+  }
+  function setVeic(pIdx: number, vIdx: number, patch: Partial<VeicDraft>) {
+    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
+      ...it,
+      veiculacoes: it.veiculacoes.map((v, j) => j === vIdx ? { ...v, ...patch } : v)
+    } : it))
+  }
+  function parseMoney(s: string): number | null {
+    const t = (s || "").trim()
+    if (!t) return null
+    const n = Number(t.replace(/\./g, "").replace(",", "."))
+    return Number.isFinite(n) ? n : null
+  }
+  async function salvarPv() {
+    if (!pvPiId) return
+    // valida simples
+    for (const p of pvProdutos) {
+      if (!p.nome.trim()) { setPvError("Produto sem nome."); return }
+    }
+    setPvSaving(true); setPvError(null)
+    try {
+      const payload = { produtos: pvProdutos }
+      const det = await putJSON<PiDetalhe>(`${API}/pis/${pvPiId}/produtos/sync`, payload)
+      // atualiza tela
+      await carregar()
+      if (detalhePI && detalhePI.id === pvPiId) setDetalhePI(det)
+      fecharPv()
+    } catch (e: any) {
+      setPvError(e?.message || "Falha ao salvar Produtos & Veiculações.")
+    } finally {
+      setPvSaving(false)
     }
   }
 
@@ -460,7 +523,7 @@ export default function PIs() {
                 <input
                   type="month"
                   value={mesVendaFiltro}
-                  onChange={(e) => setMesVendaFiltro(e.target.value)} // YYYY-MM
+                  onChange={(e) => setMesVendaFiltro(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 />
               </div>
@@ -553,33 +616,36 @@ export default function PIs() {
                         </td>
                         <td className="px-6 py-4 text-slate-900 text-base font-semibold">{fmtMoney(pi.valor_bruto)}</td>
                         <td className="px-6 py-4 text-slate-900 text-base font-semibold">{fmtMoney(pi.valor_liquido)}</td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-xs font-semibold">
-                            {pi.uf_cliente || "—"}
-                          </span>
+                        <td className="px-6 py-4"><span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-xs font-semibold">
+                          {pi.uf_cliente || "—"}</span>
                         </td>
                         <td className="px-6 py-4 text-slate-800 text-base">{pi.canal || "—"}</td>
-                        <td className="px-6 py-4 text-slate-800 text-base">
-                          <div className="truncate max-w-[260px]">{pi.nome_campanha || "—"}</div>
-                        </td>
+                        <td className="px-6 py-4 text-slate-800 text-base"><div className="truncate max-w-[260px]">{pi.nome_campanha || "—"}</div></td>
                         <td className="px-6 py-4 text-slate-800 text-base">{pi.diretoria || "—"}</td>
                         <td className="px-6 py-4 text-slate-800 text-base">{pi.executivo || "—"}</td>
                         <td className="px-6 py-4 text-slate-800 text-base">{dataVenda || "—"}</td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
-                              onClick={() => abrirDetalhes(pi)}
+                              onClick={() => abrirDetalhesPorId(pi.id)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Ver detalhes e vínculos"
+                              title="Ver detalhes (+ produtos & veiculações)"
                             >
                               🔎 Detalhes
                             </button>
                             <button
                               onClick={() => abrirEditor(pi)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Editar na mesma página"
+                              title="Editar dados do PI"
                             >
                               ✏️ Editar
+                            </button>
+                            <button
+                              onClick={() => abrirPv(pi.id)}
+                              className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-700 text-sm hover:bg-emerald-50"
+                              title="Produtos & Veiculações (registrar/editar)"
+                            >
+                              🧩 Produtos & Veiculações
                             </button>
                           </div>
                         </td>
@@ -598,239 +664,82 @@ export default function PIs() {
         <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
           <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
-            <div className="p-6 border-b">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">
-                    Detalhe do PI
-                  </div>
-                  <div className="mt-1 text-3xl font-extrabold text-slate-900">
-                    <span className="font-mono">{detalhePI.numero_pi}</span> — {detalhePI.tipo_pi}
-                  </div>
-                  {detalhePI.tipo_pi === "CS" && detalhePI.numero_pi_normal && (
-                    <div className="mt-1 text-slate-600">
-                      Vinculado ao PI Normal: <span className="font-mono">{detalhePI.numero_pi_normal}</span>
-                    </div>
-                  )}
-                  {detalhePI.tipo_pi === "Abatimento" && detalhePI.numero_pi_matriz && (
-                    <div className="mt-1 text-slate-600">
-                      Vinculado à Matriz: <span className="font-mono">{detalhePI.numero_pi_matriz}</span>
-                    </div>
-                  )}
+            <div className="p-6 border-b flex items-center justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Detalhe do PI</div>
+                <div className="mt-1 text-3xl font-extrabold text-slate-900">
+                  <span className="font-mono">{detalhePI.numero_pi}</span>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { fecharDetalhes(); abrirEditor(detalhePI) }}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                  >
-                    ✏️ Editar
-                  </button>
-                  <button
-                    onClick={fecharDetalhes}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                  >
-                    ✖ Fechar
-                  </button>
+                <div className="text-slate-600 mt-1">
+                  {detalhePI.anunciante || "—"} • {detalhePI.campanha || "—"}
                 </div>
               </div>
+              <button
+                onClick={fecharDetalhes}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                ✖ Fechar
+              </button>
             </div>
 
-            <div className="p-6 space-y-8">
-              {/* Resumo topo */}
-              <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Cliente</div>
-                  <div className="text-lg font-semibold">{detalhePI.nome_anunciante || "—"}</div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Agência</div>
-                  <div className="text-lg font-semibold">{detalhePI.nome_agencia || "—"}</div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Emissão</div>
-                  <div className="text-lg font-semibold">{parseISODateToBR(detalhePI.data_emissao) || "—"}</div>
-                </div>
-              </section>
-
-              {/* Chips de totais */}
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 text-sm font-semibold border border-neutral-200">
-                  Bruto: {fmtMoney(detalhePI.valor_bruto)}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 text-sm font-semibold border border-neutral-200">
-                  Líquido: {fmtMoney(detalhePI.valor_liquido)}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-sm font-semibold border border-red-200">
-                  Total de Veiculações: {detalheProdutos ? fmtMoney(detalheProdutos.total_pi) : (erroDetalheProdutos ? "—" : "Carregando…")}
-                </span>
+            <div className="p-6 space-y-6">
+              <div className="rounded-2xl border border-slate-200 p-4">
+                <div className="text-sm text-slate-500">Total do PI</div>
+                <div className="text-2xl font-bold">{fmtMoney(detalhePI.total_pi)}</div>
               </div>
 
-              {/* Blocos de vínculos (Matriz / Normal) */}
-              {detalhePI.tipo_pi === "Matriz" && (
-                <section className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-sm font-semibold">
-                      Saldo: {saldoInfo ? fmtMoney(saldoInfo.saldo_restante) : (loadingDetalhe ? "Carregando…" : "—")}
-                    </span>
-                    <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-3 py-1 text-sm font-semibold">
-                      Abatido: {saldoInfo ? fmtMoney(saldoInfo.valor_abatido) : (loadingDetalhe ? "Carregando…" : "—")}
-                    </span>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200">
-                    <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Abatimentos</div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead>
-                          <tr className="bg-red-600/90 text-white">
-                            {["PI", "Valor", "Emissão", "Obs."].map(h => (
-                              <th key={h} className="px-4 py-2 text-left text-sm font-semibold">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {loadingDetalhe ? (
-                            <tr><td className="px-4 py-3 text-slate-600" colSpan={4}>Carregando…</td></tr>
-                          ) : filhos.length === 0 ? (
-                            <tr><td className="px-4 py-3 text-slate-600" colSpan={4}>Nenhum abatimento.</td></tr>
-                          ) : filhos.map(f => (
-                            <tr key={f.id} className="border-b last:border-none">
-                              <td className="px-4 py-2 font-mono">{f.numero_pi}</td>
-                              <td className="px-4 py-2">{fmtMoney(f.valor_bruto)}</td>
-                              <td className="px-4 py-2 text-sm">{parseISODateToBR(f.data_emissao) || "—"}</td>
-                              <td className="px-4 py-2 text-sm">{f.observacoes || "—"}</td>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Produtos & Veiculações</div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead>
+                      <tr className="bg-red-600/90 text-white">
+                        {["Produto", "Veiculação", "Janela", "Qtde", "Valor"].map(h => (
+                          <th key={h} className="px-4 py-2 text-left text-sm font-semibold">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalheLoading ? (
+                        <tr><td className="px-4 py-3 text-slate-600" colSpan={5}>Carregando…</td></tr>
+                      ) : detalhePI.produtos.length === 0 ? (
+                        <tr><td className="px-4 py-3 text-slate-600" colSpan={5}>Sem produtos.</td></tr>
+                      ) : detalhePI.produtos.flatMap((p) => {
+                        if (p.veiculacoes.length === 0) {
+                          return (
+                            <tr key={`p-${p.id}`} className="border-b">
+                              <td className="px-4 py-2 font-semibold">{p.nome}</td>
+                              <td className="px-4 py-2 text-slate-600">—</td>
+                              <td className="px-4 py-2 text-sm text-slate-600">—</td>
+                              <td className="px-4 py-2">—</td>
+                              <td className="px-4 py-2">—</td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {detalhePI.tipo_pi === "Normal" && (
-                <section className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200">
-                    <div className="px-4 py-3 border-b bg-slate-50 font-semibold">CS vinculados</div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead>
-                          <tr className="bg-red-600/90 text-white">
-                            {["PI CS", "Valor", "Emissão", "Obs."].map(h => (
-                              <th key={h} className="px-4 py-2 text-left text-sm font-semibold">{h}</th>
-                            ))}
+                          )
+                        }
+                        return p.veiculacoes.map((v, idx) => (
+                          <tr key={`p-${p.id}-v-${v.id}`} className="border-b last:border-none">
+                            {idx === 0 && (
+                              <td className="px-4 py-2 font-semibold" rowSpan={p.veiculacoes.length}>{p.nome}</td>
+                            )}
+                            <td className="px-4 py-2">{[v.canal, v.formato].filter(Boolean).join(" • ") || "—"}</td>
+                            <td className="px-4 py-2 text-sm">
+                              {parseISODateToBR(v.data_inicio)} — {parseISODateToBR(v.data_fim)}
+                            </td>
+                            <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
+                            <td className="px-4 py-2">{fmtMoney(v.valor ?? 0)}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {loadingDetalhe ? (
-                            <tr><td className="px-4 py-3 text-slate-600" colSpan={4}>Carregando…</td></tr>
-                          ) : filhos.length === 0 ? (
-                            <tr><td className="px-4 py-3 text-slate-600" colSpan={4}>Nenhum CS vinculado.</td></tr>
-                          ) : filhos.map(cs => (
-                            <tr key={cs.id} className="border-b last:border-none">
-                              <td className="px-4 py-2 font-mono">{cs.numero_pi}</td>
-                              <td className="px-4 py-2">{fmtMoney(cs.valor_bruto)}</td>
-                              <td className="px-4 py-2 text-sm">{parseISODateToBR(cs.data_emissao) || "—"}</td>
-                              <td className="px-4 py-2 text-sm">{cs.observacoes || "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {(detalhePI.tipo_pi === "CS" || detalhePI.tipo_pi === "Abatimento") && (
-                <section className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Vínculo</div>
-                  {detalhePI.tipo_pi === "CS" ? (
-                    <div className="mt-1">
-                      PI Normal: <span className="font-mono">{detalhePI.numero_pi_normal || "—"}</span>
-                    </div>
-                  ) : (
-                    <div className="mt-1">
-                      PI Matriz: <span className="font-mono">{detalhePI.numero_pi_matriz || "—"}</span>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* ====== NOVO: Produtos & Veiculações ====== */}
-              <section className="space-y-4">
-                <h3 className="text-xl font-semibold">Produtos &amp; Veiculações</h3>
-
-                {erroDetalheProdutos && (
-                  <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-                    {erroDetalheProdutos}
-                  </div>
-                )}
-
-                {!erroDetalheProdutos && !detalheProdutos && (
-                  <div className="text-slate-600">Carregando produtos…</div>
-                )}
-
-                {detalheProdutos && detalheProdutos.produtos.length === 0 && (
-                  <div className="rounded-2xl border border-slate-200 p-6 text-slate-600">
-                    Nenhum produto vinculado a este PI.
-                  </div>
-                )}
-
-                {detalheProdutos && detalheProdutos.produtos.map((produto) => (
-                  <article key={produto.id} className="bg-neutral-50 border border-neutral-200 rounded-2xl overflow-hidden">
-                    <header className="flex items-center justify-between p-4">
-                      <div>
-                        <h4 className="text-lg font-bold text-slate-900">{produto.nome}</h4>
-                        {produto.descricao && <p className="text-slate-600 text-sm">{produto.descricao}</p>}
-                      </div>
-                      <div className="text-right">
-                        <div className="text-slate-500 text-xs uppercase">Total do Produto</div>
-                        <div className="text-lg font-bold">{fmtMoney(produto.total_produto)}</div>
-                      </div>
-                    </header>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-neutral-200/60">
-                          <tr className="text-left">
-                            <th className="px-4 py-3 border-b border-neutral-300">ID</th>
-                            <th className="px-4 py-3 border-b border-neutral-300">Canal</th>
-                            <th className="px-4 py-3 border-b border-neutral-300">Formato</th>
-                            <th className="px-4 py-3 border-b border-neutral-300">Início</th>
-                            <th className="px-4 py-3 border-b border-neutral-300">Fim</th>
-                            <th className="px-4 py-3 border-b border-neutral-300">Qtd</th>
-                            <th className="px-4 py-3 border-b border-neutral-300 text-right">Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...produto.veiculacoes]
-                            .sort((a, b) => {
-                              const ai = a.data_inicio ? new Date(a.data_inicio).getTime() : 0
-                              const bi = b.data_inicio ? new Date(b.data_inicio).getTime() : 0
-                              return ai - bi
-                            })
-                            .map(v => (
-                              <tr key={v.id} className="odd:bg-white even:bg-neutral-100/60">
-                                <td className="px-4 py-2">{v.id}</td>
-                                <td className="px-4 py-2">{v.canal || "—"}</td>
-                                <td className="px-4 py-2">{v.formato || "—"}</td>
-                                <td className="px-4 py-2">{formatISO(v.data_inicio)}</td>
-                                <td className="px-4 py-2">{formatISO(v.data_fim)}</td>
-                                <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
-                                <td className="px-4 py-2 text-right font-medium">{fmtMoney(v.valor)}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </article>
-                ))}
-              </section>
+                        ))
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Painel de EDIÇÃO inline */}
+      {/* Painel de edição PI (básico) */}
       {editOpen && editDraft && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={fecharEditor} />
@@ -878,7 +787,6 @@ export default function PIs() {
                   </select>
                 </div>
 
-                {/* Vínculos dinâmicos */}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">PI Matriz (para Abatimento)</label>
                   <input
@@ -899,7 +807,7 @@ export default function PIs() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente (Anunciante)</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente</label>
                   <input
                     value={editDraft.nome_anunciante || ""}
                     onChange={(e) => campo("nome_anunciante", e.target.value)}
@@ -1037,6 +945,203 @@ export default function PIs() {
           </div>
         </div>
       )}
+
+      {/* Painel Produtos & Veiculações (editor principal do novo fluxo) */}
+      {pvOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharPv} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
+            <div className="p-6 border-b flex items-start justify-between">
+              <div>
+                <div className="text-sm uppercase tracking-wide text-emerald-700 font-semibold">Produtos & Veiculações</div>
+                <div className="mt-1 text-2xl font-extrabold text-slate-900">
+                  {pvPiId ? <>PI <span className="font-mono">#{pvPiId}</span></> : "PI"}
+                </div>
+              </div>
+              <button
+                onClick={fecharPv}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                ✖ Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {pvError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+                  {pvError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div className="text-lg font-semibold">Produtos deste PI</div>
+                <button
+                  onClick={addProduto}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+                >
+                  ➕ Adicionar produto
+                </button>
+              </div>
+
+              {/* lista de produtos */}
+              <div className="space-y-6">
+                {pvProdutos.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-6 text-slate-600">
+                    Nenhum produto. Clique em <b>Adicionar produto</b>.
+                  </div>
+                )}
+
+                {pvProdutos.map((p, pIdx) => (
+                  <div key={pIdx} className="rounded-2xl border border-slate-200 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b flex items-center justify-between">
+                      <div className="font-semibold">
+                        Produto #{pIdx + 1} {p.id ? <span className="text-slate-500">• ID {p.id}</span> : null}
+                      </div>
+                      <button
+                        onClick={() => rmProduto(pIdx)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      >
+                        Remover
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Nome do produto
+                          </label>
+                          <input
+                            list="produto-nomes"
+                            value={p.nome}
+                            onChange={(e) => setProduto(pIdx, { nome: e.target.value })}
+                            placeholder="Digite ou escolha um produto existente"
+                            className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                          />
+                          <datalist id="produto-nomes">
+                            {produtoNomes.map((n) => <option key={n} value={n} />)}
+                          </datalist>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Descrição (opcional)
+                          </label>
+                          <input
+                            value={p.descricao || ""}
+                            onChange={(e) => setProduto(pIdx, { descricao: e.target.value })}
+                            className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between">
+                          <div className="font-semibold">Veiculações</div>
+                          <button
+                            onClick={() => addVeic(pIdx)}
+                            className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          >
+                            ➕ Adicionar veiculação
+                          </button>
+                        </div>
+
+                        {p.veiculacoes.length === 0 ? (
+                          <div className="mt-2 rounded-lg border border-dashed border-slate-300 p-4 text-slate-600">
+                            Nenhuma veiculação.
+                          </div>
+                        ) : (
+                          <div className="mt-2 overflow-x-auto">
+                            <table className="min-w-full">
+                              <thead>
+                                <tr className="bg-emerald-600/90 text-white">
+                                  {["Canal", "Formato", "Início", "Fim", "Qtd", "Valor", ""].map(h => (
+                                    <th key={h} className="px-3 py-2 text-left text-sm font-semibold">{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {p.veiculacoes.map((v, vIdx) => (
+                                  <tr key={vIdx} className="border-b last:border-none">
+                                    <td className="px-3 py-2">
+                                      <input
+                                        value={v.canal || ""}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { canal: e.target.value })}
+                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input
+                                        value={v.formato || ""}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { formato: e.target.value })}
+                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input
+                                        value={v.data_inicio || ""}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { data_inicio: e.target.value })}
+                                        placeholder="dd/mm/aaaa ou yyyy-mm-dd"
+                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input
+                                        value={v.data_fim || ""}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { data_fim: e.target.value })}
+                                        placeholder="dd/mm/aaaa ou yyyy-mm-dd"
+                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input
+                                        type="number"
+                                        value={String(v.quantidade ?? "")}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { quantidade: Number(e.target.value || "0") || null })}
+                                        className="w-24 rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input
+                                        value={String(v.valor ?? "")}
+                                        onChange={(e) => setVeic(pIdx, vIdx, { valor: parseMoney(e.target.value) })}
+                                        placeholder="1000,00"
+                                        className="w-40 rounded-md border border-slate-300 px-2 py-1"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <button
+                                        onClick={() => rmVeic(pIdx, vIdx)}
+                                        className="px-2 py-1 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                      >
+                                        Remover
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={salvarPv}
+                  disabled={pvSaving}
+                  className="px-6 py-3 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {pvSaving ? "Salvando..." : "Salvar Produtos & Veiculações"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
