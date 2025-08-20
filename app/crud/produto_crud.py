@@ -4,27 +4,74 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from app.models import Produto
 
-# ------------- helpers -------------
+# ---- helpers ----
+CATEG_VALIDAS = {"PAINEL", "PORTAL", "RÁDIO", "RADIO"}  # ajuste como preferir
+MODAL_VALIDAS = {"UNITARIO", "DIARIA", "SEMANAL", "QUINZENAL", "MENSAL", "CPM", "SPOT"}
+
 def _normalize_nome(nome: Optional[str]) -> str:
-    if not nome:
-        return ""
-    return nome.strip()
+    return (nome or "").strip()
 
 def _clean_empty(s: Optional[str]) -> Optional[str]:
-    if s is None:
-        return None
+    if s is None: return None
     t = s.strip()
     return t if t else None
 
-# ------------- queries básicas -------------
+def _to_float_or_none(v: Any) -> Optional[float]:
+    if v is None: return None
+    if isinstance(v, (int, float)): return float(v)
+    if isinstance(v, str):
+        t = v.strip()
+        if t == "": return None
+        # aceita "1.234,56"
+        t = t.replace(".", "").replace(",", ".")
+        try:
+            return float(t)
+        except ValueError:
+            return None
+    return None
+
+def _to_int_or_none(v: Any) -> Optional[int]:
+    if v is None: return None
+    if isinstance(v, int): return v
+    if isinstance(v, str):
+        t = v.strip()
+        if t == "": return None
+        try:
+            return int(float(t))  # tolera "10.0"
+        except ValueError:
+            return None
+    if isinstance(v, float): return int(v)
+    return None
+
+def _validate_nonneg(name: str, v: Optional[float | int]):
+    if v is not None and v < 0:
+        raise ValueError(f"{name} não pode ser negativo.")
+
+def _norm_categoria(cat: Optional[str]) -> Optional[str]:
+    c = _clean_empty(cat)
+    if not c: return None
+    c_up = c.upper()
+    # normaliza "RÁDIO" e "RADIO"
+    if c_up == "RADIO": c_up = "RÁDIO"
+    if CATEG_VALIDAS and c_up not in CATEG_VALIDAS:
+        raise ValueError(f"Categoria inválida: {c}.")
+    return c_up
+
+def _norm_modalidade(mod: Optional[str]) -> Optional[str]:
+    m = _clean_empty(mod)
+    if not m: return None
+    m_up = m.upper()
+    if MODAL_VALIDAS and m_up not in MODAL_VALIDAS:
+        raise ValueError(f"Modalidade de preço inválida: {m}.")
+    return m_up
+
+# ---- queries ----
 def get_by_id(db: Session, produto_id: int) -> Optional[Produto]:
-    # Session.get é a API moderna (evita warning do .query(Model).get)
     return db.get(Produto, produto_id)
 
 def get_by_name(db: Session, nome: str) -> Optional[Produto]:
     n = _normalize_nome(nome)
-    if not n:
-        return None
+    if not n: return None
     return db.query(Produto).filter(Produto.nome == n).first()
 
 def list_all(db: Session) -> List[Produto]:
@@ -32,8 +79,7 @@ def list_all(db: Session) -> List[Produto]:
 
 def list_by_name(db: Session, termo: str) -> List[Produto]:
     t = (termo or "").strip()
-    if not t:
-        return list_all(db)
+    if not t: return list_all(db)
     return (
         db.query(Produto)
         .filter(Produto.nome.ilike(f"%{t}%"))
@@ -45,33 +91,28 @@ def list_distinct_names(db: Session) -> List[str]:
     rows = db.query(Produto.nome).distinct().order_by(Produto.nome.asc()).all()
     return [r[0] for r in rows if r and r[0]]
 
-# ------------- CRUD -------------
+# ---- CRUD ----
 def create(db: Session, dados: Dict[str, Any]) -> Produto:
-    """
-    Espera campos: nome (obrigatório), descricao (opcional), valor_unitario (opcional, >= 0)
-    """
     nome = _normalize_nome(dados.get("nome"))
     if not nome:
         raise ValueError("Nome do produto é obrigatório.")
-
-    # Evita duplicidade exata de nome
     if get_by_name(db, nome):
         raise ValueError("Já existe um produto com esse nome.")
 
-    descricao = _clean_empty(dados.get("descricao"))
-    vu = dados.get("valor_unitario")
-    if vu is not None:
-        try:
-            vu = float(vu)
-        except (TypeError, ValueError):
-            raise ValueError("valor_unitario inválido.")
-        if vu < 0:
-            raise ValueError("valor_unitario não pode ser negativo.")
+    valor_unitario = _to_float_or_none(dados.get("valor_unitario"))
+    _validate_nonneg("valor_unitario", valor_unitario)
+
+    base_segundos = _to_int_or_none(dados.get("base_segundos"))
+    _validate_nonneg("base_segundos", base_segundos)
 
     novo = Produto(
         nome=nome,
-        descricao=descricao,
-        valor_unitario=vu,
+        descricao=_clean_empty(dados.get("descricao")),
+        valor_unitario=valor_unitario,
+        categoria=_norm_categoria(dados.get("categoria")),
+        modalidade_preco=_norm_modalidade(dados.get("modalidade_preco")),
+        base_segundos=base_segundos,
+        unidade_rotulo=_clean_empty(dados.get("unidade_rotulo")),
     )
     db.add(novo)
     db.commit()
@@ -79,9 +120,6 @@ def create(db: Session, dados: Dict[str, Any]) -> Produto:
     return novo
 
 def update(db: Session, produto_id: int, dados: Dict[str, Any]) -> Produto:
-    """
-    Atualiza nome/descricao/valor_unitario. Garante unicidade do nome.
-    """
     prod = get_by_id(db, produto_id)
     if not prod:
         raise ValueError("Produto não encontrado.")
@@ -98,32 +136,33 @@ def update(db: Session, produto_id: int, dados: Dict[str, Any]) -> Produto:
         prod.descricao = _clean_empty(dados.get("descricao"))
 
     if "valor_unitario" in dados:
-        vu = dados.get("valor_unitario")
-        if vu is None:
-            prod.valor_unitario = None
-        else:
-            try:
-                vu = float(vu)
-            except (TypeError, ValueError):
-                raise ValueError("valor_unitario inválido.")
-            if vu < 0:
-                raise ValueError("valor_unitario não pode ser negativo.")
-            prod.valor_unitario = vu
+        valor_unitario = _to_float_or_none(dados.get("valor_unitario"))
+        _validate_nonneg("valor_unitario", valor_unitario)
+        prod.valor_unitario = valor_unitario
+
+    if "categoria" in dados:
+        prod.categoria = _norm_categoria(dados.get("categoria"))
+
+    if "modalidade_preco" in dados:
+        prod.modalidade_preco = _norm_modalidade(dados.get("modalidade_preco"))
+
+    if "base_segundos" in dados:
+        base_segundos = _to_int_or_none(dados.get("base_segundos"))
+        _validate_nonneg("base_segundos", base_segundos)
+        prod.base_segundos = base_segundos
+
+    if "unidade_rotulo" in dados:
+        prod.unidade_rotulo = _clean_empty(dados.get("unidade_rotulo"))
 
     db.commit()
     db.refresh(prod)
     return prod
 
 def delete(db: Session, produto_id: int) -> None:
-    """
-    Exclui o produto. Se houver relacionamento com veiculações e a regra do negócio
-    impedir exclusão, valida antes (só se a relação existir no modelo).
-    """
     prod = get_by_id(db, produto_id)
     if not prod:
         raise ValueError("Produto não encontrado.")
 
-    # Se o modelo tiver relacionamento 'veiculacoes', bloqueie exclusão quando houver filhos.
     vlist = getattr(prod, "veiculacoes", None)
     if vlist is not None and len(vlist) > 0:
         raise ValueError("Não é possível excluir: existem veiculações vinculadas a este produto.")

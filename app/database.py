@@ -1,24 +1,25 @@
-# app/database.py
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models import Base
+from app.models_base import Base  # <- NÃO importar models aqui em cima!
 
-engine = create_engine("sqlite:///app/banco.db", echo=False)
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "banco.db"
+
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    echo=False,
+    connect_args={"check_same_thread": False},  # essencial no FastAPI + SQLite
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 def init_db():
+    import app.models  # registra tabelas sem criar ciclo
     Base.metadata.create_all(engine)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Remova a linha: session = SessionLocal()
-# E mantenha o bloco __main__ se você usa para recriar o banco manualmente
 if __name__ == "__main__":
-    import os
-    caminho_banco = "app/banco.db"
-    if os.path.exists(caminho_banco):
-        os.remove(caminho_banco)
-        print("🧨 Banco de dados antigo removido com sucesso.")
-    else:
-        print("ℹ️ Banco de dados não encontrado. Criando novo...")
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        print("🧨 Removido:", DB_PATH)
     init_db()
-    print("✅ Banco de dados recriado com sucesso.")
+    print("✅ Banco criado em:", DB_PATH)
