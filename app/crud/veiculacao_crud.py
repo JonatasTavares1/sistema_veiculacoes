@@ -30,24 +30,35 @@ def _overlaps(win_start: date, win_end: date, s: Optional[str], f: Optional[str]
     # sem datas → considerar na janela
     return True
 
-def _norm_desconto(v: Optional[float]) -> float:
+def _norm_desconto_percent(v: Optional[float]) -> float:
+    """
+    Normaliza entrada para PERCENTUAL 0..100.
+    Aceita:
+      - 10   -> 10%
+      - 0.1  -> 10%
+      - "10%", "10" -> 10%
+      - "0,1" -> 0.1 => 10%
+    """
     if v is None:
         return 0.0
-    v = float(v)
-    if v < 0:
-        v = 0.0
-    # se vier 0..100, converte para fração
-    if v > 1.0:
-        v = v / 100.0
-    if v > 1.0:
-        v = 1.0
-    return v
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    # se veio em fração (0..1), converte para %
+    if 0.0 <= x <= 1.0:
+        return x * 100.0
+    # clamp
+    if x < 0:
+        x = 0.0
+    if x > 100.0:
+        x = 100.0
+    return x
 
-def _calc_total(qtd: Optional[int], vu: Optional[float], desc: Optional[float]) -> float:
-    q = int(qtd or 0)
-    u = float(vu or 0.0)
-    d = _norm_desconto(desc)
-    return q * u * (1.0 - d)
+def _calc_liquido(valor_bruto: Optional[float], desconto_percent: Optional[float]) -> float:
+    b = float(valor_bruto or 0.0)
+    d = _norm_desconto_percent(desconto_percent) / 100.0  # percentual -> fração
+    return round(b * (1.0 - d), 2)
 
 def _get_produto_pi_or_fail(db: Session, produto_id: int, pi_id: int) -> Tuple[Produto, PI]:
     prod = db.query(Produto).get(produto_id)
@@ -98,12 +109,11 @@ def list_agenda(
     fim: date,
     *,
     canal: Optional[str] = None,
-    formato: Optional[str] = None,  # se não tiver na model, ignoramos
+    formato: Optional[str] = None,  # ignorado se não existir no modelo
     executivo: Optional[str] = None,
     diretoria: Optional[str] = None,
     uf_cliente: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    # carrega tudo e filtra em Python (datas são string na model)
     rows = (
         db.query(Veiculacao)
         .options(joinedload(Veiculacao.produto), joinedload(Veiculacao.pi))
@@ -135,9 +145,9 @@ def list_agenda(
             "data_inicio": v.data_inicio,
             "data_fim": v.data_fim,
             "quantidade": v.quantidade,
-            "valor_unitario": v.valor_unitario,
-            "desconto": v.desconto,  # fração 0..1
-            "valor_total": v.valor_total,
+            "valor_bruto": v.valor_bruto,
+            "desconto": v.desconto,          # percentual 0..100
+            "valor_liquido": v.valor_liquido,
             "executivo": getattr(pi, "executivo", None),
             "diretoria": getattr(pi, "diretoria", None),
             "uf_cliente": getattr(pi, "uf_cliente", None),
@@ -148,12 +158,10 @@ def list_agenda(
 def create(db: Session, dados: Dict[str, Any]) -> Veiculacao:
     prod, pi = _get_produto_pi_or_fail(db, dados["produto_id"], dados["pi_id"])
 
-    qtd = dados.get("quantidade") or 0
-    vu = dados.get("valor_unitario")
-    if vu is None:
-        vu = prod.valor_unitario  # fallback do produto
-    desc = _norm_desconto(dados.get("desconto"))
-    total = _calc_total(qtd, vu, desc)
+    qtd = int(dados.get("quantidade") or 0)
+    bruto = float(dados.get("valor_bruto") or 0.0)
+    desc_percent = _norm_desconto_percent(dados.get("desconto"))
+    liquido = _calc_liquido(bruto, desc_percent)
 
     novo = Veiculacao(
         produto_id=prod.id,
@@ -161,9 +169,9 @@ def create(db: Session, dados: Dict[str, Any]) -> Veiculacao:
         data_inicio=dados.get("data_inicio"),
         data_fim=dados.get("data_fim"),
         quantidade=qtd,
-        valor_unitario=vu,
-        desconto=desc,
-        valor_total=total,
+        valor_bruto=bruto,
+        desconto=desc_percent,     # armazenado como percentual (0..100)
+        valor_liquido=liquido,
     )
     db.add(novo)
     db.commit()
@@ -181,8 +189,6 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
         if not prod:
             raise ValueError("Produto não encontrado.")
         veic.produto_id = prod.id
-    else:
-        prod = db.query(Produto).get(veic.produto_id)
 
     if "pi_id" in dados and dados["pi_id"]:
         pi = db.query(PI).get(dados["pi_id"])
@@ -197,17 +203,13 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
         veic.data_fim = dados["data_fim"]
     if "quantidade" in dados and dados["quantidade"] is not None:
         veic.quantidade = int(dados["quantidade"])
-    if "valor_unitario" in dados:
-        veic.valor_unitario = float(dados["valor_unitario"]) if dados["valor_unitario"] is not None else None
+    if "valor_bruto" in dados:
+        veic.valor_bruto = float(dados["valor_bruto"] or 0.0)
     if "desconto" in dados:
-        veic.desconto = _norm_desconto(dados["desconto"])
+        veic.desconto = _norm_desconto_percent(dados["desconto"])
 
-    # fallback de valor_unitario se None
-    if veic.valor_unitario is None and prod is not None:
-        veic.valor_unitario = prod.valor_unitario or 0.0
-
-    # recalcula total
-    veic.valor_total = _calc_total(veic.quantidade, veic.valor_unitario, veic.desconto)
+    # recalcula líquido
+    veic.valor_liquido = _calc_liquido(veic.valor_bruto, veic.desconto)
 
     db.commit()
     db.refresh(veic)

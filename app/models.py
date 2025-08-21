@@ -1,8 +1,11 @@
 # app/models.py
 from sqlalchemy.orm import relationship, foreign, remote
 from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_
-from app.database import Base  # <<-- use sempre o Base central
+
+# ✅ Use sempre o Base central (removido o import duplicado)
 from app.models_base import Base
+
+
 class Agencia(Base):
     __tablename__ = 'agencias'
 
@@ -71,8 +74,8 @@ class PI(Base):
     subperfil = Column(String)
 
     # Valores e datas (totais do PI)
-    valor_bruto = Column(Float)
-    valor_liquido = Column(Float)
+    valor_bruto = Column(Float)     # pode ser somatório das veiculações
+    valor_liquido = Column(Float)   # idem
     vencimento = Column(Date)
     data_emissao = Column(Date)
 
@@ -85,9 +88,9 @@ class PI(Base):
     anunciante = relationship("Anunciante", back_populates="pis")
 
     # Veiculações deste PI
-    veiculacoes = relationship("Veiculacao", back_populates="pi")
-    # Entregas deste PI (pode ser redundante, mas mantive como você tinha)
-    entregas = relationship("Entrega", back_populates="pi")
+    veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
+    # Entregas deste PI
+    entregas = relationship("Entrega", back_populates="pi", cascade="all, delete-orphan")
 
     eh_matriz = Column(Boolean, default=False, nullable=False)
 
@@ -116,11 +119,13 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
 
-    # campos de catálogo / pricing
+    # Catálogo (sem preço!)
     descricao = Column(String, nullable=True)
-    valor_unitario = Column(Float, nullable=True)  # preço base do produto
 
-    # NOVOS CAMPOS (alinhado aos seus schemas/CRUD/seed)
+    # 🔻 Removido: valor_unitario (preço não fica mais no produto)
+    # valor_unitario = Column(Float, nullable=True)
+
+    # Metadados de catálogo
     categoria = Column(String, nullable=True)           # ex.: PORTAL, PAINEL, RÁDIO...
     modalidade_preco = Column(String, nullable=True)    # ex.: DIARIA, SEMANAL, CPM, MENSAL...
     base_segundos = Column(Integer, nullable=True)      # ex.: 30, 60 (rádio/testemunhal/spot)
@@ -143,15 +148,25 @@ class Veiculacao(Base):
     data_fim = Column(String)
 
     # Métrica de contratação
-    quantidade = Column(Integer)         # dias, semanas, quinzena, spots, impressões (CPM), etc.
-    valor_unitario = Column(Float)       # pode vir nulo -> usa valor do produto no CRUD
-    desconto = Column(Float)             # fração 0..1 (no CRUD aceitamos 0..100 e normalizamos)
-    valor_total = Column(Float)          # calculado no CRUD
+    quantidade = Column(Integer)  # dias, semanas, spots, impressões etc.
+
+    # 💰 Preço agora é 100% aqui na veiculação
+    # Interpretando:
+    # - valor_bruto: total bruto da veiculação (já considerando quantidade)
+    # - desconto: percentual 0..100 aplicado sobre o bruto
+    # - valor_liquido: resultado pós-desconto
+    valor_bruto = Column(Float, nullable=True)
+    desconto = Column(Float, nullable=True)        # armazenar como percentual (0..100)
+    valor_liquido = Column(Float, nullable=True)
+
+    # 🔻 Removidos: campos de preço herdado
+    # valor_unitario = Column(Float)
+    # valor_total = Column(Float)
 
     # relacionamentos
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
-    entregas = relationship("Entrega", back_populates="veiculacao")
+    entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
 
 
 class Entrega(Base):

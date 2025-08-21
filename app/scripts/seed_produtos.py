@@ -3,7 +3,7 @@
 Seed de produtos pré-definidos a partir de uma lista "CATEGORIA<TAB>NOME".
 - Idempotente: atualiza se já existir (mesmo nome).
 - Define categoria, modalidade_preco, base_segundos (rádio) e unidade_rotulo.
-- valor_unitario fica None para você preencher depois.
+- Não define valor_unitario (valores ficam na veiculação).
 
 Como rodar (com seu venv ativo):
     python -m app.scripts.seed_produtos
@@ -11,6 +11,8 @@ Como rodar (com seu venv ativo):
 from __future__ import annotations
 import re
 from typing import Optional, Tuple
+
+from sqlalchemy.inspection import inspect as sa_inspect
 
 from app.database import SessionLocal, init_db
 from app.models import Produto
@@ -207,7 +209,6 @@ def _guess_modalidade(categoria: str, nome: str) -> Tuple[str, Optional[int], Op
 
         modalidade = "RADIO_SPOT"
         unidade = f"por spot {base_seg}s" if base_seg else "por spot"
-        # Testemunhal pode manter a mesma modalidade; o cálculo usa duração informada na veiculação
         return modalidade, base_seg, unidade
 
     # Portal (digital)
@@ -224,7 +225,7 @@ def _guess_modalidade(categoria: str, nome: str) -> Tuple[str, Optional[int], Op
         return "DIA", None, "por pacote"
 
     # Painel / OOH / MUB etc.: por dia/face
-    if cat == "PAINEL" or cat == "OOH" or cat == "DOOH":
+    if cat in {"PAINEL", "OOH", "DOOH"}:
         return "PAINEL_DIA", None, "por dia/face"
 
     # fallback genérico
@@ -233,42 +234,35 @@ def _guess_modalidade(categoria: str, nome: str) -> Tuple[str, Optional[int], Op
 
 def _upsert_produto(sess, categoria: str, nome: str):
     nome_norm = nome.strip()
-    prod = (
-        sess.query(Produto)
-        .filter(Produto.nome == nome_norm)
-        .first()
-    )
+    prod = sess.query(Produto).filter(Produto.nome == nome_norm).first()
     modalidade, base_seg, unidade = _guess_modalidade(categoria, nome_norm)
 
+    # pega as colunas/atributos realmente mapeados no modelo
+    produto_cols = {a.key for a in sa_inspect(Produto).attrs}
+
+    # campos desejados (serão filtrados pelos existentes)
+    wanted = {
+        "nome": nome_norm,
+        "descricao": None,
+        "categoria": categoria,
+        "modalidade_preco": modalidade,
+        # NÃO enviamos valor_unitario (valores agora ficam na veiculação)
+        "base_segundos": base_seg,
+        "unidade_rotulo": unidade,
+    }
+    fields = {k: v for k, v in wanted.items() if k in produto_cols}
+
     if prod:
-        # update se algo mudou
         changed = False
-        if getattr(prod, "categoria", None) != categoria:
-            prod.categoria = categoria
-            changed = True
-        if getattr(prod, "modalidade_preco", None) != modalidade:
-            prod.modalidade_preco = modalidade
-            changed = True
-        if getattr(prod, "base_segundos", None) != base_seg:
-            prod.base_segundos = base_seg
-            changed = True
-        if getattr(prod, "unidade_rotulo", None) != unidade:
-            prod.unidade_rotulo = unidade
-            changed = True
-        # não mexe em valor_unitario no seed
+        for k, v in fields.items():
+            if getattr(prod, k, object()) != v:
+                setattr(prod, k, v)
+                changed = True
         if changed:
             sess.add(prod)
         return prod, False
     else:
-        novo = Produto(
-            nome=nome_norm,
-            descricao=None,
-            categoria=categoria,
-            modalidade_preco=modalidade,
-            valor_unitario=None,  # você preenche depois
-            base_segundos=base_seg,
-            unidade_rotulo=unidade,
-        )
+        novo = Produto(**fields)
         sess.add(novo)
         sess.flush()
         return novo, True

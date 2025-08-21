@@ -12,54 +12,48 @@ def _normalize_nome(nome: Optional[str]) -> str:
     return (nome or "").strip()
 
 def _clean_empty(s: Optional[str]) -> Optional[str]:
-    if s is None: return None
+    if s is None:
+        return None
     t = s.strip()
     return t if t else None
 
-def _to_float_or_none(v: Any) -> Optional[float]:
-    if v is None: return None
-    if isinstance(v, (int, float)): return float(v)
-    if isinstance(v, str):
-        t = v.strip()
-        if t == "": return None
-        # aceita "1.234,56"
-        t = t.replace(".", "").replace(",", ".")
-        try:
-            return float(t)
-        except ValueError:
-            return None
-    return None
-
 def _to_int_or_none(v: Any) -> Optional[int]:
-    if v is None: return None
-    if isinstance(v, int): return v
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
     if isinstance(v, str):
         t = v.strip()
-        if t == "": return None
+        if t == "":
+            return None
         try:
             return int(float(t))  # tolera "10.0"
         except ValueError:
             return None
-    if isinstance(v, float): return int(v)
+    if isinstance(v, float):
+        return int(v)
     return None
 
-def _validate_nonneg(name: str, v: Optional[float | int]):
+def _validate_nonneg(name: str, v: Optional[int]):
     if v is not None and v < 0:
         raise ValueError(f"{name} não pode ser negativo.")
 
 def _norm_categoria(cat: Optional[str]) -> Optional[str]:
     c = _clean_empty(cat)
-    if not c: return None
+    if not c:
+        return None
     c_up = c.upper()
     # normaliza "RÁDIO" e "RADIO"
-    if c_up == "RADIO": c_up = "RÁDIO"
+    if c_up == "RADIO":
+        c_up = "RÁDIO"
     if CATEG_VALIDAS and c_up not in CATEG_VALIDAS:
         raise ValueError(f"Categoria inválida: {c}.")
     return c_up
 
 def _norm_modalidade(mod: Optional[str]) -> Optional[str]:
     m = _clean_empty(mod)
-    if not m: return None
+    if not m:
+        return None
     m_up = m.upper()
     if MODAL_VALIDAS and m_up not in MODAL_VALIDAS:
         raise ValueError(f"Modalidade de preço inválida: {m}.")
@@ -71,7 +65,8 @@ def get_by_id(db: Session, produto_id: int) -> Optional[Produto]:
 
 def get_by_name(db: Session, nome: str) -> Optional[Produto]:
     n = _normalize_nome(nome)
-    if not n: return None
+    if not n:
+        return None
     return db.query(Produto).filter(Produto.nome == n).first()
 
 def list_all(db: Session) -> List[Produto]:
@@ -79,7 +74,8 @@ def list_all(db: Session) -> List[Produto]:
 
 def list_by_name(db: Session, termo: str) -> List[Produto]:
     t = (termo or "").strip()
-    if not t: return list_all(db)
+    if not t:
+        return list_all(db)
     return (
         db.query(Produto)
         .filter(Produto.nome.ilike(f"%{t}%"))
@@ -99,16 +95,13 @@ def create(db: Session, dados: Dict[str, Any]) -> Produto:
     if get_by_name(db, nome):
         raise ValueError("Já existe um produto com esse nome.")
 
-    valor_unitario = _to_float_or_none(dados.get("valor_unitario"))
-    _validate_nonneg("valor_unitario", valor_unitario)
-
     base_segundos = _to_int_or_none(dados.get("base_segundos"))
     _validate_nonneg("base_segundos", base_segundos)
 
     novo = Produto(
         nome=nome,
         descricao=_clean_empty(dados.get("descricao")),
-        valor_unitario=valor_unitario,
+        # 🔻 removido: valor_unitario (preço não pertence mais ao produto)
         categoria=_norm_categoria(dados.get("categoria")),
         modalidade_preco=_norm_modalidade(dados.get("modalidade_preco")),
         base_segundos=base_segundos,
@@ -135,10 +128,7 @@ def update(db: Session, produto_id: int, dados: Dict[str, Any]) -> Produto:
     if "descricao" in dados:
         prod.descricao = _clean_empty(dados.get("descricao"))
 
-    if "valor_unitario" in dados:
-        valor_unitario = _to_float_or_none(dados.get("valor_unitario"))
-        _validate_nonneg("valor_unitario", valor_unitario)
-        prod.valor_unitario = valor_unitario
+    # 🔻 removido: valor_unitario
 
     if "categoria" in dados:
         prod.categoria = _norm_categoria(dados.get("categoria"))

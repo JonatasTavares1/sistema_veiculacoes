@@ -42,9 +42,9 @@ def _to_out(v: Veiculacao) -> VeiculacaoOut:
         "data_inicio": v.data_inicio,
         "data_fim": v.data_fim,
         "quantidade": v.quantidade,
-        "valor_unitario": v.valor_unitario,
-        "desconto": v.desconto,
-        "valor_total": v.valor_total,
+        "valor_bruto": v.valor_bruto,
+        "desconto": v.desconto,           # percentual 0..100
+        "valor_liquido": v.valor_liquido,
         "produto_nome": getattr(prod, "nome", None),
         "numero_pi": getattr(pi, "numero_pi", None),
     }
