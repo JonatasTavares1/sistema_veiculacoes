@@ -8,9 +8,10 @@ from app.database import SessionLocal
 from app.schemas.veiculacao import (
     VeiculacaoCreate, VeiculacaoUpdate,
     VeiculacaoOut, VeiculacaoAgendaOut,
+    VeiculacaoCreateIn,   # <-- NOVO
 )
 from app.crud import veiculacao_crud
-from app.models import Veiculacao
+from app.models import Veiculacao, Produto, PI  # <-- precisamos consultar Produto/PI
 
 router = APIRouter(prefix="/veiculacoes", tags=["veiculacoes"])
 
@@ -32,7 +33,6 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
     return None
 
 def _to_out(v: Veiculacao) -> VeiculacaoOut:
-    # mapeia SA model -> schema com extras
     prod = getattr(v, "produto", None)
     pi = getattr(v, "pi", None)
     data: Dict[str, Any] = {
@@ -43,7 +43,7 @@ def _to_out(v: Veiculacao) -> VeiculacaoOut:
         "data_fim": v.data_fim,
         "quantidade": v.quantidade,
         "valor_bruto": v.valor_bruto,
-        "desconto": v.desconto,           # percentual 0..100
+        "desconto": v.desconto,
         "valor_liquido": v.valor_liquido,
         "produto_nome": getattr(prod, "nome", None),
         "numero_pi": getattr(pi, "numero_pi", None),
@@ -73,11 +73,43 @@ def obter(veic_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Veiculação não encontrada.")
     return _to_out(v)
 
+# ====== AQUI: aceitar ID ou nome/numero e resolver ======
 @router.post("", response_model=VeiculacaoOut, status_code=status.HTTP_201_CREATED)
-def criar(body: VeiculacaoCreate, db: Session = Depends(get_db)):
+def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
+    # produto
+    produto_id = body.produto_id
+    if not produto_id:
+        if not body.produto_nome:
+            raise HTTPException(status_code=422, detail="Informe produto_id ou produto_nome.")
+        prod = db.query(Produto).filter(Produto.nome == body.produto_nome).first()
+        if not prod:
+            raise HTTPException(status_code=400, detail=f"Produto '{body.produto_nome}' não encontrado.")
+        produto_id = prod.id
+
+    # pi
+    pi_id = body.pi_id
+    if not pi_id:
+        if not body.numero_pi:
+            raise HTTPException(status_code=422, detail="Informe pi_id ou numero_pi.")
+        pi = db.query(PI).filter(PI.numero_pi == body.numero_pi).first()
+        if not pi:
+            raise HTTPException(status_code=400, detail=f"PI '{body.numero_pi}' não encontrado.")
+        pi_id = pi.id
+
+    # monta payload “clássico” pro CRUD (que espera IDs)
+    payload = {
+        "produto_id": produto_id,
+        "pi_id": pi_id,
+        "data_inicio": body.data_inicio,
+        "data_fim": body.data_fim,
+        "quantidade": body.quantidade,
+        "valor_bruto": body.valor_bruto,
+        "desconto": body.desconto,
+        "valor_liquido": body.valor_liquido,
+    }
+
     try:
-        v = veiculacao_crud.create(db, body.model_dump())
-        # recarrega com joins pra preencher extras
+        v = veiculacao_crud.create(db, payload)
         v = (
             db.query(Veiculacao)
             .options(joinedload(Veiculacao.produto), joinedload(Veiculacao.pi))
@@ -110,7 +142,7 @@ def deletar(veic_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-# ---------- Agenda (para Operações ver o que precisa veicular) ----------
+# ---------- Agenda ----------
 @router.get("/agenda", response_model=List[VeiculacaoAgendaOut])
 def listar_agenda(
     inicio: Optional[str] = Query(None, description="YYYY-MM-DD ou dd/mm/aaaa; default: hoje"),

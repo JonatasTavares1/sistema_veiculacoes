@@ -19,10 +19,6 @@ type VeicDraft = {
 
 type ProdutoDraft = {
   nome: string
-  // ↓ removidos os valores do produto
-  // bruto_str: string
-  // desconto_str: string
-  // liquido_str: string
   veiculacoes: VeicDraft[]
 }
 
@@ -434,6 +430,8 @@ export default function CadastroPI() {
         </span>
       </div>
 
+      {/* (Importar do PDF removido) */}
+
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Identificação */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -618,7 +616,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Razão Social da Agência</label>
               <input
                 type="text"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={razaoAgencia}
                 onChange={(e) => setRazaoAgencia(e.target.value)}
               />
@@ -626,7 +624,7 @@ export default function CadastroPI() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">UF da Agência</label>
               <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={ufAgencia}
                 onChange={(e) => setUfAgencia(e.target.value)}
               >
@@ -663,7 +661,7 @@ export default function CadastroPI() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Perfil do Anunciante</label>
               <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={perfilAnunciante}
                 onChange={(e) => setPerfilAnunciante(e.target.value)}
               >
@@ -673,7 +671,7 @@ export default function CadastroPI() {
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Subperfil do Anunciante</label>
               <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={subperfilAnunciante}
                 onChange={(e) => setSubperfilAnunciante(e.target.value)}
               >
@@ -691,7 +689,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Mês da Venda (MM/AAAA)</label>
               <input
                 type="text" placeholder="07/2025"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={mesVenda}
                 onChange={(e) => setMesVenda(e.target.value)}
               />
@@ -700,7 +698,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Dia da Venda (DD)</label>
               <input
                 type="text" placeholder="23"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={diaVenda}
                 onChange={(e) => setDiaVenda(e.target.value)}
               />
@@ -709,7 +707,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Vencimento</label>
               <input
                 type="date"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={vencimento}
                 onChange={(e) => setVencimento(e.target.value)}
               />
@@ -718,7 +716,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Data de Emissão</label>
               <input
                 type="date"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={dataEmissao}
                 onChange={(e) => setDataEmissao(e.target.value)}
               />
@@ -726,7 +724,7 @@ export default function CadastroPI() {
           </div>
         </section>
 
-        {/* >>> Produtos & Veiculações (agora abaixo do período da venda) <<< */}
+        {/* >>> Produtos & Veiculações <<< */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Produtos & Veiculações</h2>
@@ -944,7 +942,7 @@ export default function CadastroPI() {
           )}
         </section>
 
-        {/* Responsáveis & Valores do PI (devem bater com os totais das veiculações) */}
+        {/* Responsáveis & Valores do PI */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Responsáveis e Valores</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -961,7 +959,7 @@ export default function CadastroPI() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Diretoria</label>
               <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={diretoria}
                 onChange={(e) => setDiretoria(e.target.value)}
               >

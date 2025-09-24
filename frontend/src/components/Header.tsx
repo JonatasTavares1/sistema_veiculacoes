@@ -23,7 +23,7 @@ export default function Header({ onToggleSidebar }: Props) {
             to="/"
             className="font-extrabold text-3xl tracking-wide hover:opacity-95 transition-opacity"
           >
-            Sistema para veiculos de midia 
+            Sistema para veiculos de Comunicação
             
           </Link>
         </div>

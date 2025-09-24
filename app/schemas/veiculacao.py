@@ -17,7 +17,7 @@ def _to_optional_float(v: Any) -> Optional[float]:
         return float(v)
     if isinstance(v, str):
         t = v.strip().replace(".", "").replace(",", ".")  # pt-BR -> ponto decimal
-        if t.endswith("%"):                                # "10%" -> "10"
+        if t.endswith("%"):
             t = t[:-1]
         try:
             return float(t)
@@ -33,7 +33,7 @@ def _to_optional_int(v: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
 
-# --------- Schemas ---------
+# --------- Schemas “core” que você já usa ---------
 class VeiculacaoBase(BaseModel):
     produto_id: Optional[int] = None
     pi_id: Optional[int] = None
@@ -41,12 +41,10 @@ class VeiculacaoBase(BaseModel):
     data_fim: Optional[str] = None
     quantidade: Optional[int] = Field(None, ge=0)
 
-    # 💰 novo modelo de preço
     valor_bruto: Optional[float] = Field(None, ge=0)
-    desconto: Optional[float] = Field(None, ge=0)        # guarda PERCENTUAL 0..100
-    valor_liquido: Optional[float] = Field(None, ge=0)   # calculado no CRUD (ignorado se vier)
+    desconto: Optional[float] = Field(None, ge=0)        # percentual 0..100
+    valor_liquido: Optional[float] = Field(None, ge=0)
 
-    # coerções
     @field_validator("data_inicio", "data_fim", mode="before")
     @classmethod
     def _v_str(cls, v): return _to_optional_str(v)
@@ -60,10 +58,10 @@ class VeiculacaoBase(BaseModel):
     def _v_int(cls, v): return _to_optional_int(v)
 
 class VeiculacaoCreate(VeiculacaoBase):
+    # mantém o contrato existente (IDs obrigatórios)
     produto_id: int = Field(..., ge=1)
     pi_id: int = Field(..., ge=1)
     quantidade: int = Field(..., ge=0)
-    # valor_bruto pode ser 0 (ex.: bonificação) mas recomendável enviar
 
 class VeiculacaoUpdate(VeiculacaoBase):
     pass
@@ -75,13 +73,9 @@ class VeiculacaoOut(BaseModel):
     data_inicio: Optional[str]
     data_fim: Optional[str]
     quantidade: Optional[int]
-
-    # novo pricing
     valor_bruto: Optional[float]
-    desconto: Optional[float]       # PERCENTUAL 0..100
+    desconto: Optional[float]       # percentual 0..100
     valor_liquido: Optional[float]
-
-    # extras pra UI
     produto_nome: Optional[str] = None
     numero_pi: Optional[str] = None
 
@@ -97,15 +91,41 @@ class VeiculacaoAgendaOut(BaseModel):
     data_inicio: Optional[str] = None
     data_fim: Optional[str] = None
     quantidade: Optional[int] = None
-
-    # novo pricing
     valor_bruto: Optional[float] = None
-    desconto: Optional[float] = None        # PERCENTUAL 0..100
+    desconto: Optional[float] = None
     valor_liquido: Optional[float] = None
-
     executivo: Optional[str] = None
     diretoria: Optional[str] = None
     uf_cliente: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+# --------- NOVO: schema “flexível” de ENTRADA ---------
+class VeiculacaoCreateIn(BaseModel):
+    # aceita ID ou nome/número
+    produto_id: Optional[int] = Field(None, ge=1)
+    pi_id: Optional[int] = Field(None, ge=1)
+    produto_nome: Optional[str] = None
+    numero_pi: Optional[str] = None
+
+    data_inicio: Optional[str] = None
+    data_fim: Optional[str] = None
+    quantidade: int = Field(..., ge=0)
+
+    valor_bruto: Optional[float] = Field(None, ge=0)
+    desconto: Optional[float] = Field(None, ge=0)
+    valor_liquido: Optional[float] = Field(None, ge=0)
+
+    # coerções
+    @field_validator("produto_nome", "numero_pi", "data_inicio", "data_fim", mode="before")
+    @classmethod
+    def _v_str2(cls, v): return _to_optional_str(v)
+
+    @field_validator("valor_bruto", "desconto", "valor_liquido", mode="before")
+    @classmethod
+    def _v_float2(cls, v): return _to_optional_float(v)
+
+    @field_validator("quantidade", "produto_id", "pi_id", mode="before")
+    @classmethod
+    def _v_int2(cls, v): return _to_optional_int(v)
