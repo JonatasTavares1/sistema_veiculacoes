@@ -2,7 +2,7 @@
 from sqlalchemy.orm import relationship, foreign, remote
 from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_
 
-# ✅ Use sempre o Base central (removido o import duplicado)
+# ✅ Base central
 from app.models_base import Base
 
 
@@ -69,7 +69,7 @@ class PI(Base):
     nome_campanha = Column(String)
     mes_venda = Column(String)
     dia_venda = Column(String)
-    canal = Column(String)
+    canal = Column(String)            # canal “macro” do PI (ok manter)
     perfil = Column(String)
     subperfil = Column(String)
 
@@ -87,8 +87,12 @@ class PI(Base):
     agencia = relationship("Agencia", back_populates="pis")
     anunciante = relationship("Anunciante", back_populates="pis")
 
-    # Veiculações deste PI
+    # 🔴 Produtos deste PI (antes não existia → causava o AttributeError)
+    produtos = relationship("Produto", back_populates="pi", cascade="all, delete-orphan")
+
+    # Veiculações deste PI (para consultas globais por PI)
     veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
+
     # Entregas deste PI
     entregas = relationship("Entrega", back_populates="pi", cascade="all, delete-orphan")
 
@@ -119,20 +123,21 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
 
-    # Catálogo (sem preço!)
-    descricao = Column(String, nullable=True)
+    # 🔴 FK obrigatória para PI (antes não existia)
+    pi_id = Column(Integer, ForeignKey('pis.id'), nullable=False)
 
-    # 🔻 Removido: valor_unitario (preço não fica mais no produto)
-    # valor_unitario = Column(Float, nullable=True)
+    # Catálogo (sem preço)
+    descricao = Column(String, nullable=True)
 
     # Metadados de catálogo
     categoria = Column(String, nullable=True)           # ex.: PORTAL, PAINEL, RÁDIO...
     modalidade_preco = Column(String, nullable=True)    # ex.: DIARIA, SEMANAL, CPM, MENSAL...
-    base_segundos = Column(Integer, nullable=True)      # ex.: 30, 60 (rádio/testemunhal/spot)
-    unidade_rotulo = Column(String, nullable=True)      # ex.: "dia", "semana", "quinzena", "mês", "CPM", "spot"
+    base_segundos = Column(Integer, nullable=True)      # ex.: 30, 60
+    unidade_rotulo = Column(String, nullable=True)      # ex.: "dia", "semana", "CPM"…
 
-    # veiculações que usam este produto
-    veiculacoes = relationship("Veiculacao", back_populates="produto")
+    # Relacionamentos
+    pi = relationship("PI", back_populates="produtos")
+    veiculacoes = relationship("Veiculacao", back_populates="produto", cascade="all, delete-orphan")
 
 
 class Veiculacao(Base):
@@ -143,27 +148,23 @@ class Veiculacao(Base):
     produto_id = Column(Integer, ForeignKey('produtos.id'))
     pi_id = Column(Integer, ForeignKey('pis.id'))
 
-    # Período (strings por compatibilidade com seu CRUD atual)
-    data_inicio = Column(String)
-    data_fim = Column(String)
+    # 🔴 Faltavam essas colunas no modelo
+    canal = Column(String, nullable=True)
+    formato = Column(String, nullable=True)
+
+    # Período (strings “ISO” no CRUD)
+    data_inicio = Column(String)  # "YYYY-MM-DD"
+    data_fim = Column(String)     # "YYYY-MM-DD" ou None
 
     # Métrica de contratação
     quantidade = Column(Integer)  # dias, semanas, spots, impressões etc.
 
-    # 💰 Preço agora é 100% aqui na veiculação
-    # Interpretando:
-    # - valor_bruto: total bruto da veiculação (já considerando quantidade)
-    # - desconto: percentual 0..100 aplicado sobre o bruto
-    # - valor_liquido: resultado pós-desconto
+    # 💰 Preço 100% na veiculação
     valor_bruto = Column(Float, nullable=True)
-    desconto = Column(Float, nullable=True)        # armazenar como percentual (0..100)
+    desconto = Column(Float, nullable=True)        # percentual (0..100)
     valor_liquido = Column(Float, nullable=True)
 
-    # 🔻 Removidos: campos de preço herdado
-    # valor_unitario = Column(Float)
-    # valor_total = Column(Float)
-
-    # relacionamentos
+    # Relacionamentos
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
     entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")

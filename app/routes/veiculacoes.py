@@ -8,10 +8,10 @@ from app.database import SessionLocal
 from app.schemas.veiculacao import (
     VeiculacaoCreate, VeiculacaoUpdate,
     VeiculacaoOut, VeiculacaoAgendaOut,
-    VeiculacaoCreateIn,   # <-- NOVO
+    VeiculacaoCreateIn,   # <-- entrada flexível
 )
 from app.crud import veiculacao_crud
-from app.models import Veiculacao, Produto, PI  # <-- precisamos consultar Produto/PI
+from app.models import Veiculacao, Produto, PI
 
 router = APIRouter(prefix="/veiculacoes", tags=["veiculacoes"])
 
@@ -27,7 +27,7 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
     s = s.strip()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
         try:
-            return datetime.strptime(s, fmt).date()
+            return datetime.strptime(s[:10], fmt).date()
         except ValueError:
             pass
     return None
@@ -48,6 +48,11 @@ def _to_out(v: Veiculacao) -> VeiculacaoOut:
         "produto_nome": getattr(prod, "nome", None),
         "numero_pi": getattr(pi, "numero_pi", None),
     }
+    # se o modelo tiver colunas:
+    if hasattr(v, "canal"):
+        data["canal"] = getattr(v, "canal", None)
+    if hasattr(v, "formato"):
+        data["formato"] = getattr(v, "formato", None)
     return VeiculacaoOut(**data)
 
 # ---------- CRUD ----------
@@ -73,7 +78,7 @@ def obter(veic_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Veiculação não encontrada.")
     return _to_out(v)
 
-# ====== AQUI: aceitar ID ou nome/numero e resolver ======
+# ====== Create: aceitar ID ou nome/numero e resolver ======
 @router.post("", response_model=VeiculacaoOut, status_code=status.HTTP_201_CREATED)
 def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
     # produto
@@ -96,7 +101,6 @@ def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail=f"PI '{body.numero_pi}' não encontrado.")
         pi_id = pi.id
 
-    # monta payload “clássico” pro CRUD (que espera IDs)
     payload = {
         "produto_id": produto_id,
         "pi_id": pi_id,
@@ -106,6 +110,9 @@ def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
         "valor_bruto": body.valor_bruto,
         "desconto": body.desconto,
         "valor_liquido": body.valor_liquido,
+        # se vierem, o CRUD setará se o modelo tiver as colunas
+        "canal": getattr(body, "canal", None),
+        "formato": getattr(body, "formato", None),
     }
 
     try:
@@ -162,4 +169,6 @@ def listar_agenda(
         canal=canal, formato=formato,
         executivo=executivo, diretoria=diretoria, uf_cliente=uf_cliente
     )
+    # VeiculacaoAgendaOut não tem 'em_veiculacao' em todos os projetos.
+    # Se seu schema tiver, o campo vai preencher; se não tiver, o Pydantic ignora (extra=ignore default).
     return [VeiculacaoAgendaOut(**r) for r in rows]

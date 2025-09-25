@@ -106,6 +106,13 @@ class VeiculacaoIn(BaseModel):
     data_inicio: Optional[str] = None  # dd/mm/aaaa ou yyyy-mm-dd
     data_fim: Optional[str] = None
     quantidade: Optional[int] = None
+
+    # ---- NOVO modelo de preços (preferencial no backend) ----
+    valor_bruto: Optional[float] = None
+    desconto: Optional[float] = None            # percentual 0..100
+    valor_liquido: Optional[float] = None
+
+    # ---- LEGADO para compat (rotas antigas/relatórios) ----
     valor: Optional[float] = None
 
 class VeiculacaoOut(BaseModel):
@@ -115,7 +122,12 @@ class VeiculacaoOut(BaseModel):
     data_inicio: Optional[date] = None
     data_fim: Optional[date] = None
     quantidade: Optional[int] = None
-    valor: Optional[float] = None
+
+    # devolvemos os dois formatos para compat
+    valor_bruto: Optional[float] = None
+    desconto: Optional[float] = None
+    valor_liquido: Optional[float] = None
+    valor: Optional[float] = None  # legado (usado na tela de detalhe e agenda)
 
     class Config:
         from_attributes = True

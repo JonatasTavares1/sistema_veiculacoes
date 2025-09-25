@@ -1,10 +1,11 @@
+# app/routes/pis.py
 from __future__ import annotations
 
 import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -22,12 +23,16 @@ from app.utils.pi_pdf import extract_structured_fields_from_pdf
 
 router = APIRouter(prefix="/pis", tags=["pis"])
 
+
+# --------------------- infra ---------------------
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
 
 def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path:
     suffix = expected_ext if expected_ext.startswith(".") else f".{expected_ext}"
@@ -44,24 +49,116 @@ def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path
 
     return tmp_path
 
+
+# --------------------- helpers desta rota ---------------------
+
+def _to_detalhe(pi) -> PiDetalheOut:
+    """
+    Converte o objeto PI (já com pi.produtos 'transitórios' montados no CRUD)
+    para o schema de saída PiDetalheOut.
+    """
+    produtos_out: List[ProdutoOut] = []
+    total_pi = 0.0
+    for p in (getattr(pi, "produtos", None) or []):
+        veics = [
+            VeiculacaoOut(
+                id=v.id,
+                canal=getattr(v, "canal", None),
+                formato=getattr(v, "formato", None),
+                data_inicio=getattr(v, "data_inicio", None),
+                data_fim=getattr(v, "data_fim", None),
+                quantidade=getattr(v, "quantidade", None),
+                # 'valor' aqui já vem do CRUD como (valor_liquido || valor_bruto)
+                valor=getattr(v, "valor", None),
+            )
+            for v in (getattr(p, "veiculacoes", None) or [])
+        ]
+        total_produto = sum((getattr(v, "valor", 0.0) or 0.0) for v in (getattr(p, "veiculacoes", None) or []))
+        total_pi += total_produto
+        produtos_out.append(
+            ProdutoOut(
+                id=p.id,
+                nome=p.nome,
+                descricao=getattr(p, "descricao", None),
+                total_produto=round(float(total_produto), 2),
+                veiculacoes=veics,
+            )
+        )
+
+    return PiDetalheOut(
+        id=pi.id,
+        numero_pi=pi.numero_pi,
+        anunciante=pi.nome_anunciante,
+        campanha=pi.nome_campanha,
+        emissao=pi.data_emissao,
+        total_pi=round(float(total_pi), 2),
+        produtos=produtos_out,
+    )
+
+
+def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
+    """
+    Traduz ProdutoIn (que usa VeiculacaoIn com `valor`) para o payload que o
+    pi_crud espera (veiculação com `valor_liquido`/`valor_bruto`/`desconto`).
+    Mantém `canal`, `formato`, datas e quantidade.
+    """
+    out: List[Dict[str, Any]] = []
+    for p in produtos or []:
+        p_dict = p.model_dump()
+        veics_in = p_dict.get("veiculacoes") or []
+        veics_out: List[Dict[str, Any]] = []
+        for v in veics_in:
+            veics_out.append(
+                {
+                    # campos de identificação/conteúdo:
+                    "canal": v.get("canal"),
+                    "formato": v.get("formato"),
+                    "data_inicio": v.get("data_inicio"),
+                    "data_fim": v.get("data_fim"),
+                    "quantidade": v.get("quantidade"),
+                    # mapeamento do preço:
+                    # se vier só `valor`, assumimos como `valor_liquido`
+                    "valor_liquido": v.get("valor"),
+                    # campos "novos" ficam disponíveis caso o front já os envie:
+                    "valor_bruto": v.get("valor_bruto"),
+                    "desconto": v.get("desconto"),
+                }
+            )
+        out.append(
+            {
+                "id": p_dict.get("id"),
+                "nome": p_dict.get("nome"),
+                "descricao": p_dict.get("descricao"),
+                "veiculacoes": veics_out,
+            }
+        )
+    return out
+
+
+# --------------------- endpoints ---------------------
+
 @router.get("/matriz/ativos", response_model=List[PISimpleOut])
 def listar_matriz_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_matriz_ativos(db)
     return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
+
 
 @router.get("/normal/ativos", response_model=List[PISimpleOut])
 def listar_normal_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_normal_ativos(db)
     return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
 
+
 @router.get("/{numero_pi}/saldo")
 def saldo_matriz(numero_pi: str, db: Session = Depends(get_db)):
     saldo = pi_crud.calcular_saldo_restante(db, numero_pi)
     return {"numero_pi_matriz": numero_pi, "saldo_restante": saldo}
 
+
 @router.get("", response_model=List[PIOut])
 def listar_todos(db: Session = Depends(get_db)):
     return pi_crud.list_all(db)
+
 
 @router.get("/{pi_id:int}", response_model=PIOut)
 def obter_por_id(pi_id: int, db: Session = Depends(get_db)):
@@ -70,12 +167,14 @@ def obter_por_id(pi_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return reg
 
+
 @router.get("/numero/{numero_pi}", response_model=PIOut)
 def obter_por_numero(numero_pi: str, db: Session = Depends(get_db)):
     reg = pi_crud.get_by_numero(db, numero_pi)
     if not reg:
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return reg
+
 
 @router.post("", response_model=PIOut, status_code=status.HTTP_201_CREATED)
 def criar_pi(body: PICreate, db: Session = Depends(get_db)):
@@ -85,6 +184,7 @@ def criar_pi(body: PICreate, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.put("/{pi_id:int}", response_model=PIOut)
 def atualizar_pi(pi_id: int, body: PIUpdate, db: Session = Depends(get_db)):
     try:
@@ -92,6 +192,7 @@ def atualizar_pi(pi_id: int, body: PIUpdate, db: Session = Depends(get_db)):
         return upd
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.delete("/{pi_id:int}")
 def deletar_pi(pi_id: int, db: Session = Depends(get_db)):
@@ -101,37 +202,8 @@ def deletar_pi(pi_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-def _to_detalhe(pi) -> PiDetalheOut:
-    produtos_out: List[ProdutoOut] = []
-    total_pi = 0.0
-    for p in (pi.produtos or []):
-        veics = [
-            VeiculacaoOut(
-                id=v.id,
-                canal=v.canal,
-                formato=v.formato,
-                data_inicio=v.data_inicio,
-                data_fim=v.data_fim,
-                quantidade=v.quantidade,
-                valor=v.valor,
-            ) for v in (p.veiculacoes or [])
-        ]
-        total_produto = sum((v.valor or 0.0) for v in (p.veiculacoes or []))
-        total_pi += total_produto
-        produtos_out.append(ProdutoOut(
-            id=p.id, nome=p.nome, descricao=p.descricao,
-            total_produto=round(float(total_produto), 2),
-            veiculacoes=veics
-        ))
-    return PiDetalheOut(
-        id=pi.id,
-        numero_pi=pi.numero_pi,
-        anunciante=pi.nome_anunciante,
-        campanha=pi.nome_campanha,
-        emissao=pi.data_emissao,
-        total_pi=round(float(total_pi), 2),
-        produtos=produtos_out
-    )
+
+# ---------- detalhe ----------
 
 @router.get("/{pi_id:int}/detalhe", response_model=PiDetalheOut)
 def obter_detalhe_por_id(pi_id: int, db: Session = Depends(get_db)):
@@ -140,6 +212,7 @@ def obter_detalhe_por_id(pi_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return _to_detalhe(reg)
 
+
 @router.get("/numero/{numero_pi}/detalhe", response_model=PiDetalheOut)
 def obter_detalhe_por_numero(numero_pi: str, db: Session = Depends(get_db)):
     reg = pi_crud.get_with_relations_by_numero(db, numero_pi)
@@ -147,30 +220,42 @@ def obter_detalhe_por_numero(numero_pi: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return _to_detalhe(reg)
 
+
+# ---------- compose & sync (com tradução de 'valor' -> 'valor_liquido') ----------
+
 class PIComposeIn(BaseModel):
     pi: PICreate
     produtos: List[ProdutoIn] = []
 
+
 @router.post("/compose", response_model=PiDetalheOut, status_code=status.HTTP_201_CREATED)
 def criar_composto(body: PIComposeIn, db: Session = Depends(get_db)):
     try:
-        created = pi_crud.compose_create(db, body.model_dump())
+        payload = body.model_dump()
+        payload["produtos"] = _map_produtos_para_crud(body.produtos)
+        created = pi_crud.compose_create(db, payload)
         full = pi_crud.get_with_relations_by_id(db, created.id)
         return _to_detalhe(full)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 class ProdutosSyncIn(BaseModel):
     produtos: List[ProdutoIn] = []
+
 
 @router.put("/{pi_id:int}/produtos/sync", response_model=PiDetalheOut)
 def sync_produtos(pi_id: int, body: ProdutosSyncIn, db: Session = Depends(get_db)):
     try:
-        pi = pi_crud.sync_produtos(db, pi_id, body.model_dump().get("produtos") or [])
+        payload_produtos = _map_produtos_para_crud(body.produtos)
+        pi = pi_crud.sync_produtos(db, pi_id, payload_produtos)
         full = pi_crud.get_with_relations_by_id(db, pi.id)
         return _to_detalhe(full)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+# ---------- importação / extração de PDF ----------
 
 @router.post("/extrair-pdf")
 async def extrair_pdf_para_preenchimento(
@@ -208,6 +293,7 @@ async def extrair_pdf_para_preenchimento(
         except Exception:
             pass
 
+
 @router.post("/importar", response_model=PIOut, status_code=status.HTTP_201_CREATED)
 async def importar_pi(
     arquivo_pdf: UploadFile = File(..., description="PDF do PI"),
@@ -221,7 +307,7 @@ async def importar_pi(
     try:
         parsed = extract_structured_fields_from_pdf(str(tmp_path))
 
-        overrides = {}
+        overrides: Dict[str, Any] = {}
         if pi_json:
             try:
                 overrides = json.loads(pi_json) or {}
