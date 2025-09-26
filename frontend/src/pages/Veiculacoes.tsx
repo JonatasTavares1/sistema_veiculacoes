@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 // ======================== Config/Util ========================
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+// se você criar o endpoint /veiculacoes/:id/status no backend, mude para true
+const HAS_STATUS_ENDPOINT = false
+
 type RowAgenda = {
   id: number
   produto_id: number
@@ -21,7 +24,6 @@ type RowAgenda = {
   executivo?: string | null
   diretoria?: string | null
   uf_cliente?: string | null
-  // opcional se seu backend já trouxer
   em_veiculacao?: boolean | null
   status_atualizado_em?: string | null
 }
@@ -100,6 +102,19 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   }
   return r.json()
 }
+async function putJSON<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let detail = await r.text()
+    try { detail = (await r.json()).detail ?? detail } catch {}
+    throw new Error(detail || `Erro ${r.status}`)
+  }
+  return r.json()
+}
 
 // ======================== Agrupamento ========================
 type GrupoPI = {
@@ -111,12 +126,7 @@ type GrupoPI = {
 }
 
 // ======================== Status persistente ========================
-/**
- * Guardamos status de "veiculando" por ID no localStorage para sobreviver a reloads
- * e também tentamos enviar para o backend se existir a rota.
- */
-const LS_KEY = "veiculacoes_status_v1" // { [id]: {on: boolean, ts: string} }
-
+const LS_KEY = "veiculacoes_status_v1"
 type LocalStatus = { on: boolean; ts: string }
 function loadStatuses(): Record<string, LocalStatus> {
   try {
@@ -141,7 +151,6 @@ export default function Veiculacoes() {
   const [diretoria, setDiretoria] = useState("Todos")
   const [uf, setUF] = useState("")
   const [buscaGlobal, setBuscaGlobal] = useState("")
-
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
   // -------- Dados base
@@ -153,6 +162,7 @@ export default function Veiculacoes() {
   const [compact, setCompact] = useState(false)
   const [showOnlyOn, setShowOnlyOn] = useState(false)
   const [showOnlyOff, setShowOnlyOff] = useState(false)
+  const [ignorarPeriodo, setIgnorarPeriodo] = useState(true)
 
   // expansão por PI
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -168,7 +178,6 @@ export default function Veiculacoes() {
 
   // -------- "Veiculando" (check) — estado e persistência
   const [statusMap, setStatusMap] = useState<Record<string, LocalStatus>>(() => loadStatuses())
-  // aplica preferindo o backend (se vier em_veiculacao), senão localStorage
   function resolveOn(r: RowAgenda): boolean {
     const fromApi = r.em_veiculacao
     if (typeof fromApi === "boolean") return fromApi
@@ -182,8 +191,9 @@ export default function Veiculacoes() {
       saveStatuses(next)
       return next
     })
-    // tentativa de salvar no backend (ignora erro)
-    postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
+    if (HAS_STATUS_ENDPOINT) {
+      postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
+    }
   }
   function bulkSetOn(ids: number[], on: boolean) {
     const ts = new Date().toISOString()
@@ -193,28 +203,54 @@ export default function Veiculacoes() {
       saveStatuses(next)
       return next
     })
-    // tentativa de salvar em lote (se você fizer um endpoint batch no futuro)
-    ids.forEach(id => postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {}))
+    if (HAS_STATUS_ENDPOINT) {
+      ids.forEach(id => postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {}))
+    }
   }
 
   // -------- Carregamento
   async function carregar() {
     setLoading(true); setErro(null)
     try {
-      const qs = new URLSearchParams()
-      if (inicio) qs.set("inicio", inicio)
-      if (fim) qs.set("fim", fim)
-      if (canal.trim()) qs.set("canal", canal.trim())
-      if (formato.trim()) qs.set("formato", formato.trim())
-      if (executivo !== "Todos" && executivo.trim()) qs.set("executivo", executivo)
-      if (diretoria !== "Todos" && diretoria.trim()) qs.set("diretoria", diretoria)
-      if (uf.trim()) qs.set("uf_cliente", uf.trim())
+      let data: RowAgenda[] = []
 
-      const data = await getJSON<RowAgenda[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
-      const arr = Array.isArray(data) ? data : []
-      setRows(arr)
+      if (ignorarPeriodo) {
+        const all = await getJSON<any[]>(`${API}/veiculacoes`)
+        data = (all || []).map(v => ({
+          id: v.id,
+          produto_id: v.produto_id,
+          pi_id: v.pi_id,
+          numero_pi: v.numero_pi || (v.pi?.numero_pi ?? ""),
+          cliente: v.cliente ?? null,
+          campanha: v.campanha ?? null,
+          canal: v.canal ?? null,
+          formato: v.formato ?? null,
+          data_inicio: v.data_inicio ?? null,
+          data_fim: v.data_fim ?? null,
+          quantidade: v.quantidade ?? null,
+          valor: (typeof v.valor_liquido === "number" ? v.valor_liquido :
+                  typeof v.valor_bruto === "number" ? v.valor_bruto : null),
+          produto_nome: v.produto_nome ?? null,
+          executivo: v.executivo ?? null,
+          diretoria: v.diretoria ?? null,
+          uf_cliente: v.uf_cliente ?? null,
+          em_veiculacao: v.em_veiculacao ?? null,
+          status_atualizado_em: null,
+        }))
+      } else {
+        const qs = new URLSearchParams()
+        if (inicio) qs.set("inicio", inicio)
+        if (fim) qs.set("fim", fim)
+        if (canal.trim()) qs.set("canal", canal.trim())
+        if (formato.trim()) qs.set("formato", formato.trim())
+        if (executivo !== "Todos" && executivo.trim()) qs.set("executivo", executivo)
+        if (diretoria !== "Todos" && diretoria.trim()) qs.set("diretoria", diretoria)
+        if (uf.trim()) qs.set("uf_cliente", uf.trim())
+        data = await getJSON<RowAgenda[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
+      }
 
-      // executivos
+      setRows(Array.isArray(data) ? data : [])
+
       const exsFromApi = await getJSON<string[]>(`${API}/executivos`).catch(() => [])
       const merged = Array.from(new Set([...(Array.isArray(exsFromApi) ? exsFromApi : []), ...DEFAULT_EXECUTIVOS]))
         .filter(Boolean)
@@ -227,7 +263,7 @@ export default function Veiculacoes() {
     }
   }
   useEffect(() => { carregar() }, [])
-  useEffect(() => { carregar() }, [inicio, fim, canal, formato, executivo, diretoria, uf])
+  useEffect(() => { carregar() }, [ignorarPeriodo, inicio, fim, canal, formato, executivo, diretoria, uf])
 
   // -------- Busca Global (debounced)
   const [debouncedBusca, setDebouncedBusca] = useState("")
@@ -238,12 +274,13 @@ export default function Veiculacoes() {
     return () => { if (buscaRef.current != null) window.clearTimeout(buscaRef.current) }
   }, [buscaGlobal])
 
-  // -------- Agrupamento por PI + estado expandido
   const nowISO = todayISO()
-  const grupos: GrupoPI[] = useMemo(() => {
-    // aplica busca global e filtros por status (on/off) antes de agrupar
+  const _within = (start?: string | null, end?: string | null) =>
+    ignorarPeriodo ? true : withinRangeInclusive(nowISO, start, end)
+
+  // -------- Agrupamento por PI + estado expandido
+  const grupos = useMemo(() => {
     let filtered = rows.filter(r => {
-      // texto livre
       if (debouncedBusca) {
         const blob = [
           r.numero_pi, r.cliente, r.campanha, r.produto_nome, r.canal, r.formato, r.executivo, r.diretoria, r.uf_cliente,
@@ -254,7 +291,6 @@ export default function Veiculacoes() {
       return true
     })
 
-    // status lógicos
     filtered = filtered.filter(r => {
       const markedOn = resolveOn(r)
       if (showOnlyOn && !markedOn) return false
@@ -278,25 +314,21 @@ export default function Veiculacoes() {
     for (const g of arr) {
       g.itens.sort((a, b) => dateOnly(a.data_inicio).localeCompare(dateOnly(b.data_inicio)))
     }
-    // ao trocar dataset (tamanho distinto), abre todos por padrão
-    // (mantém se for o mesmo conjunto, para não ficar chato)
-    // se quiser SEMPRE abrir tudo, descomente a linha abaixo:
-    // setExpanded(new Set(arr.map(g => g.numero_pi)))
     return arr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, debouncedBusca, showOnlyOn, showOnlyOff, statusMap])
 
-  // Totais gerais (sobre o conjunto filtrado)
+  // Totais gerais
   const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
   const totalValor = useMemo(() => grupos.reduce((acc, g) => acc + g.totalValor, 0), [grupos])
   const totalQtd = useMemo(() => grupos.reduce((acc, g) => acc + g.totalQtd, 0), [grupos])
 
-  // KPIs de status (agora vs período)
+  // KPIs
   const kpis = useMemo(() => {
     let shouldOn = 0, markedOn = 0, mismatchShouldButOff = 0, mismatchOutButOn = 0
     for (const g of grupos) {
       for (const r of g.itens) {
-        const should = withinRangeInclusive(nowISO, r.data_inicio, r.data_fim)
+        const should = _within(r.data_inicio, r.data_fim)
         const on = resolveOn(r)
         if (should) shouldOn++
         if (on) markedOn++
@@ -305,9 +337,9 @@ export default function Veiculacoes() {
       }
     }
     return { shouldOn, markedOn, mismatchShouldButOff, mismatchOutButOn }
-  }, [grupos, nowISO, statusMap])
+  }, [grupos, nowISO, statusMap, ignorarPeriodo])
 
-  // -------- Export XLSX (todos ou por PI)
+  // ======================== Export XLSX (todos / por PI) ========================
   async function exportarXLSX(allRows: RowAgenda[], nomeArquivo: string) {
     const mapped = allRows.map(r => ({
       "PI": r.numero_pi,
@@ -348,14 +380,59 @@ export default function Veiculacoes() {
     exportarXLSX(g.itens, `agenda_${g.numero_pi}`)
   }
 
-  // -------- Ações em massa (por PI)
-  function marcarTodasPI(g: GrupoPI, on: boolean) {
-    const ids = g.itens.map(it => it.id)
-    bulkSetOn(ids, on)
+  // ======================== Entrega / Finalização ========================
+  const [entregaOpen, setEntregaOpen] = useState(false)
+  const [entregaLoading, setEntregaLoading] = useState(false)
+  const [entregaErro, setEntregaErro] = useState<string | null>(null)
+  const [entregaData, setEntregaData] = useState<string>(() => todayISO())
+  const [entregaMotivo, setEntregaMotivo] = useState<string>("")
+  const [entregaFinalizar, setEntregaFinalizar] = useState<boolean>(true)
+  const [entregaAlvo, setEntregaAlvo] = useState<RowAgenda | null>(null)
+
+  function abrirEntrega(v: RowAgenda, autoFinalizar: boolean) {
+    setEntregaAlvo(v)
+    setEntregaData(todayISO())
+    setEntregaMotivo("")
+    setEntregaFinalizar(autoFinalizar)
+    setEntregaErro(null)
+    setEntregaOpen(true)
   }
-  function marcarSomenteNoPeriodoPI(g: GrupoPI) {
-    const ids = g.itens.filter(it => withinRangeInclusive(nowISO, it.data_inicio, it.data_fim)).map(it => it.id)
-    bulkSetOn(ids, true)
+
+  async function registrarEntrega(veic: RowAgenda, finalizarTambem: boolean) {
+    setEntregaLoading(true); setEntregaErro(null)
+    try {
+      // 1) cria entrega
+      await postJSON(`${API}/entregas`, {
+        veiculacao_id: veic.id,
+        pi_id: veic.pi_id,
+        data_entrega: entregaData || todayISO(),
+        foi_entregue: "entregue",
+        motivo: entregaMotivo || null,
+      })
+
+      // 2) finaliza (opcional): tenta setar data_fim = hoje e desligar ON
+      if (finalizarTambem) {
+        try {
+          await putJSON(`${API}/veiculacoes/${veic.id}`, { data_fim: todayISO() })
+        } catch { /* se não der, ao menos marcamos OFF */ }
+        setOn(veic.id, false)
+      }
+
+      setEntregaOpen(false)
+      await carregar()
+    } catch (e: any) {
+      setEntregaErro(e?.message || "Falha ao registrar entrega.")
+    } finally {
+      setEntregaLoading(false)
+    }
+  }
+
+  async function finalizarSomente(veic: RowAgenda) {
+    try {
+      await putJSON(`${API}/veiculacoes/${veic.id}`, { data_fim: todayISO() })
+    } catch { /* ignora erro do PUT */ }
+    setOn(veic.id, false)
+    await carregar()
   }
 
   // -------- UI helpers
@@ -365,7 +442,7 @@ export default function Veiculacoes() {
     return classNames("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border", klass)
   }
   function statusBadge(r: RowAgenda) {
-    const should = withinRangeInclusive(nowISO, r.data_inicio, r.data_fim)
+    const should = _within(r.data_inicio, r.data_fim)
     const on = resolveOn(r)
     if (should && on) return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">✅ Veiculando</span>
     if (should && !on) return <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 border border-red-200 px-2 py-0.5 text-xs font-semibold">⚠ Deveria estar no ar</span>
@@ -434,14 +511,15 @@ export default function Veiculacoes() {
 
       {/* Filtros */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 xl:grid-cols-8 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-9 gap-4">
           <div>
             <label className="block text-sm font-semibold text-slate-800 mb-1">Início</label>
             <input
               type="date"
               value={inicio}
               onChange={(e) => setInicio(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              disabled={ignorarPeriodo}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500 disabled:opacity-50"
             />
           </div>
           <div>
@@ -450,7 +528,8 @@ export default function Veiculacoes() {
               type="date"
               value={fim}
               onChange={(e) => setFim(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              disabled={ignorarPeriodo}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500 disabled:opacity-50"
             />
           </div>
           <div>
@@ -502,7 +581,7 @@ export default function Veiculacoes() {
               className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
           </div>
-          <div>
+          <div className="xl:col-span-2">
             <label className="block text-sm font-semibold text-slate-800 mb-1">Busca (qualquer campo)</label>
             <input
               value={buscaGlobal}
@@ -513,7 +592,7 @@ export default function Veiculacoes() {
           </div>
         </div>
 
-        {/* Subfiltros por status */}
+        {/* Subfiltros por status + Ignorar período */}
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
@@ -532,6 +611,16 @@ export default function Veiculacoes() {
               className="h-4 w-4 accent-red-600"
             />
             Mostrar apenas <span className="font-semibold text-red-700">não veiculando (OFF)</span>
+          </label>
+
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={ignorarPeriodo}
+              onChange={(e) => setIgnorarPeriodo(e.target.checked)}
+              className="h-4 w-4 accent-slate-700"
+            />
+            Ignorar período (trazer todas as veiculações)
           </label>
 
           <div className="ml-auto flex items-center gap-3">
@@ -574,7 +663,7 @@ export default function Veiculacoes() {
                         <span className="font-medium">{g.header.cliente || "—"}</span>
                         {g.header.campanha ? <span className="text-slate-500"> — {g.header.campanha}</span> : null}
                       </div>
-                      {/* Totais do PI (compactáveis) */}
+                      {/* Totais do PI */}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                         <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">Qtde: <b className="ml-1">{g.totalQtd}</b></span>
                         <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">Valor: <b className="ml-1">{fmtMoney(g.totalValor)}</b></span>
@@ -622,7 +711,7 @@ export default function Veiculacoes() {
                       <div className={classNames("grid gap-4", compact ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3")}>
                         {g.itens.map((r, idx) => {
                           const on = resolveOn(r)
-                          const should = withinRangeInclusive(nowISO, r.data_inicio, r.data_fim)
+                          const should = _within(r.data_inicio, r.data_fim)
                           return (
                             <div
                               key={r.id}
@@ -688,6 +777,31 @@ export default function Veiculacoes() {
                                   </div>
                                 </div>
 
+                                {/* Ações rápidas */}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <button
+                                    onClick={() => abrirEntrega(r, false)}
+                                    className="px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    title="Registrar entrega"
+                                  >
+                                    📦 Registrar entrega
+                                  </button>
+                                  <button
+                                    onClick={() => abrirEntrega(r, true)}
+                                    className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                                    title="Registrar entrega e finalizar"
+                                  >
+                                    ✅ Entrega + finalizar
+                                  </button>
+                                  <button
+                                    onClick={() => finalizarSomente(r)}
+                                    className="px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900"
+                                    title="Finalizar (encerrar hoje)"
+                                  >
+                                    ⛔ Finalizar
+                                  </button>
+                                </div>
+
                                 {/* Alertas de coerência */}
                                 {should && !on && (
                                   <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
@@ -719,6 +833,79 @@ export default function Veiculacoes() {
           </div>
         )}
       </section>
+
+      {/* ===== Modal de Entrega ===== */}
+      {entregaOpen && entregaAlvo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => !entregaLoading && setEntregaOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Registrar entrega {entregaFinalizar ? " + finalizar" : ""}</h3>
+              <button
+                onClick={() => !entregaLoading && setEntregaOpen(false)}
+                className="text-slate-500 hover:text-slate-700"
+                aria-label="Fechar"
+              >✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-slate-700">
+                <div><b>PI:</b> {entregaAlvo.numero_pi}</div>
+                <div><b>Produto:</b> {entregaAlvo.produto_nome || "—"}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-1">Data da entrega</label>
+                <input
+                  type="date"
+                  value={entregaData}
+                  onChange={(e) => setEntregaData(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-emerald-100 focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-1">Motivo / Observação (opcional)</label>
+                <textarea
+                  value={entregaMotivo}
+                  onChange={(e) => setEntregaMotivo(e.target.value)}
+                  placeholder="Ex.: campanha concluída, material veiculado conforme plano…"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-emerald-100 focus:border-emerald-500"
+                  rows={3}
+                />
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={entregaFinalizar}
+                  onChange={(e) => setEntregaFinalizar(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                Finalizar veiculação após registrar entrega (fecha com data de hoje)
+              </label>
+
+              {entregaErro && (
+                <div className="rounded-lg bg-red-50 text-red-800 border border-red-200 px-3 py-2 text-sm">
+                  {entregaErro}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setEntregaOpen(false)}
+                disabled={entregaLoading}
+                className="px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => entregaAlvo && registrarEntrega(entregaAlvo, entregaFinalizar)}
+                disabled={entregaLoading}
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {entregaLoading ? "Salvando..." : (entregaFinalizar ? "Registrar + Finalizar" : "Registrar entrega")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

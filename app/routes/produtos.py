@@ -57,3 +57,17 @@ def deletar(produto_id: int, db: Session = Depends(get_db)):
         return {"ok": True, "deleted_id": produto_id}
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+# app/routes/produtos.py (adicione no final do arquivo)
+
+@router.get("/opcoes-nome", response_model=List[str])
+def opcoes_nome(db: Session = Depends(get_db)):
+    """
+    Retorna apenas a lista de nomes distintos de produtos, em ordem alfabética.
+    É o endpoint que o front usa para o <datalist>.
+    """
+    # Se você já tiver algo no produto_crud, pode delegar.
+    # Exemplo direto via ORM:
+    from app.models import Produto
+    rows = db.query(Produto.nome).distinct().order_by(Produto.nome).all()
+    return [r[0] for r in rows if r and r[0]]
