@@ -95,7 +95,10 @@ export default function Executivos() {
       try {
         setErro(null)
         const nomes = await getJSON<string[]>(`${API}/executivos`)
-        setExecutivos(Array.isArray(nomes) ? nomes : [])
+        // DEDUP + sort para garantir keys únicas nos <option>
+        const uniq = Array.from(new Set(nomes)).filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, "pt-BR"))
+        setExecutivos(uniq)
       } catch (e: any) {
         setErro(e?.message || "Erro ao carregar executivos.")
       }
@@ -233,8 +236,8 @@ export default function Executivos() {
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
               <option value="">Selecione...</option>
-              {executivos.map((nome) => (
-                <option key={nome} value={nome}>
+              {executivos.map((nome, i) => (
+                <option key={`${nome}-${i}`} value={nome}>
                   {nome}
                 </option>
               ))}

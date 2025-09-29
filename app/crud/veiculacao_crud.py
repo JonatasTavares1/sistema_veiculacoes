@@ -1,4 +1,3 @@
-# app/crud/veiculacao_crud.py
 from __future__ import annotations
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, date
@@ -128,9 +127,10 @@ def list_agenda(
     uf_cliente: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Busca veiculações na janela e aplica filtros em memória de forma segura,
-    suportando bancos SEM as colunas `canal`/`formato` na Veiculacao.
-    Se seu modelo tiver essas colunas, posso mudar para filtrar direto no SQL.
+    Busca veiculações na janela e aplica filtros (com fallbacks compatíveis com o teu PI):
+      - cliente: PI.nome_anunciante || PI.razao_social_anunciante
+      - campanha: PI.nome_campanha
+      - canal: Veiculacao.canal || PI.canal
     """
     rows: List[Veiculacao] = (
         db.query(Veiculacao)
@@ -147,18 +147,17 @@ def list_agenda(
         if not _overlaps(inicio, fim, v.data_inicio, v.data_fim):
             continue
 
-        # filtros
-        # canal: preferimos o canal DA VEICULAÇÃO se existir; senão, caímos no canal do PI
+        # canal efetivo (veiculação > PI)
         v_canal = getattr(v, "canal", None)
         pi_canal = getattr(pi, "canal", None)
         effective_canal = v_canal or pi_canal
+
+        # filtros
         if canal and (effective_canal or "") != canal:
             continue
-
         v_formato = getattr(v, "formato", None)
         if formato and (v_formato or "") != formato:
             continue
-
         if executivo and (getattr(pi, "executivo", None) or "") != executivo:
             continue
         if diretoria and (getattr(pi, "diretoria", None) or "") != diretoria:
@@ -174,20 +173,28 @@ def list_agenda(
             "produto_id": getattr(prod, "id", None),
             "pi_id": getattr(pi, "id", None),
             "numero_pi": getattr(pi, "numero_pi", None),
+
+            # >>> mapeamento alinhado ao teu PI schema
+            "cliente": getattr(pi, "nome_anunciante", None) or getattr(pi, "razao_social_anunciante", None),
+            "campanha": getattr(pi, "nome_campanha", None),
+
             "produto_nome": getattr(prod, "nome", None),
             "canal": effective_canal,
             "formato": v_formato,
             "data_inicio": v.data_inicio,
             "data_fim": v.data_fim,
             "quantidade": v.quantidade,
-            # UI antiga esperava 'valor' — mas agora devolvemos os três e a rota pode mapear.
+
+            # valores (compat)
             "valor_bruto": v.valor_bruto,
             "desconto": v.desconto,          # percentual 0..100
             "valor_liquido": v.valor_liquido,
             "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
+
             "executivo": getattr(pi, "executivo", None),
             "diretoria": getattr(pi, "diretoria", None),
             "uf_cliente": getattr(pi, "uf_cliente", None),
+
             "em_veiculacao": em_veiculacao,
         })
     return out

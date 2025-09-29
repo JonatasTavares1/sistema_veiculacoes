@@ -1,4 +1,3 @@
-# app/routes/veiculacoes.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from datetime import date, datetime
@@ -8,7 +7,7 @@ from app.database import SessionLocal
 from app.schemas.veiculacao import (
     VeiculacaoCreate, VeiculacaoUpdate,
     VeiculacaoOut, VeiculacaoAgendaOut,
-    VeiculacaoCreateIn,   # <-- entrada flexível
+    VeiculacaoCreateIn,
 )
 from app.crud import veiculacao_crud
 from app.models import Veiculacao, Produto, PI
@@ -32,9 +31,51 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
             pass
     return None
 
+def _first_non_empty(*vals):
+    for v in vals:
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip() == "":
+            continue
+        return v
+    return None
+
+def _today_between(s: Optional[str], f: Optional[str]) -> bool:
+    today = date.today()
+    def _p(x):
+        if not x: return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try: return datetime.strptime(x[:10], fmt).date()
+            except ValueError: pass
+        return None
+    ds = _p(s); df = _p(f)
+    if ds and df: return ds <= today <= df
+    if ds and not df: return ds <= today
+    if not ds and df: return today <= df
+    return True
+
 def _to_out(v: Veiculacao) -> VeiculacaoOut:
     prod = getattr(v, "produto", None)
     pi = getattr(v, "pi", None)
+
+    effective_canal = getattr(v, "canal", None) or getattr(pi, "canal", None)
+
+    # nomes corretos conforme teu PI schema
+    cliente = _first_non_empty(
+        getattr(v, "cliente", None),
+        getattr(v, "anunciante", None),
+        getattr(pi, "nome_anunciante", None),
+        getattr(pi, "razao_social_anunciante", None),
+    )
+    campanha = _first_non_empty(
+        getattr(v, "campanha", None),
+        getattr(pi, "nome_campanha", None),
+    )
+    uf_cliente = _first_non_empty(
+        getattr(v, "uf_cliente", None),
+        getattr(pi, "uf_cliente", None),
+    )
+
     data: Dict[str, Any] = {
         "id": v.id,
         "produto_id": v.produto_id,
@@ -42,17 +83,25 @@ def _to_out(v: Veiculacao) -> VeiculacaoOut:
         "data_inicio": v.data_inicio,
         "data_fim": v.data_fim,
         "quantidade": v.quantidade,
+
         "valor_bruto": v.valor_bruto,
         "desconto": v.desconto,
         "valor_liquido": v.valor_liquido,
+        "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
+
         "produto_nome": getattr(prod, "nome", None),
         "numero_pi": getattr(pi, "numero_pi", None),
+
+        "cliente": cliente,
+        "campanha": campanha,
+        "canal": effective_canal,
+        "formato": getattr(v, "formato", None),
+        "executivo": getattr(pi, "executivo", None),
+        "diretoria": getattr(pi, "diretoria", None),
+        "uf_cliente": uf_cliente,
+
+        "em_veiculacao": _today_between(v.data_inicio, v.data_fim),
     }
-    # se o modelo tiver colunas:
-    if hasattr(v, "canal"):
-        data["canal"] = getattr(v, "canal", None)
-    if hasattr(v, "formato"):
-        data["formato"] = getattr(v, "formato", None)
     return VeiculacaoOut(**data)
 
 # ---------- CRUD ----------
@@ -110,7 +159,6 @@ def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
         "valor_bruto": body.valor_bruto,
         "desconto": body.desconto,
         "valor_liquido": body.valor_liquido,
-        # se vierem, o CRUD setará se o modelo tiver as colunas
         "canal": getattr(body, "canal", None),
         "formato": getattr(body, "formato", None),
     }
@@ -169,6 +217,4 @@ def listar_agenda(
         canal=canal, formato=formato,
         executivo=executivo, diretoria=diretoria, uf_cliente=uf_cliente
     )
-    # VeiculacaoAgendaOut não tem 'em_veiculacao' em todos os projetos.
-    # Se seu schema tiver, o campo vai preencher; se não tiver, o Pydantic ignora (extra=ignore default).
     return [VeiculacaoAgendaOut(**r) for r in rows]

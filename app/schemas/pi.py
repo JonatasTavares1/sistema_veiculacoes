@@ -1,4 +1,3 @@
-# app/schemas/pi.py
 from typing import Optional, Literal, List
 from datetime import date
 from pydantic import BaseModel, Field
@@ -175,11 +174,16 @@ class ProdutoListItemOut(BaseModel):
 class PiDetalheOut(BaseModel):
     id: int
     numero_pi: str
-    anunciante: Optional[str] = None
-    campanha: Optional[str] = None
-    emissao: Optional[date] = None
-    total_pi: float
-    produtos: List[ProdutoOut]
+
+    # mapeia nomes do modelo para os nomes usados na API de detalhe
+    anunciante: Optional[str] = Field(None, validation_alias="nome_anunciante")
+    campanha: Optional[str] = Field(None, validation_alias="nome_campanha")
+    emissao: Optional[date] = Field(None, validation_alias="data_emissao")
+
+    total_pi: float = 0.0
+
+    # lê da lista transitória criada no CRUD (_attach_produtos_to_pi)
+    produtos: List[ProdutoOut] = Field(default_factory=list, validation_alias="produtos_agg")
 
     class Config:
         from_attributes = True

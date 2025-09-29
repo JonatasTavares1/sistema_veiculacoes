@@ -221,7 +221,8 @@ export default function Veiculacoes() {
           produto_id: v.produto_id,
           pi_id: v.pi_id,
           numero_pi: v.numero_pi || (v.pi?.numero_pi ?? ""),
-          cliente: v.cliente ?? null,
+          // PREENCHE cliente com fallbacks (anunciante etc.)
+          cliente: v.cliente ?? v.anunciante ?? v.anunciante_nome ?? v.cliente_nome ?? v.pi?.cliente ?? v.pi?.anunciante ?? null,
           campanha: v.campanha ?? null,
           canal: v.canal ?? null,
           formato: v.formato ?? null,
@@ -247,6 +248,11 @@ export default function Veiculacoes() {
         if (diretoria !== "Todos" && diretoria.trim()) qs.set("diretoria", diretoria)
         if (uf.trim()) qs.set("uf_cliente", uf.trim())
         data = await getJSON<RowAgenda[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
+        // Normaliza 'cliente' também quando vem da rota /agenda
+        data = (Array.isArray(data) ? data : []).map((r: any) => ({
+          ...r,
+          cliente: r.cliente ?? r.anunciante ?? r.anunciante_nome ?? r.cliente_nome ?? r.pi?.cliente ?? r.pi?.anunciante ?? null,
+        }))
       }
 
       setRows(Array.isArray(data) ? data : [])
@@ -435,6 +441,23 @@ export default function Veiculacoes() {
     await carregar()
   }
 
+  // ======== FUNÇÕES AUXILIARES DE MARCAÇÃO ========
+  function marcarTodasPI(g: GrupoPI, on: boolean) {
+    const ids = g.itens.map(i => i.id)
+    bulkSetOn(ids, on)
+  }
+  function marcarSomenteNoPeriodoPI(g: GrupoPI) {
+    const now = todayISO()
+    const idsOn: number[] = []
+    const idsOff: number[] = []
+    for (const r of g.itens) {
+      const dentro = withinRangeInclusive(now, r.data_inicio, r.data_fim)
+      if (dentro) idsOn.push(r.id); else idsOff.push(r.id)
+    }
+    if (idsOn.length) bulkSetOn(idsOn, true)
+    if (idsOff.length) bulkSetOn(idsOff, false)
+  }
+
   // -------- UI helpers
   function chipCanal(c?: string | null) {
     const key = (c || "").toUpperCase()
@@ -613,7 +636,7 @@ export default function Veiculacoes() {
             Mostrar apenas <span className="font-semibold text-red-700">não veiculando (OFF)</span>
           </label>
 
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
               checked={ignorarPeriodo}
@@ -653,16 +676,26 @@ export default function Veiculacoes() {
                   {/* Cabeçalho do PI */}
                   <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-red-100">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <span className="font-mono text-lg font-bold text-slate-900">{g.numero_pi}</span>
+
+                        {/* Anunciante + Campanha ao lado do número */}
+                        <span
+                          className="text-slate-800 font-medium truncate max-w-[70ch]"
+                          title={
+                            [g.header.cliente, g.header.campanha].filter(Boolean).join(" • ") || ""
+                          }>
+                          {g.header.cliente || "—"}
+                          {g.header.campanha && (
+                            <span className="text-slate-500"> • {g.header.campanha}</span>
+                          )}
+                        </span>
+
                         <span className="inline-flex items-center rounded-full bg-red-50 text-red-800 px-2.5 py-1 text-xs font-semibold border border-red-200">
                           {g.header.uf_cliente || "—"}
                         </span>
                       </div>
-                      <div className="mt-1 text-slate-700 truncate">
-                        <span className="font-medium">{g.header.cliente || "—"}</span>
-                        {g.header.campanha ? <span className="text-slate-500"> — {g.header.campanha}</span> : null}
-                      </div>
+
                       {/* Totais do PI */}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                         <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">Qtde: <b className="ml-1">{g.totalQtd}</b></span>
@@ -718,8 +751,8 @@ export default function Veiculacoes() {
                               className={classNames(
                                 "rounded-xl border bg-white shadow-sm overflow-hidden transition",
                                 idx % 2 ? "border-red-100" : "border-slate-200",
-                                !on && should && "ring-2 ring-red-200",
-                                on && !should && "ring-2 ring-amber-200"
+                                // Anel de status: VERDE (ON) / VERMELHO (OFF)
+                                on ? "ring-2 ring-emerald-300" : "ring-2 ring-red-300"
                               )}
                             >
                               <div className={classNames("p-4", compact && "p-3")}>
@@ -772,7 +805,7 @@ export default function Veiculacoes() {
                                         className="h-4 w-4 accent-emerald-600"
                                         title="Marcar como veiculando"
                                       />
-                                      {on ? <span className="text-emerald-700 font-semibold">ON</span> : <span className="text-slate-600">OFF</span>}
+                                      {on ? <span className="text-emerald-700 font-semibold">ON</span> : <span className="text-red-700 font-semibold">OFF</span>}
                                     </label>
                                   </div>
                                 </div>

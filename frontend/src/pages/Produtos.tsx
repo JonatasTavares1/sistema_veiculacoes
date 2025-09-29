@@ -155,8 +155,17 @@ export default function Produtos() {
       setErro(e?.message || "Erro ao carregar")
     } finally { setLoading(false) }
   }
+
+  // 1) primeiro carregamento
   useEffect(() => { carregar() }, [])
-  useEffect(() => { const t = setTimeout(carregar, 300); return () => clearTimeout(t) }, [busca])
+
+  // 2) debounce da busca — só dispara quando há termo
+  useEffect(() => {
+    const q = busca.trim()
+    if (!q) return
+    const t = setTimeout(carregar, 300)
+    return () => clearTimeout(t)
+  }, [busca])
 
   const filtrada = useMemo(() => lista, [lista])
 

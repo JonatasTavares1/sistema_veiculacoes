@@ -1,4 +1,3 @@
-# app/schemas/veiculacao.py
 from typing import Optional, Any
 from pydantic import BaseModel, Field, field_validator
 
@@ -33,7 +32,7 @@ def _to_optional_int(v: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
 
-# --------- Schemas “core” que você já usa ---------
+# --------- Schemas “core” ---------
 class VeiculacaoBase(BaseModel):
     produto_id: Optional[int] = None
     pi_id: Optional[int] = None
@@ -58,7 +57,6 @@ class VeiculacaoBase(BaseModel):
     def _v_int(cls, v): return _to_optional_int(v)
 
 class VeiculacaoCreate(VeiculacaoBase):
-    # mantém o contrato existente (IDs obrigatórios)
     produto_id: int = Field(..., ge=1)
     pi_id: int = Field(..., ge=1)
     quantidade: int = Field(..., ge=0)
@@ -76,8 +74,19 @@ class VeiculacaoOut(BaseModel):
     valor_bruto: Optional[float]
     desconto: Optional[float]       # percentual 0..100
     valor_liquido: Optional[float]
+
+    # Infos resolvidas para a UI
     produto_nome: Optional[str] = None
     numero_pi: Optional[str] = None
+    cliente: Optional[str] = None
+    campanha: Optional[str] = None
+    canal: Optional[str] = None
+    formato: Optional[str] = None
+    executivo: Optional[str] = None
+    diretoria: Optional[str] = None
+    uf_cliente: Optional[str] = None
+    valor: Optional[float] = None
+    em_veiculacao: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -87,23 +96,33 @@ class VeiculacaoAgendaOut(BaseModel):
     id: int
     numero_pi: Optional[str] = None
     produto_nome: Optional[str] = None
+
+    cliente: Optional[str] = None
+    campanha: Optional[str] = None
+
     canal: Optional[str] = None
+    formato: Optional[str] = None
+
     data_inicio: Optional[str] = None
     data_fim: Optional[str] = None
     quantidade: Optional[int] = None
+
     valor_bruto: Optional[float] = None
     desconto: Optional[float] = None
     valor_liquido: Optional[float] = None
+    valor: Optional[float] = None
+
     executivo: Optional[str] = None
     diretoria: Optional[str] = None
     uf_cliente: Optional[str] = None
 
+    em_veiculacao: Optional[bool] = None
+
     class Config:
         from_attributes = True
 
-# --------- NOVO: schema “flexível” de ENTRADA ---------
+# --------- ENTRADA flexível ---------
 class VeiculacaoCreateIn(BaseModel):
-    # aceita ID ou nome/número
     produto_id: Optional[int] = Field(None, ge=1)
     pi_id: Optional[int] = Field(None, ge=1)
     produto_nome: Optional[str] = None
@@ -117,7 +136,6 @@ class VeiculacaoCreateIn(BaseModel):
     desconto: Optional[float] = Field(None, ge=0)
     valor_liquido: Optional[float] = Field(None, ge=0)
 
-    # coerções
     @field_validator("produto_nome", "numero_pi", "data_inicio", "data_fim", mode="before")
     @classmethod
     def _v_str2(cls, v): return _to_optional_str(v)
