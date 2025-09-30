@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.pi import (
     PICreate, PIUpdate, PIOut, PISimpleOut,
-    ProdutoIn, ProdutoOut, VeiculacaoOut, PiDetalheOut
+    ProdutoIn, ProdutoOut, VeiculacaoOut, PiDetalheOut, VeiculacaoAgendaOut
 )
 from app.crud import pi_crud
 from app.database import SessionLocal
@@ -52,6 +52,21 @@ def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path
 
 # --------------------- helpers desta rota ---------------------
 
+def _best_valor(v) -> Optional[float]:
+    """
+    Escolhe o melhor valor para exibição/cálculo:
+    1) valor_liquido, 2) valor (legado), 3) valor_bruto.
+    """
+    for key in ("valor_liquido", "valor", "valor_bruto"):
+        val = getattr(v, key, None)
+        if val is not None:
+            try:
+                return float(val)
+            except Exception:
+                pass
+    return None
+
+
 def _to_detalhe(pi) -> PiDetalheOut:
     """
     Converte o objeto PI (já com pi.produtos 'transitórios' montados no CRUD)
@@ -59,22 +74,37 @@ def _to_detalhe(pi) -> PiDetalheOut:
     """
     produtos_out: List[ProdutoOut] = []
     total_pi = 0.0
+
     for p in (getattr(pi, "produtos", None) or []):
-        veics = [
-            VeiculacaoOut(
-                id=v.id,
-                canal=getattr(v, "canal", None),
-                formato=getattr(v, "formato", None),
-                data_inicio=getattr(v, "data_inicio", None),
-                data_fim=getattr(v, "data_fim", None),
-                quantidade=getattr(v, "quantidade", None),
-                # 'valor' aqui já vem do CRUD como (valor_liquido || valor_bruto)
-                valor=getattr(v, "valor", None),
+        veics = []
+        total_produto = 0.0
+
+        for v in (getattr(p, "veiculacoes", None) or []):
+            # melhor valor para exibição/cálculo
+            best = _best_valor(v) or 0.0
+            total_produto += best
+
+            veics.append(
+                VeiculacaoOut(
+                    id=v.id,
+                    canal=getattr(v, "canal", None),
+                    formato=getattr(v, "formato", None),
+                    data_inicio=getattr(v, "data_inicio", None),
+                    data_fim=getattr(v, "data_fim", None),
+                    quantidade=getattr(v, "quantidade", None),
+
+                    # preços completos (novo modelo)
+                    valor_bruto=getattr(v, "valor_bruto", None),
+                    desconto=getattr(v, "desconto", None),
+                    valor_liquido=getattr(v, "valor_liquido", None),
+
+                    # compat legado (usado em telas antigas / agenda)
+                    valor=best,
+                )
             )
-            for v in (getattr(p, "veiculacoes", None) or [])
-        ]
-        total_produto = sum((getattr(v, "valor", 0.0) or 0.0) for v in (getattr(p, "veiculacoes", None) or []))
+
         total_pi += total_produto
+
         produtos_out.append(
             ProdutoOut(
                 id=p.id,
@@ -88,9 +118,9 @@ def _to_detalhe(pi) -> PiDetalheOut:
     return PiDetalheOut(
         id=pi.id,
         numero_pi=pi.numero_pi,
-        anunciante=pi.nome_anunciante,
-        campanha=pi.nome_campanha,
-        emissao=pi.data_emissao,
+        anunciante=getattr(pi, "nome_anunciante", None),
+        campanha=getattr(pi, "nome_campanha", None),
+        emissao=getattr(pi, "data_emissao", None),
         total_pi=round(float(total_pi), 2),
         produtos=produtos_out,
     )
@@ -98,8 +128,8 @@ def _to_detalhe(pi) -> PiDetalheOut:
 
 def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
     """
-    Traduz ProdutoIn (que usa VeiculacaoIn com `valor`) para o payload que o
-    pi_crud espera (veiculação com `valor_liquido`/`valor_bruto`/`desconto`).
+    Traduz ProdutoIn (que usa VeiculacaoIn com `valor` e/ou novo modelo)
+    para o payload que o pi_crud espera (veiculação com `valor_liquido`/`valor_bruto`/`desconto`).
     Mantém `canal`, `formato`, datas e quantidade.
     """
     out: List[Dict[str, Any]] = []
@@ -110,18 +140,21 @@ def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
         for v in veics_in:
             veics_out.append(
                 {
-                    # campos de identificação/conteúdo:
+                    # identificação (preserva id para update)
+                    "id": v.get("id"),
+
+                    # conteúdo:
                     "canal": v.get("canal"),
                     "formato": v.get("formato"),
                     "data_inicio": v.get("data_inicio"),
                     "data_fim": v.get("data_fim"),
                     "quantidade": v.get("quantidade"),
-                    # mapeamento do preço:
-                    # se vier só `valor`, assumimos como `valor_liquido`
-                    "valor_liquido": v.get("valor"),
-                    # campos "novos" ficam disponíveis caso o front já os envie:
+
+                    # preços (novo modelo preferencial):
                     "valor_bruto": v.get("valor_bruto"),
                     "desconto": v.get("desconto"),
+                    # se vier só `valor`, assume como `valor_liquido`
+                    "valor_liquido": v.get("valor_liquido", v.get("valor")),
                 }
             )
         out.append(
@@ -327,3 +360,15 @@ async def importar_pi(
             tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+# ---------- NOVO: lista de veiculações do PI (útil para a Agenda/Front) ----------
+
+@router.get("/{pi_id:int}/veiculacoes", response_model=List[VeiculacaoAgendaOut])
+def listar_veiculacoes_do_pi(pi_id: int, db: Session = Depends(get_db)):
+    """
+    Retorna todas as veiculações pertencentes ao PI informado, já com
+    dados suficientes para a Agenda (cliente/campanha/canal/formato/datas/valor).
+    """
+    rows = pi_crud.list_veiculacoes_by_pi(db, pi_id)
+    return rows

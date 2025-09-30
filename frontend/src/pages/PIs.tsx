@@ -25,21 +25,7 @@ type PIItem = {
   observacoes?: string | null
 }
 
-type VeicDraft = {
-  id?: number
-  canal?: string
-  formato?: string
-  data_inicio?: string | null
-  data_fim?: string | null
-  quantidade?: number | null
-  valor?: number | null
-}
-type ProdutoDraft = {
-  id?: number
-  nome: string
-  descricao?: string | null
-  veiculacoes: VeicDraft[]
-}
+// detalhe do PI (cabeçalho/total + opcionalmente produtos/veiculações)
 type PiDetalhe = {
   id: number
   numero_pi: string
@@ -47,7 +33,7 @@ type PiDetalhe = {
   campanha?: string | null
   emissao?: string | null
   total_pi: number
-  produtos: Array<{
+  produtos?: Array<{
     id: number
     nome: string
     descricao?: string | null
@@ -60,8 +46,31 @@ type PiDetalhe = {
       data_fim?: string | null
       quantidade?: number | null
       valor?: number | null
+      valor_liquido?: number | null
+      valor_bruto?: number | null
+      desconto?: number | null
     }>
   }>
+}
+
+// veiculações (vêm de GET /pis/{pi_id}/veiculacoes ou de /veiculacoes?pi_id= / numero_pi=)
+type VeiculacaoRow = {
+  id: number
+  produto_id: number
+  pi_id: number
+  numero_pi: string
+  cliente?: string | null
+  campanha?: string | null
+  canal?: string | null
+  formato?: string | null
+  data_inicio?: string | null
+  data_fim?: string | null
+  quantidade?: number | null
+  valor?: number | null
+  produto_nome?: string | null
+  executivo?: string | null
+  diretoria?: string | null
+  uf_cliente?: string | null
 }
 
 const DEFAULT_EXECUTIVOS = [
@@ -98,25 +107,6 @@ async function getJSON<T>(url: string): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
 }
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const t = await r.json()
-      if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
-    throw new Error(msg)
-  }
-  return r.json()
-}
 async function putJSON<T>(url: string, body: any): Promise<T> {
   const r = await fetch(url, {
     method: "PUT",
@@ -135,6 +125,39 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
     throw new Error(msg)
   }
   return r.json()
+}
+
+// --- helpers para fallback das veiculações vindas no /detalhe ---
+function coalesceValor(v?: { valor?: number|null; valor_liquido?: number|null; valor_bruto?: number|null }) {
+  if (!v) return null
+  return v.valor_liquido ?? v.valor ?? v.valor_bruto ?? null
+}
+function flattenVeicsFromDetalhe(det: PiDetalhe | null): VeiculacaoRow[] {
+  if (!det?.produtos || det.produtos.length === 0) return []
+  const out: VeiculacaoRow[] = []
+  for (const p of det.produtos) {
+    for (const v of (p.veiculacoes || [])) {
+      out.push({
+        id: v.id,
+        produto_id: p.id,
+        pi_id: det.id,
+        numero_pi: det.numero_pi,
+        cliente: det.anunciante || null,
+        campanha: det.campanha || null,
+        canal: v.canal || null,
+        formato: v.formato || null,
+        data_inicio: v.data_inicio || null,
+        data_fim: v.data_fim || null,
+        quantidade: v.quantidade ?? null,
+        valor: coalesceValor(v),
+        produto_nome: p.nome || null,
+        executivo: null,
+        diretoria: null,
+        uf_cliente: null,
+      })
+    }
+  }
+  return out
 }
 
 export default function PIs() {
@@ -156,20 +179,14 @@ export default function PIs() {
   // detalhe
   const [detalhePI, setDetalhePI] = useState<PiDetalhe | null>(null)
   const [detalheLoading, setDetalheLoading] = useState(false)
+  const [veics, setVeics] = useState<VeiculacaoRow[]>([])
+  const [veicsError, setVeicsError] = useState<string | null>(null)
 
-  // editor PI básico (como já tinha)
+  // editor PI básico
   const [editOpen, setEditOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<PIItem | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
-
-  // editor de Produtos & Veiculações (NOVO)
-  const [pvOpen, setPvOpen] = useState(false)
-  const [pvPiId, setPvPiId] = useState<number | null>(null)
-  const [pvProdutos, setPvProdutos] = useState<ProdutoDraft[]>([])
-  const [pvSaving, setPvSaving] = useState(false)
-  const [pvError, setPvError] = useState<string | null>(null)
-  const [produtoNomes, setProdutoNomes] = useState<string[]>([])
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -190,17 +207,6 @@ export default function PIs() {
     }
   }
   useEffect(() => { carregar() }, [])
-
-  // carregar opções de nomes de produto (autocomplete)
-  async function carregarNomesProdutos() {
-    try {
-      const nomes = await getJSON<string[]>(`${API}/produtos/opcoes-nome`)
-      setProdutoNomes(nomes || [])
-    } catch {
-      setProdutoNomes([])
-    }
-  }
-  useEffect(() => { carregarNomesProdutos() }, [])
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -279,20 +285,68 @@ export default function PIs() {
     xlsx.writeFile(wb, `pis_${stamp}.xlsx`)
   }
 
-  // detalhe carregando /pis/{id}/detalhe
+  // --- nova função util: tenta vários endpoints conhecidos da "view de veiculações" ---
+  async function carregarVeiculacoesPorPI(pi_id: number, numero_pi?: string): Promise<VeiculacaoRow[]> {
+    // 1) endpoint específico do PI
+    try {
+      const v1 = await getJSON<VeiculacaoRow[]>(`${API}/pis/${pi_id}/veiculacoes`)
+      if (Array.isArray(v1) && v1.length) {
+        return v1.filter(r => r.pi_id === pi_id || r.numero_pi === numero_pi)
+      }
+    } catch (_) { /* segue o fluxo */ }
+
+    // 2) endpoint geral filtrando por pi_id
+    try {
+      const v2 = await getJSON<VeiculacaoRow[]>(`${API}/veiculacoes?pi_id=${encodeURIComponent(String(pi_id))}`)
+      if (Array.isArray(v2) && v2.length) {
+        return v2.filter(r => r.pi_id === pi_id)
+      }
+    } catch (_) { /* segue o fluxo */ }
+
+    // 3) endpoint geral filtrando por numero_pi (algumas telas usam esse param)
+    if (numero_pi) {
+      try {
+        const v3 = await getJSON<VeiculacaoRow[]>(`${API}/veiculacoes?numero_pi=${encodeURIComponent(numero_pi)}`)
+        if (Array.isArray(v3) && v3.length) {
+          return v3.filter(r => r.numero_pi === numero_pi)
+        }
+      } catch (_) { /* segue o fluxo */ }
+    }
+
+    // 4) sem sorte — devolve vazio pra cair no fallback do /detalhe
+    return []
+  }
+
+  // detalhe: carrega cabeçalho e tenta veiculações pelos endpoints; se nada, usa as do /detalhe
   async function abrirDetalhesPorId(pi_id: number) {
     setDetalheLoading(true)
+    setVeics([])
+    setVeicsError(null)
     try {
       const det = await getJSON<PiDetalhe>(`${API}/pis/${pi_id}/detalhe`)
       setDetalhePI(det)
-    } catch {
+
+      // tenta puxar como a "view de veiculações" faz
+      const viaEndpoints = await carregarVeiculacoesPorPI(pi_id, det?.numero_pi)
+
+      // se ainda vier vazio, usa as do /detalhe (produtos->veiculacoes)
+      const viaDetalhe = flattenVeicsFromDetalhe(det)
+      const rows = (viaEndpoints.length ? viaEndpoints : viaDetalhe)
+
+      setVeics(rows)
+      if (rows.length === 0) setVeicsError(null) // sem erro, só sem dados
+    } catch (e: any) {
       setDetalhePI(null)
+      setVeics([])
+      setVeicsError(e?.message || "Falha ao carregar veiculações.")
     } finally {
       setDetalheLoading(false)
     }
   }
   function fecharDetalhes() {
     setDetalhePI(null)
+    setVeics([])
+    setVeicsError(null)
   }
 
   // ------- Editor PI básico (mantém) --------
@@ -350,95 +404,6 @@ export default function PIs() {
       setEditError(e?.message || "Falha ao salvar.")
     } finally {
       setSavingEdit(false)
-    }
-  }
-
-  // ------- Editor Produtos & Veiculações (NOVO) -------
-  async function abrirPv(pi_id: number) {
-    setPvError(null)
-    setPvPiId(pi_id)
-    // carrega do detalhe
-    try {
-      const det = await getJSON<PiDetalhe>(`${API}/pis/${pi_id}/detalhe`)
-      const drafts: ProdutoDraft[] = (det.produtos || []).map(p => ({
-        id: p.id,
-        nome: p.nome,
-        descricao: p.descricao || null,
-        veiculacoes: (p.veiculacoes || []).map(v => ({
-          id: v.id,
-          canal: v.canal || "",
-          formato: v.formato || "",
-          data_inicio: v.data_inicio ? String(v.data_inicio) : "",
-          data_fim: v.data_fim ? String(v.data_fim) : "",
-          quantidade: v.quantidade ?? null,
-          valor: v.valor ?? null,
-        }))
-      }))
-      setPvProdutos(drafts)
-      setPvOpen(true)
-    } catch (e: any) {
-      setPvError(e?.message || "Falha ao abrir Produtos & Veiculações.")
-      setPvProdutos([])
-      setPvOpen(true)
-    }
-  }
-  function fecharPv() {
-    setPvOpen(false)
-    setPvPiId(null)
-    setPvProdutos([])
-    setPvError(null)
-  }
-  function addProduto() {
-    setPvProdutos(p => [...p, { nome: "", descricao: "", veiculacoes: [] }])
-  }
-  function rmProduto(idx: number) {
-    setPvProdutos(p => p.filter((_, i) => i !== idx))
-  }
-  function setProduto(idx: number, patch: Partial<ProdutoDraft>) {
-    setPvProdutos(p => p.map((it, i) => i === idx ? { ...it, ...patch } : it))
-  }
-  function addVeic(pIdx: number) {
-    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
-      ...it,
-      veiculacoes: [...it.veiculacoes, { canal: "", formato: "", data_inicio: "", data_fim: "", quantidade: null, valor: null }]
-    } : it))
-  }
-  function rmVeic(pIdx: number, vIdx: number) {
-    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
-      ...it,
-      veiculacoes: it.veiculacoes.filter((_, j) => j !== vIdx)
-    } : it))
-  }
-  function setVeic(pIdx: number, vIdx: number, patch: Partial<VeicDraft>) {
-    setPvProdutos(p => p.map((it, i) => i === pIdx ? {
-      ...it,
-      veiculacoes: it.veiculacoes.map((v, j) => j === vIdx ? { ...v, ...patch } : v)
-    } : it))
-  }
-  function parseMoney(s: string): number | null {
-    const t = (s || "").trim()
-    if (!t) return null
-    const n = Number(t.replace(/\./g, "").replace(",", "."))
-    return Number.isFinite(n) ? n : null
-  }
-  async function salvarPv() {
-    if (!pvPiId) return
-    // valida simples
-    for (const p of pvProdutos) {
-      if (!p.nome.trim()) { setPvError("Produto sem nome."); return }
-    }
-    setPvSaving(true); setPvError(null)
-    try {
-      const payload = { produtos: pvProdutos }
-      const det = await putJSON<PiDetalhe>(`${API}/pis/${pvPiId}/produtos/sync`, payload)
-      // atualiza tela
-      await carregar()
-      if (detalhePI && detalhePI.id === pvPiId) setDetalhePI(det)
-      fecharPv()
-    } catch (e: any) {
-      setPvError(e?.message || "Falha ao salvar Produtos & Veiculações.")
-    } finally {
-      setPvSaving(false)
     }
   }
 
@@ -629,9 +594,16 @@ export default function PIs() {
                             <button
                               onClick={() => abrirDetalhesPorId(pi.id)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Ver detalhes (+ produtos & veiculações)"
+                              title="Ver detalhes do PI"
                             >
                               🔎 Detalhes
+                            </button>
+                            <button
+                              onClick={() => abrirDetalhesPorId(pi.id)}
+                              className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-700 text-sm hover:bg-emerald-50"
+                              title="Ver veiculações deste PI"
+                            >
+                              📅 Veiculações
                             </button>
                             <button
                               onClick={() => abrirEditor(pi)}
@@ -639,13 +611,6 @@ export default function PIs() {
                               title="Editar dados do PI"
                             >
                               ✏️ Editar
-                            </button>
-                            <button
-                              onClick={() => abrirPv(pi.id)}
-                              className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-700 text-sm hover:bg-emerald-50"
-                              title="Produtos & Veiculações (registrar/editar)"
-                            >
-                              🧩 Produtos & Veiculações
                             </button>
                           </div>
                         </td>
@@ -659,7 +624,7 @@ export default function PIs() {
         )}
       </section>
 
-      {/* Painel de detalhes (leitura) */}
+      {/* Painel de detalhes (somente leitura) */}
       {detalhePI && (
         <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
@@ -689,7 +654,7 @@ export default function PIs() {
               </div>
 
               <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Produtos & Veiculações</div>
+                <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Veiculações cadastradas</div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead>
@@ -702,34 +667,21 @@ export default function PIs() {
                     <tbody>
                       {detalheLoading ? (
                         <tr><td className="px-4 py-3 text-slate-600" colSpan={5}>Carregando…</td></tr>
-                      ) : detalhePI.produtos.length === 0 ? (
-                        <tr><td className="px-4 py-3 text-slate-600" colSpan={5}>Sem produtos.</td></tr>
-                      ) : detalhePI.produtos.flatMap((p) => {
-                        if (p.veiculacoes.length === 0) {
-                          return (
-                            <tr key={`p-${p.id}`} className="border-b">
-                              <td className="px-4 py-2 font-semibold">{p.nome}</td>
-                              <td className="px-4 py-2 text-slate-600">—</td>
-                              <td className="px-4 py-2 text-sm text-slate-600">—</td>
-                              <td className="px-4 py-2">—</td>
-                              <td className="px-4 py-2">—</td>
-                            </tr>
-                          )
-                        }
-                        return p.veiculacoes.map((v, idx) => (
-                          <tr key={`p-${p.id}-v-${v.id}`} className="border-b last:border-none">
-                            {idx === 0 && (
-                              <td className="px-4 py-2 font-semibold" rowSpan={p.veiculacoes.length}>{p.nome}</td>
-                            )}
-                            <td className="px-4 py-2">{[v.canal, v.formato].filter(Boolean).join(" • ") || "—"}</td>
-                            <td className="px-4 py-2 text-sm">
-                              {parseISODateToBR(v.data_inicio)} — {parseISODateToBR(v.data_fim)}
-                            </td>
-                            <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
-                            <td className="px-4 py-2">{fmtMoney(v.valor ?? 0)}</td>
-                          </tr>
-                        ))
-                      })}
+                      ) : veicsError ? (
+                        <tr><td className="px-4 py-3 text-red-700" colSpan={5}>{veicsError}</td></tr>
+                      ) : veics.length === 0 ? (
+                        <tr><td className="px-4 py-3 text-slate-600" colSpan={5}>Sem veiculações.</td></tr>
+                      ) : veics.map((v) => (
+                        <tr key={v.id} className="border-b last:border-none">
+                          <td className="px-4 py-2 font-semibold">{v.produto_nome || "—"}</td>
+                          <td className="px-4 py-2">{[v.canal, v.formato].filter(Boolean).join(" • ") || "—"}</td>
+                          <td className="px-4 py-2 text-sm">
+                            {parseISODateToBR(v.data_inicio)} — {parseISODateToBR(v.data_fim)}
+                          </td>
+                          <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
+                          <td className="px-4 py-2">{fmtMoney(v.valor ?? 0)}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -939,202 +891,6 @@ export default function PIs() {
                   className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
                 >
                   {savingEdit ? "Salvando..." : "Salvar alterações"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Painel Produtos & Veiculações (editor principal do novo fluxo) */}
-      {pvOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={fecharPv} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
-            <div className="p-6 border-b flex items-start justify-between">
-              <div>
-                <div className="text-sm uppercase tracking-wide text-emerald-700 font-semibold">Produtos & Veiculações</div>
-                <div className="mt-1 text-2xl font-extrabold text-slate-900">
-                  {pvPiId ? <>PI <span className="font-mono">#{pvPiId}</span></> : "PI"}
-                </div>
-              </div>
-              <button
-                onClick={fecharPv}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                ✖ Fechar
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {pvError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-                  {pvError}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-semibold">Produtos deste PI</div>
-                <button
-                  onClick={addProduto}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
-                >
-                  ➕ Adicionar produto
-                </button>
-              </div>
-
-              {/* lista de produtos */}
-              <div className="space-y-6">
-                {pvProdutos.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-slate-300 p-6 text-slate-600">
-                    Nenhum produto. Clique em <b>Adicionar produto</b>.
-                  </div>
-                )}
-
-                {pvProdutos.map((p, pIdx) => (
-                  <div key={pIdx} className="rounded-2xl border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b flex items-center justify-between">
-                      <div className="font-semibold">
-                        Produto #{pIdx + 1} {p.id ? <span className="text-slate-500">• ID {p.id}</span> : null}
-                      </div>
-                      <button
-                        onClick={() => rmProduto(pIdx)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                      >
-                        Remover
-                      </button>
-                    </div>
-
-                    <div className="p-4 space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1">
-                            Nome do produto
-                          </label>
-                          <input
-                            list="produto-nomes"
-                            value={p.nome}
-                            onChange={(e) => setProduto(pIdx, { nome: e.target.value })}
-                            placeholder="Digite ou escolha um produto existente"
-                            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                          />
-                          <datalist id="produto-nomes">
-                            {produtoNomes.map((n) => <option key={n} value={n} />)}
-                          </datalist>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1">
-                            Descrição (opcional)
-                          </label>
-                          <input
-                            value={p.descricao || ""}
-                            onChange={(e) => setProduto(pIdx, { descricao: e.target.value })}
-                            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between">
-                          <div className="font-semibold">Veiculações</div>
-                          <button
-                            onClick={() => addVeic(pIdx)}
-                            className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          >
-                            ➕ Adicionar veiculação
-                          </button>
-                        </div>
-
-                        {p.veiculacoes.length === 0 ? (
-                          <div className="mt-2 rounded-lg border border-dashed border-slate-300 p-4 text-slate-600">
-                            Nenhuma veiculação.
-                          </div>
-                        ) : (
-                          <div className="mt-2 overflow-x-auto">
-                            <table className="min-w-full">
-                              <thead>
-                                <tr className="bg-emerald-600/90 text-white">
-                                  {["Canal", "Formato", "Início", "Fim", "Qtd", "Valor", ""].map(h => (
-                                    <th key={h} className="px-3 py-2 text-left text-sm font-semibold">{h}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {p.veiculacoes.map((v, vIdx) => (
-                                  <tr key={vIdx} className="border-b last:border-none">
-                                    <td className="px-3 py-2">
-                                      <input
-                                        value={v.canal || ""}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { canal: e.target.value })}
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <input
-                                        value={v.formato || ""}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { formato: e.target.value })}
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <input
-                                        value={v.data_inicio || ""}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { data_inicio: e.target.value })}
-                                        placeholder="dd/mm/aaaa ou yyyy-mm-dd"
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <input
-                                        value={v.data_fim || ""}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { data_fim: e.target.value })}
-                                        placeholder="dd/mm/aaaa ou yyyy-mm-dd"
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <input
-                                        type="number"
-                                        value={String(v.quantidade ?? "")}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { quantidade: Number(e.target.value || "0") || null })}
-                                        className="w-24 rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <input
-                                        value={String(v.valor ?? "")}
-                                        onChange={(e) => setVeic(pIdx, vIdx, { valor: parseMoney(e.target.value) })}
-                                        placeholder="1000,00"
-                                        className="w-40 rounded-md border border-slate-300 px-2 py-1"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      <button
-                                        onClick={() => rmVeic(pIdx, vIdx)}
-                                        className="px-2 py-1 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
-                                      >
-                                        Remover
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={salvarPv}
-                  disabled={pvSaving}
-                  className="px-6 py-3 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  {pvSaving ? "Salvando..." : "Salvar Produtos & Veiculações"}
                 </button>
               </div>
             </div>
