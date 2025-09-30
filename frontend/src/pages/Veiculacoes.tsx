@@ -1,5 +1,6 @@
 // src/pages/Veiculacoes.tsx
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 
 // ======================== Config/Util ========================
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
@@ -125,7 +126,7 @@ type GrupoPI = {
   totalQtd: number
 }
 
-// ======================== Status persistente ========================
+// ======================== Status persistente (ON/OFF) ========================
 const LS_KEY = "veiculacoes_status_v1"
 type LocalStatus = { on: boolean; ts: string }
 function loadStatuses(): Record<string, LocalStatus> {
@@ -140,8 +141,24 @@ function saveStatuses(map: Record<string, LocalStatus>) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(map)) } catch {}
 }
 
+// ======================== Histórico: já ficou ON alguma vez? ========================
+const LS_KEY_HISTORY = "veiculacoes_history_v1"
+type LocalHistory = { wasOnOnce: boolean; firstOnTs?: string; lastOnTs?: string }
+function loadHistory(): Record<string, LocalHistory> {
+  try {
+    const raw = localStorage.getItem(LS_KEY_HISTORY)
+    if (!raw) return {}
+    return (JSON.parse(raw) as Record<string, LocalHistory>) || {}
+  } catch { return {} }
+}
+function saveHistory(map: Record<string, LocalHistory>) {
+  try { localStorage.setItem(LS_KEY_HISTORY, JSON.stringify(map)) } catch {}
+}
+
 // ======================== Página ========================
 export default function Veiculacoes() {
+  const navigate = useNavigate()
+
   // -------- Filtros
   const [inicio, setInicio] = useState(() => todayISO())
   const [fim, setFim] = useState(() => todayISO())
@@ -178,12 +195,34 @@ export default function Veiculacoes() {
 
   // -------- "Veiculando" (check) — estado e persistência
   const [statusMap, setStatusMap] = useState<Record<string, LocalStatus>>(() => loadStatuses())
+  const [histMap, setHistMap] = useState<Record<string, LocalHistory>>(() => loadHistory())
+
+  function wasOnOnce(id: number) {
+    return !!histMap[String(id)]?.wasOnOnce
+  }
+
   function resolveOn(r: RowAgenda): boolean {
     const fromApi = r.em_veiculacao
     if (typeof fromApi === "boolean") return fromApi
     const local = statusMap[String(r.id)]
     return local?.on ?? false
   }
+
+  function markWasOn(id: number) {
+    const ts = new Date().toISOString()
+    setHistMap(prev => {
+      const next = { ...prev }
+      const current = next[String(id)]
+      next[String(id)] = {
+        wasOnOnce: true,
+        firstOnTs: current?.firstOnTs ?? ts,
+        lastOnTs: ts,
+      }
+      saveHistory(next)
+      return next
+    })
+  }
+
   function setOn(id: number, on: boolean) {
     const ts = new Date().toISOString()
     setStatusMap(prev => {
@@ -191,10 +230,12 @@ export default function Veiculacoes() {
       saveStatuses(next)
       return next
     })
+    if (on) markWasOn(id)
     if (HAS_STATUS_ENDPOINT) {
       postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
     }
   }
+
   function bulkSetOn(ids: number[], on: boolean) {
     const ts = new Date().toISOString()
     setStatusMap(prev => {
@@ -203,6 +244,21 @@ export default function Veiculacoes() {
       saveStatuses(next)
       return next
     })
+    if (on) {
+      setHistMap(prev => {
+        const next = { ...prev }
+        ids.forEach(id => {
+          const current = next[String(id)]
+          next[String(id)] = {
+            wasOnOnce: true,
+            firstOnTs: current?.firstOnTs ?? ts,
+            lastOnTs: ts,
+          }
+        })
+        saveHistory(next)
+        return next
+      })
+    }
     if (HAS_STATUS_ENDPOINT) {
       ids.forEach(id => postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {}))
     }
@@ -322,7 +378,7 @@ export default function Veiculacoes() {
     }
     return arr
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, debouncedBusca, showOnlyOn, showOnlyOff, statusMap])
+  }, [rows, debouncedBusca, showOnlyOn, showOnlyOff, statusMap, histMap])
 
   // Totais gerais
   const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
@@ -346,6 +402,11 @@ export default function Veiculacoes() {
   }, [grupos, nowISO, statusMap, ignorarPeriodo])
 
   // ======================== Export XLSX (todos / por PI) ========================
+  function isDelivered(r: RowAgenda): boolean {
+    // Só é "Entregue" se tem data_fim E já ficou ON pelo menos uma vez
+    return !!(r.data_fim && wasOnOnce(r.id))
+  }
+
   async function exportarXLSX(allRows: RowAgenda[], nomeArquivo: string) {
     const mapped = allRows.map(r => ({
       "PI": r.numero_pi,
@@ -361,7 +422,9 @@ export default function Veiculacoes() {
       "Executivo": r.executivo || "",
       "Diretoria": r.diretoria || "",
       "UF": r.uf_cliente || "",
-      "Veiculando": resolveOn(r) ? "SIM" : "NÃO",
+      "Veiculando agora": resolveOn(r) ? "SIM" : "NÃO",
+      "Já veiculou": wasOnOnce(r.id) ? "SIM" : "NÃO",
+      "Entregue": isDelivered(r) ? "SIM" : "NÃO",
     }))
 
     const xlsx = await import("xlsx")
@@ -387,50 +450,15 @@ export default function Veiculacoes() {
   }
 
   // ======================== Entrega / Finalização ========================
-  const [entregaOpen, setEntregaOpen] = useState(false)
-  const [entregaLoading, setEntregaLoading] = useState(false)
-  const [entregaErro, setEntregaErro] = useState<string | null>(null)
-  const [entregaData, setEntregaData] = useState<string>(() => todayISO())
-  const [entregaMotivo, setEntregaMotivo] = useState<string>("")
-  const [entregaFinalizar, setEntregaFinalizar] = useState<boolean>(true)
-  const [entregaAlvo, setEntregaAlvo] = useState<RowAgenda | null>(null)
-
-  function abrirEntrega(v: RowAgenda, autoFinalizar: boolean) {
-    setEntregaAlvo(v)
-    setEntregaData(todayISO())
-    setEntregaMotivo("")
-    setEntregaFinalizar(autoFinalizar)
-    setEntregaErro(null)
-    setEntregaOpen(true)
-  }
-
-  async function registrarEntrega(veic: RowAgenda, finalizarTambem: boolean) {
-    setEntregaLoading(true); setEntregaErro(null)
-    try {
-      // 1) cria entrega
-      await postJSON(`${API}/entregas`, {
-        veiculacao_id: veic.id,
-        pi_id: veic.pi_id,
-        data_entrega: entregaData || todayISO(),
-        foi_entregue: "entregue",
-        motivo: entregaMotivo || null,
-      })
-
-      // 2) finaliza (opcional): tenta setar data_fim = hoje e desligar ON
-      if (finalizarTambem) {
-        try {
-          await putJSON(`${API}/veiculacoes/${veic.id}`, { data_fim: todayISO() })
-        } catch { /* se não der, ao menos marcamos OFF */ }
-        setOn(veic.id, false)
-      }
-
-      setEntregaOpen(false)
-      await carregar()
-    } catch (e: any) {
-      setEntregaErro(e?.message || "Falha ao registrar entrega.")
-    } finally {
-      setEntregaLoading(false)
-    }
+  function irParaEntregas(v: RowAgenda, finalize: boolean) {
+    const qs = new URLSearchParams({
+      veiculacao_id: String(v.id),
+      pi_id: String(v.pi_id),
+      numero_pi: v.numero_pi,
+      produto: v.produto_nome || "",
+      finalize: finalize ? "1" : "0",
+    })
+    navigate(`/entregas?${qs.toString()}`)
   }
 
   async function finalizarSomente(veic: RowAgenda) {
@@ -439,6 +467,16 @@ export default function Veiculacoes() {
     } catch { /* ignora erro do PUT */ }
     setOn(veic.id, false)
     await carregar()
+  }
+
+  async function entregarEFinalizar(veic: RowAgenda) {
+    // finaliza e redireciona para /entregas
+    try {
+      await putJSON(`${API}/veiculacoes/${veic.id}`, { data_fim: todayISO() })
+    } catch {}
+    setOn(veic.id, false)
+    await carregar()
+    irParaEntregas(veic, true)
   }
 
   // ======== FUNÇÕES AUXILIARES DE MARCAÇÃO ========
@@ -636,7 +674,7 @@ export default function Veiculacoes() {
             Mostrar apenas <span className="font-semibold text-red-700">não veiculando (OFF)</span>
           </label>
 
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
               checked={ignorarPeriodo}
@@ -671,29 +709,43 @@ export default function Veiculacoes() {
           <div className="space-y-6">
             {grupos.map((g) => {
               const isOpen = expanded.has(g.numero_pi)
+              // "Entregue (todas)" só quando TODAS têm data_fim E já ficaram ON ao menos uma vez
+              const allDelivered = g.itens.length > 0 && g.itens.every(isDelivered)
               return (
-                <div key={g.numero_pi} className="rounded-2xl border border-red-200 bg-white shadow-sm overflow-hidden">
+                <div
+                  key={g.numero_pi}
+                  className={classNames(
+                    "rounded-2xl border bg-white shadow-sm overflow-hidden transition",
+                    allDelivered ? "border-emerald-300 ring-2 ring-emerald-300" : "border-red-200"
+                  )}
+                >
                   {/* Cabeçalho do PI */}
-                  <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-red-100">
+                  <div
+                    className={classNames(
+                      "px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b",
+                      allDelivered ? "bg-emerald-50 border-emerald-200" : "bg-white border-red-100"
+                    )}
+                  >
                     <div className="min-w-0">
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="font-mono text-lg font-bold text-slate-900">{g.numero_pi}</span>
 
-                        {/* Anunciante + Campanha ao lado do número */}
                         <span
                           className="text-slate-800 font-medium truncate max-w-[70ch]"
-                          title={
-                            [g.header.cliente, g.header.campanha].filter(Boolean).join(" • ") || ""
-                          }>
+                          title={[g.header.cliente, g.header.campanha].filter(Boolean).join(" • ") || ""}>
                           {g.header.cliente || "—"}
-                          {g.header.campanha && (
-                            <span className="text-slate-500"> • {g.header.campanha}</span>
-                          )}
+                          {g.header.campanha && <span className="text-slate-500"> • {g.header.campanha}</span>}
                         </span>
 
                         <span className="inline-flex items-center rounded-full bg-red-50 text-red-800 px-2.5 py-1 text-xs font-semibold border border-red-200">
                           {g.header.uf_cliente || "—"}
                         </span>
+
+                        {allDelivered && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 text-xs font-semibold border border-emerald-200">
+                            ✅ Entregue (todas)
+                          </span>
+                        )}
                       </div>
 
                       {/* Totais do PI */}
@@ -745,13 +797,13 @@ export default function Veiculacoes() {
                         {g.itens.map((r, idx) => {
                           const on = resolveOn(r)
                           const should = _within(r.data_inicio, r.data_fim)
+                          const delivered = isDelivered(r)
                           return (
                             <div
                               key={r.id}
                               className={classNames(
                                 "rounded-xl border bg-white shadow-sm overflow-hidden transition",
                                 idx % 2 ? "border-red-100" : "border-slate-200",
-                                // Anel de status: VERDE (ON) / VERMELHO (OFF)
                                 on ? "ring-2 ring-emerald-300" : "ring-2 ring-red-300"
                               )}
                             >
@@ -786,7 +838,13 @@ export default function Veiculacoes() {
                                     </div>
 
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      {statusBadge(r)}
+                                      {delivered ? (
+                                        <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">
+                                          ✅ Entregue
+                                        </span>
+                                      ) : (
+                                        statusBadge(r)
+                                      )}
                                       {(r.executivo || r.diretoria) && (
                                         <span className="text-xs text-slate-500">
                                           {r.executivo || "—"} • {r.diretoria || "—"}
@@ -813,16 +871,16 @@ export default function Veiculacoes() {
                                 {/* Ações rápidas */}
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <button
-                                    onClick={() => abrirEntrega(r, false)}
+                                    onClick={() => irParaEntregas(r, false)}
                                     className="px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
-                                    title="Registrar entrega"
+                                    title="Ir para página de Entregas"
                                   >
-                                    📦 Registrar entrega
+                                    📦 Entregar
                                   </button>
                                   <button
-                                    onClick={() => abrirEntrega(r, true)}
+                                    onClick={() => entregarEFinalizar(r)}
                                     className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-                                    title="Registrar entrega e finalizar"
+                                    title="Finalizar (fecha hoje) e ir para Entregas"
                                   >
                                     ✅ Entrega + finalizar
                                   </button>
@@ -836,12 +894,12 @@ export default function Veiculacoes() {
                                 </div>
 
                                 {/* Alertas de coerência */}
-                                {should && !on && (
+                                {!delivered && should && !on && (
                                   <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
                                     Esta veiculação está dentro do período <b>e deveria estar no ar</b>, mas está marcada como OFF.
                                   </div>
                                 )}
-                                {!should && on && (
+                                {!delivered && !should && on && (
                                   <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
                                     Esta veiculação está <b>fora do período</b>, mas foi marcada como ON.
                                   </div>
@@ -853,7 +911,13 @@ export default function Veiculacoes() {
                       </div>
 
                       {/* Rodapé do card (totais do PI) */}
-                      <div className={classNames("mt-4 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center justify-end gap-4", compact && "py-2")}>
+                      <div
+                        className={classNames(
+                          "mt-4 rounded-xl px-4 py-3 flex items-center justify-end gap-4",
+                          (g.itens.length > 0 && g.itens.every(isDelivered)) ? "bg-emerald-50 border border-emerald-200" : "bg-slate-50 border border-slate-200",
+                          compact && "py-2"
+                        )}
+                      >
                         <div className="text-slate-700 text-sm">Totais do PI</div>
                         <div className="text-slate-800 font-semibold">Qtde: {g.totalQtd}</div>
                         <div className="text-slate-800 font-semibold">Valor: {fmtMoney(g.totalValor)}</div>
@@ -866,79 +930,6 @@ export default function Veiculacoes() {
           </div>
         )}
       </section>
-
-      {/* ===== Modal de Entrega ===== */}
-      {entregaOpen && entregaAlvo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => !entregaLoading && setEntregaOpen(false)} />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Registrar entrega {entregaFinalizar ? " + finalizar" : ""}</h3>
-              <button
-                onClick={() => !entregaLoading && setEntregaOpen(false)}
-                className="text-slate-500 hover:text-slate-700"
-                aria-label="Fechar"
-              >✕</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="text-sm text-slate-700">
-                <div><b>PI:</b> {entregaAlvo.numero_pi}</div>
-                <div><b>Produto:</b> {entregaAlvo.produto_nome || "—"}</div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">Data da entrega</label>
-                <input
-                  type="date"
-                  value={entregaData}
-                  onChange={(e) => setEntregaData(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-emerald-100 focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">Motivo / Observação (opcional)</label>
-                <textarea
-                  value={entregaMotivo}
-                  onChange={(e) => setEntregaMotivo(e.target.value)}
-                  placeholder="Ex.: campanha concluída, material veiculado conforme plano…"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-emerald-100 focus:border-emerald-500"
-                  rows={3}
-                />
-              </div>
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={entregaFinalizar}
-                  onChange={(e) => setEntregaFinalizar(e.target.checked)}
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                Finalizar veiculação após registrar entrega (fecha com data de hoje)
-              </label>
-
-              {entregaErro && (
-                <div className="rounded-lg bg-red-50 text-red-800 border border-red-200 px-3 py-2 text-sm">
-                  {entregaErro}
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
-              <button
-                onClick={() => setEntregaOpen(false)}
-                disabled={entregaLoading}
-                className="px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => entregaAlvo && registrarEntrega(entregaAlvo, entregaFinalizar)}
-                disabled={entregaLoading}
-                className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {entregaLoading ? "Salvando..." : (entregaFinalizar ? "Registrar + Finalizar" : "Registrar entrega")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
