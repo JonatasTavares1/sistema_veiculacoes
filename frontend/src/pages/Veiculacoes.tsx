@@ -1,4 +1,4 @@
-// src/pages/Veiculacoes.tsx
+// frontend/src/pages/Veiculacoes.tsx
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -121,6 +121,14 @@ async function putJSON<T>(url: string, body: unknown): Promise<T> {
   return r.json()
 }
 
+// Normaliza numero_pi (sempre com um fallback seguro)
+function normalizeNumeroPI(r: { numero_pi?: any; pi_id?: any; id: number }) {
+  const n = (r.numero_pi ?? "").toString().trim()
+  if (n) return n
+  if (typeof r.pi_id === "number" && !Number.isNaN(r.pi_id)) return String(r.pi_id)
+  return String(r.id)
+}
+
 // ======================== Agrupamento ========================
 type GrupoPI = {
   numero_pi: string
@@ -232,9 +240,12 @@ export default function Veiculacoes() {
     }
   }
 
-  // entrega por PI
+  // entrega por PI -------------- (CHAVE ROBUSTA)
   function piKeyFromRow(r: RowAgenda) {
-    return String(r.pi_id ?? r.numero_pi)
+    const n = (r.numero_pi ?? "").toString().trim()
+    if (n) return `PI#${n}`
+    if (typeof r.pi_id === "number" && !Number.isNaN(r.pi_id)) return `PIID#${r.pi_id}`
+    return `VEIC#${r.id}`
   }
   function isDeliveredByPI(r: RowAgenda): boolean {
     const key = piKeyFromRow(r)
@@ -252,27 +263,30 @@ export default function Veiculacoes() {
 
       if (ignorarPeriodo) {
         const all = await getJSON<any[]>(`${API}/veiculacoes`)
-        data = (all || []).map(v => ({
-          id: v.id,
-          produto_id: v.produto_id,
-          pi_id: v.pi_id,
-          numero_pi: v.numero_pi || (v.pi?.numero_pi ?? ""),
-          cliente: v.cliente ?? v.anunciante ?? v.anunciante_nome ?? v.cliente_nome ?? v.pi?.cliente ?? v.pi?.anunciante ?? null,
-          campanha: v.campanha ?? null,
-          canal: v.canal ?? null,
-          formato: v.formato ?? null,
-          data_inicio: v.data_inicio ?? null,
-          data_fim: v.data_fim ?? null,
-          quantidade: v.quantidade ?? null,
-          valor: (typeof v.valor_liquido === "number" ? v.valor_liquido :
-                  typeof v.valor_bruto === "number" ? v.valor_bruto : null),
-          produto_nome: v.produto_nome ?? null,
-          executivo: v.executivo ?? null,
-          diretoria: v.diretoria ?? null,
-          uf_cliente: v.uf_cliente ?? null,
-          em_veiculacao: undefined,
-          status_atualizado_em: null,
-        }))
+        data = (all || []).map(v => {
+          const base: RowAgenda = {
+            id: v.id,
+            produto_id: v.produto_id,
+            pi_id: v.pi_id,
+            numero_pi: v.numero_pi || (v.pi?.numero_pi ?? ""),
+            cliente: v.cliente ?? v.anunciante ?? v.anunciante_nome ?? v.cliente_nome ?? v.pi?.cliente ?? v.pi?.anunciante ?? null,
+            campanha: v.campanha ?? null,
+            canal: v.canal ?? null,
+            formato: v.formato ?? null,
+            data_inicio: v.data_inicio ?? null,
+            data_fim: v.data_fim ?? null,
+            quantidade: v.quantidade ?? null,
+            valor: (typeof v.valor_liquido === "number" ? v.valor_liquido :
+                    typeof v.valor_bruto === "number" ? v.valor_bruto : null),
+            produto_nome: v.produto_nome ?? null,
+            executivo: v.executivo ?? null,
+            diretoria: v.diretoria ?? null,
+            uf_cliente: v.uf_cliente ?? null,
+            em_veiculacao: undefined,
+            status_atualizado_em: null,
+          }
+          return { ...base, numero_pi: normalizeNumeroPI(base) }
+        })
       } else {
         const qs = new URLSearchParams()
         if (inicio) qs.set("inicio", inicio)
@@ -282,12 +296,15 @@ export default function Veiculacoes() {
         if (executivo !== "Todos" && executivo.trim()) qs.set("executivo", executivo)
         if (diretoria !== "Todos" && diretoria.trim()) qs.set("diretoria", diretoria)
         if (uf.trim()) qs.set("uf_cliente", uf.trim())
-        data = await getJSON<RowAgenda[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
-        data = (Array.isArray(data) ? data : []).map((r: any) => ({
-          ...r,
-          cliente: r.cliente ?? r.anunciante ?? r.anunciante_nome ?? r.cliente_nome ?? r.pi?.cliente ?? r.pi?.anunciante ?? null,
-          em_veiculacao: undefined,
-        }))
+        const raw = await getJSON<any[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
+        data = (Array.isArray(raw) ? raw : []).map((r: any) => {
+          const base: RowAgenda = {
+            ...r,
+            cliente: r.cliente ?? r.anunciante ?? r.anunciante_nome ?? r.cliente_nome ?? r.pi?.cliente ?? r.pi?.anunciante ?? null,
+            em_veiculacao: undefined,
+          }
+          return { ...base, numero_pi: normalizeNumeroPI(base) }
+        })
       }
 
       setRows(Array.isArray(data) ? data : [])
@@ -430,8 +447,8 @@ export default function Veiculacoes() {
         )
       )
 
-      // espelha estado do PI no localStorage
-      const key = String(piAlvo.header.pi_id ?? piAlvo.numero_pi)
+      // espelha estado do PI no localStorage (chave robusta)
+      const key = piKeyFromRow(piAlvo.header)
       setPiDelivMap(prev => {
         const next = {
           ...prev,
@@ -697,7 +714,7 @@ export default function Veiculacoes() {
           <div className="space-y-6">
             {grupos.map((g) => {
               const isOpen = expanded.has(g.numero_pi)
-              const piKey = String(g.header.pi_id ?? g.numero_pi)
+              const piKey = piKeyFromRow(g.header)
               const allDelivered = isPIDeliveredByKey(piKey)
 
               const infoPI = piDelivMap[piKey]

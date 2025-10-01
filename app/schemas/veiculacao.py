@@ -94,6 +94,9 @@ class VeiculacaoOut(BaseModel):
 # usado em /veiculacoes/agenda
 class VeiculacaoAgendaOut(BaseModel):
     id: int
+    # >>> incluímos produto_id e pi_id para evitar “perda” ao serializar a resposta
+    produto_id: Optional[int] = None
+    pi_id: Optional[int] = None
     numero_pi: Optional[str] = None
     produto_nome: Optional[str] = None
 

@@ -174,7 +174,7 @@ def list_agenda(
             "pi_id": getattr(pi, "id", None),
             "numero_pi": getattr(pi, "numero_pi", None),
 
-            # >>> mapeamento alinhado ao teu PI schema
+            # mapeamento alinhado ao PI schema
             "cliente": getattr(pi, "nome_anunciante", None) or getattr(pi, "razao_social_anunciante", None),
             "campanha": getattr(pi, "nome_campanha", None),
 
@@ -185,7 +185,6 @@ def list_agenda(
             "data_fim": v.data_fim,
             "quantidade": v.quantidade,
 
-            # valores (compat)
             "valor_bruto": v.valor_bruto,
             "desconto": v.desconto,          # percentual 0..100
             "valor_liquido": v.valor_liquido,
@@ -218,7 +217,6 @@ def create(db: Session, dados: Dict[str, Any]) -> Veiculacao:
         desconto=desc_percent,     # armazenado como percentual (0..100)
         valor_liquido=liquido,
     )
-    # se seu modelo tiver colunas canal/formato:
     if "canal" in dados:
         setattr(novo, "canal", dados.get("canal"))
     if "formato" in dados:
@@ -234,7 +232,6 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
     if not veic:
         raise ValueError("Veiculação não encontrada.")
 
-    # troca de produto/pi (se vier)
     if "produto_id" in dados and dados["produto_id"]:
         prod = db.get(Produto, dados["produto_id"])
         if not prod:
@@ -247,7 +244,6 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
             raise ValueError("PI não encontrada.")
         veic.pi_id = pi.id
 
-    # campos simples
     if "data_inicio" in dados:
         veic.data_inicio = dados["data_inicio"]
     if "data_fim" in dados:
@@ -259,13 +255,11 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
     if "desconto" in dados:
         veic.desconto = _norm_desconto_percent(dados["desconto"])
 
-    # canal/formato se existirem no modelo
     if "canal" in dados and hasattr(veic, "canal"):
         veic.canal = dados.get("canal")
     if "formato" in dados and hasattr(veic, "formato"):
         veic.formato = dados.get("formato")
 
-    # recalcula líquido
     veic.valor_liquido = _calc_liquido(veic.valor_bruto, veic.desconto)
 
     db.commit()
@@ -276,7 +270,6 @@ def delete(db: Session, veic_id: int) -> None:
     veic = db.get(Veiculacao, veic_id)
     if not veic:
         raise ValueError("Veiculação não encontrada.")
-    # proteção: não excluir se houver entregas vinculadas
     if getattr(veic, "entregas", None) and len(veic.entregas) > 0:
         raise ValueError("Não é possível excluir: existem entregas vinculadas a esta veiculação.")
     db.delete(veic)
