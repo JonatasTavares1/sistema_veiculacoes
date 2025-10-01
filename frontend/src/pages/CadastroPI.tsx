@@ -50,10 +50,10 @@ const UFS = [
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO","EX (Exterior)"
 ]
 const CANAIS = [
-  "SITE","YOUTUBE","INSTAGRAM","FACEBOOK","TIKTOK","TWITTER","DOOH",
-  "GOOGLE","PROGRAMMATIC","RADIO","PORTAL","REVISTA","JORNAL","INFLUENCIADOR","TV","OUTROS"
+  "Rede Sociais","DOOH", 
+  "RADIO","PORTAL","Youtube","OUTROS","Pátrocinio de eventos"
 ]
-const PERFIS = ["Privado", "Governo estadual", "Governo federal"]
+const PERFIS = ["Privado", "Governo estadual", "Governo federal","Privado - Gestão Executiva"]
 const SUBPERFIS = [
   "Privado","Governo estadual","GDF - DETRAN","Sistema S Federal","Governo Federal",
   "GDF - TERRACAP","Sistema S Regional","CLDF","GDF - SECOM","GDF - BRB",

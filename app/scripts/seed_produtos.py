@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Seed de produtos pré-definidos a partir de uma lista "CATEGORIA<TAB>NOME".
-- Idempotente: atualiza se já existir (mesmo nome).
+- Idempotente: atualiza se já existir (mesmo nome, case-sensitive).
 - Define categoria, modalidade_preco, base_segundos (rádio) e unidade_rotulo.
-- Não define valor_unitario (valores ficam na veiculação).
+- NÃO define valor_unitario (valores ficam na veiculação).
+- NÃO vincula produto a PI (pi_id permanece como está/NULL).
 
-Como rodar (com seu venv ativo):
+Como rodar (com venv ativo):
     python -m app.scripts.seed_produtos
 """
 from __future__ import annotations
@@ -14,12 +15,11 @@ import re
 from typing import Optional, Tuple
 
 from sqlalchemy.inspection import inspect as sa_inspect
-from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, init_db
-from app.models import Produto, PI
+from app.models import Produto
 
-# === Cole aqui exatamente as linhas que você mandou (categoria\tproduto) ===
+# === Cole aqui exatamente as linhas (categoria\tproduto) ===
 LINHAS = r"""
 PORTAL	Expressão de Opinião Completa (Portal + DOOH + Rádio)
 PORTAL	Expressão de Opinião Digital
@@ -195,12 +195,14 @@ RÁDIO	Minuto Dica - Programate 60" - Hor Rotativo
 """.strip()
 
 
+# ---------- helpers ----------
 def _guess_modalidade(categoria: str, nome: str) -> Tuple[str, Optional[int], Optional[str]]:
+    """Retorna (modalidade_preco, base_segundos, unidade_rotulo)."""
     cat = categoria.upper().strip()
     n = nome.strip()
 
     # Rádio: por spot/segundos
-    if cat == "RÁDIO" or cat == "RADIO":
+    if cat in {"RÁDIO", "RADIO"}:
         m = re.search(r'(\d+)\s*"?\s*(seg|")', n, flags=re.I)
         base_seg = int(m.group(1)) if m else None
         if base_seg is None and "flash" in n.lower():
@@ -225,44 +227,21 @@ def _guess_modalidade(categoria: str, nome: str) -> Tuple[str, Optional[int], Op
     if cat in {"PAINEL", "OOH", "DOOH"}:
         return "PAINEL_DIA", None, "por dia/face"
 
+    # fallback
     return "DIA", None, "por dia"
 
 
-def _get_or_create_catalog_pi(sess: Session) -> int:
+def _upsert_produto(sess, categoria: str, nome: str):
     """
-    Garante a existência de um PI “CATALOGO” para pendurar produtos de catálogo.
-    Retorna o id do PI.
+    Upsert por 'nome' (case-sensitive):
+      - cria se não existe,
+      - atualiza metadados se já existe (não mexe em pi_id).
     """
-    pi = sess.query(PI).filter(PI.numero_pi == "CATALOGO").first()
-    if pi:
-        return pi.id
-
-    pi = PI(
-        numero_pi="CATALOGO",
-        tipo_pi="Normal",
-        nome_anunciante="CATALOGO",
-        razao_social_anunciante=None,
-        cnpj_anunciante=None,
-        uf_cliente=None,
-        nome_agencia=None,
-        cnpj_agencia=None,
-        canal="CATALOGO",
-        valor_bruto=0.0,
-        valor_liquido=0.0,
-        eh_matriz=False,
-    )
-    sess.add(pi)
-    sess.flush()  # garante pi.id
-    return pi.id
-
-
-def _upsert_produto(sess: Session, categoria: str, nome: str, pi_id: int):
     nome_norm = nome.strip()
     prod = sess.query(Produto).filter(Produto.nome == nome_norm).first()
     modalidade, base_seg, unidade = _guess_modalidade(categoria, nome_norm)
 
     produto_cols = {a.key for a in sa_inspect(Produto).attrs}
-
     wanted = {
         "nome": nome_norm,
         "descricao": None,
@@ -270,16 +249,13 @@ def _upsert_produto(sess: Session, categoria: str, nome: str, pi_id: int):
         "modalidade_preco": modalidade,
         "base_segundos": base_seg,
         "unidade_rotulo": unidade,
-        "pi_id": pi_id,
+        # NÃO definir pi_id aqui — deixamos como está/NULL
     }
     fields = {k: v for k, v in wanted.items() if k in produto_cols}
 
     if prod:
         changed = False
         for k, v in fields.items():
-            # não vamos mover um produto que já está em outro PI, mas se não tiver pi_id, seta
-            if k == "pi_id" and getattr(prod, "pi_id", None) and getattr(prod, "pi_id") != pi_id:
-                continue
             if getattr(prod, k, object()) != v:
                 setattr(prod, k, v)
                 changed = True
@@ -297,8 +273,6 @@ def run():
     init_db()
     sess = SessionLocal()
     try:
-        catalog_pi_id = _get_or_create_catalog_pi(sess)
-
         created = 0
         updated = 0
         for raw in LINHAS.splitlines():
@@ -309,9 +283,11 @@ def run():
                 print(f"[ignorado] linha sem TAB: {raw}")
                 continue
             categoria, nome = raw.split("\t", 1)
-            p, is_new = _upsert_produto(sess, categoria.strip(), nome.strip(), catalog_pi_id)
-            created += 1 if is_new else 0
-            updated += 0 if is_new else 1
+            _, is_new = _upsert_produto(sess, categoria.strip(), nome.strip())
+            if is_new:
+                created += 1
+            else:
+                updated += 1
 
         sess.commit()
         print(f"OK! Produtos inseridos/atualizados. Novos: {created} | Atualizados: {updated}")

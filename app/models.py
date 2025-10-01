@@ -87,8 +87,13 @@ class PI(Base):
     agencia = relationship("Agencia", back_populates="pis")
     anunciante = relationship("Anunciante", back_populates="pis")
 
-    # 🔴 Produtos deste PI (antes não existia → causava o AttributeError)
-    produtos = relationship("Produto", back_populates="pi", cascade="all, delete-orphan")
+    # Produtos relacionados (catálogo global pode existir sem PI; não apagar em cascata)
+    produtos = relationship(
+        "Produto",
+        back_populates="pi",
+        cascade="save-update, merge",   # sem delete-orphan
+        passive_deletes=True            # respeita ondelete do FK em Produto.pi_id
+    )
 
     # Veiculações deste PI (para consultas globais por PI)
     veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
@@ -121,10 +126,15 @@ class Produto(Base):
     __tablename__ = 'produtos'
 
     id = Column(Integer, primary_key=True)
-    nome = Column(String, nullable=False)
+    # unique=True opcional, mas recomendado para catálogo global por nome
+    nome = Column(String, nullable=False, unique=True)
 
-    # 🔴 FK obrigatória para PI (antes não existia)
-    pi_id = Column(Integer, ForeignKey('pis.id'), nullable=False)
+    # FK opcional para PI; se o PI for apagado, solta o vínculo
+    pi_id = Column(
+        Integer,
+        ForeignKey('pis.id', ondelete="SET NULL"),
+        nullable=True
+    )
 
     # Catálogo (sem preço)
     descricao = Column(String, nullable=True)
@@ -148,7 +158,7 @@ class Veiculacao(Base):
     produto_id = Column(Integer, ForeignKey('produtos.id'))
     pi_id = Column(Integer, ForeignKey('pis.id'))
 
-    # 🔴 Faltavam essas colunas no modelo
+    # Colunas adicionais
     canal = Column(String, nullable=True)
     formato = Column(String, nullable=True)
 

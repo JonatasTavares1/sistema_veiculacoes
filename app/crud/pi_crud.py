@@ -681,3 +681,48 @@ def list_veiculacoes_agenda(
             )
         )
     return out
+def list_veiculacoes_by_pi(db: Session, pi_id: int) -> List[Dict[str, Any]]:
+    """
+    Retorna as veiculações de um PI já mapeadas no formato esperado por
+    VeiculacaoAgendaOut (definido em app/schemas/pi.py).
+    """
+    regs = (
+        db.query(Veiculacao, Produto, PI)
+        .join(Produto, Veiculacao.produto_id == Produto.id)
+        .join(PI, Veiculacao.pi_id == PI.id)
+        .filter(Veiculacao.pi_id == pi_id)
+        .order_by(asc(Veiculacao.data_inicio))
+        .all()
+    )
+
+    out: List[Dict[str, Any]] = []
+    for v, prod, pi in regs:
+        # canal efetivo: prioriza o da veiculação; se vazio, usa o canal do PI
+        effective_canal = getattr(v, "canal", None) or getattr(pi, "canal", None)
+
+        out.append({
+            "id": v.id,
+            "produto_id": prod.id,
+            "pi_id": pi.id,
+            "numero_pi": pi.numero_pi,
+
+            "cliente": getattr(pi, "nome_anunciante", None) or getattr(pi, "razao_social_anunciante", None),
+            "campanha": getattr(pi, "nome_campanha", None),
+
+            "canal": effective_canal,
+            "formato": getattr(v, "formato", None),
+
+            "data_inicio": v.data_inicio,
+            "data_fim": v.data_fim,
+            "quantidade": v.quantidade,
+
+            # compat: a UI usa 'valor'; preferimos líquido se existir
+            "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
+
+            "produto_nome": getattr(prod, "nome", None),
+
+            "executivo": getattr(pi, "executivo", None),
+            "diretoria": getattr(pi, "diretoria", None),
+            "uf_cliente": getattr(pi, "uf_cliente", None),
+        })
+    return out
