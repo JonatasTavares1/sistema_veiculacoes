@@ -524,9 +524,7 @@ export default function Veiculacoes() {
         <div>
           <h1 className="text-4xl font-extrabold text-slate-900">Veiculações — Agenda</h1>
           <div className="mt-2 text-slate-600 flex flex-wrap gap-3">
-            <span>{totalLinhas} item(ns)</span>
-            <span>• Quantidade: <span className="font-semibold">{totalQtd}</span></span>
-            <span>• Valor total: <span className="font-semibold">{fmtMoney(totalValor)}</span></span>
+            
           </div>
           {/* KPIs de status */}
           <div className="mt-2 flex flex-wrap gap-2 text-sm">
