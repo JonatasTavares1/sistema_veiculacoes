@@ -22,14 +22,19 @@ def get_db():
 # -------- CRUD --------
 
 @router.get("", response_model=List[AgenciaOut])
-def listar(nome: Optional[str] = Query(None, description="Filtro por nome (ilike)"),
-           db: Session = Depends(get_db)):
+def listar(
+    nome: Optional[str] = Query(
+        None,
+        description="Filtro (ilike) por nome_agencia OU codinome"
+    ),
+    db: Session = Depends(get_db),
+):
     regs = agencia_crud.list_by_name(db, nome) if nome else agencia_crud.list_all(db)
     return [AgenciaOut.model_validate(r) for r in regs]
 
-@router.get("/{agencia_id:int}", response_model=AgenciaOut)
-def obter(agencia_id: int, db: Session = Depends(get_db)):
-    reg = agencia_crud.get_by_id(db, agencia_id)
+@router.get("/codinome/{codinome}", response_model=AgenciaOut)
+def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
+    reg = agencia_crud.get_by_codename(db, codinome)
     if not reg:
         raise HTTPException(status_code=404, detail="Agência não encontrada.")
     return AgenciaOut.model_validate(reg)
@@ -41,10 +46,17 @@ def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Agência não encontrada.")
     return AgenciaOut.model_validate(reg)
 
+@router.get("/{agencia_id:int}", response_model=AgenciaOut)
+def obter(agencia_id: int, db: Session = Depends(get_db)):
+    reg = agencia_crud.get_by_id(db, agencia_id)
+    if not reg:
+        raise HTTPException(status_code=404, detail="Agência não encontrada.")
+    return AgenciaOut.model_validate(reg)
+
 @router.post("", response_model=AgenciaOut, status_code=status.HTTP_201_CREATED)
 def criar(body: AgenciaCreate, db: Session = Depends(get_db)):
     try:
-        payload = body.dict()
+        payload = body.model_dump()
         payload["cnpj_agencia"] = only_digits(payload["cnpj_agencia"])
         novo = agencia_crud.create(db, payload)
         return AgenciaOut.model_validate(novo)
@@ -54,7 +66,7 @@ def criar(body: AgenciaCreate, db: Session = Depends(get_db)):
 @router.put("/{agencia_id:int}", response_model=AgenciaOut)
 def atualizar(agencia_id: int, body: AgenciaUpdate, db: Session = Depends(get_db)):
     try:
-        dados = body.dict(exclude_unset=True)
+        dados = body.model_dump(exclude_unset=True)
         if "cnpj_agencia" in dados and dados["cnpj_agencia"]:
             dados["cnpj_agencia"] = only_digits(dados["cnpj_agencia"])
         upd = agencia_crud.update(db, agencia_id, dados)
@@ -98,4 +110,3 @@ def consultar_cnpj_brasilapi(cnpj: str):
             raise HTTPException(status_code=502, detail=f"BrasilAPI respondeu {r.status_code}.")
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Erro ao consultar BrasilAPI: {e}")
-

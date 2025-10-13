@@ -18,6 +18,13 @@ class Agencia(Base):
     email_agencia = Column(String)
     data_cadastro = Column(String)
 
+    # === Novos campos ===
+    grupo_empresarial = Column(String, nullable=True)
+    codinome = Column(String, unique=True, index=True, nullable=True)
+    site = Column(String, nullable=True)
+    linkedin = Column(String, nullable=True)
+    instagram = Column(String, nullable=True)
+
     pis = relationship("PI", back_populates="agencia")
 
 
@@ -32,6 +39,13 @@ class Anunciante(Base):
     executivo = Column(String, nullable=False)
     email_anunciante = Column(String)
     data_cadastro = Column(String)
+
+    # === Novos campos ===
+    grupo_empresarial = Column(String, nullable=True)
+    codinome = Column(String, unique=True, index=True, nullable=True)
+    site = Column(String, nullable=True)
+    linkedin = Column(String, nullable=True)
+    instagram = Column(String, nullable=True)
 
     pis = relationship("PI", back_populates="anunciante")
 

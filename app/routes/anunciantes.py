@@ -22,14 +22,19 @@ def get_db():
 # -------- CRUD --------
 
 @router.get("", response_model=List[AnuncianteOut])
-def listar(nome: Optional[str] = Query(None, description="Filtro por nome (ilike)"),
-           db: Session = Depends(get_db)):
+def listar(
+    nome: Optional[str] = Query(
+        None,
+        description="Filtro (ilike) por nome_anunciante OU codinome"
+    ),
+    db: Session = Depends(get_db),
+):
     regs = anunciante_crud.list_by_name(db, nome) if nome else anunciante_crud.list_all(db)
     return [AnuncianteOut.model_validate(r) for r in regs]
 
-@router.get("/{anunciante_id:int}", response_model=AnuncianteOut)
-def obter(anunciante_id: int, db: Session = Depends(get_db)):
-    reg = anunciante_crud.get_by_id(db, anunciante_id)
+@router.get("/codinome/{codinome}", response_model=AnuncianteOut)
+def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
+    reg = anunciante_crud.get_by_codename(db, codinome)
     if not reg:
         raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
     return AnuncianteOut.model_validate(reg)
@@ -41,10 +46,17 @@ def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
     return AnuncianteOut.model_validate(reg)
 
+@router.get("/{anunciante_id:int}", response_model=AnuncianteOut)
+def obter(anunciante_id: int, db: Session = Depends(get_db)):
+    reg = anunciante_crud.get_by_id(db, anunciante_id)
+    if not reg:
+        raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
+    return AnuncianteOut.model_validate(reg)
+
 @router.post("", response_model=AnuncianteOut, status_code=status.HTTP_201_CREATED)
 def criar(body: AnuncianteCreate, db: Session = Depends(get_db)):
     try:
-        payload = body.dict()
+        payload = body.model_dump()  # pydantic v2
         payload["cnpj_anunciante"] = only_digits(payload["cnpj_anunciante"])
         novo = anunciante_crud.create(db, payload)
         return AnuncianteOut.model_validate(novo)
@@ -54,7 +66,7 @@ def criar(body: AnuncianteCreate, db: Session = Depends(get_db)):
 @router.put("/{anunciante_id:int}", response_model=AnuncianteOut)
 def atualizar(anunciante_id: int, body: AnuncianteUpdate, db: Session = Depends(get_db)):
     try:
-        dados = body.dict(exclude_unset=True)
+        dados = body.model_dump(exclude_unset=True)  # pydantic v2
         if "cnpj_anunciante" in dados and dados["cnpj_anunciante"]:
             dados["cnpj_anunciante"] = only_digits(dados["cnpj_anunciante"])
         upd = anunciante_crud.update(db, anunciante_id, dados)
