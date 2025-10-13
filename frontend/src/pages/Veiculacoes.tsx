@@ -184,15 +184,15 @@ export default function Veiculacoes() {
   const [buscaGlobal, setBuscaGlobal] = useState("")
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
+  // novo filtro de status: Todos | Veiculando | Não veiculado
+  const [statusFiltro, setStatusFiltro] = useState<"Todos" | "Veiculando" | "Não veiculado">("Todos")
+
   // -------- Dados base
   const [rows, setRows] = useState<RowAgenda[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
   // -------- UI
-  const [compact, setCompact] = useState(false)
-  const [showOnlyOn, setShowOnlyOn] = useState(false)
-  const [showOnlyOff, setShowOnlyOff] = useState(false)
   const [ignorarPeriodo, setIgnorarPeriodo] = useState(true)
 
   // expansão por PI
@@ -225,18 +225,6 @@ export default function Veiculacoes() {
     })
     if (HAS_STATUS_ENDPOINT) {
       postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
-    }
-  }
-  function bulkSetOn(ids: number[], on: boolean) {
-    const ts = new Date().toISOString()
-    setStatusMap(prev => {
-      const next = { ...prev }
-      ids.forEach(id => { next[String(id)] = { on, ts } })
-      saveStatuses(next)
-      return next
-    })
-    if (HAS_STATUS_ENDPOINT) {
-      ids.forEach(id => postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {}))
     }
   }
 
@@ -349,11 +337,12 @@ export default function Veiculacoes() {
       return true
     })
 
+    // aplica filtro de status
     filtered = filtered.filter(r => {
-      const markedOn = resolveOn(r)
-      if (showOnlyOn && !markedOn) return false
-      if (showOnlyOff && markedOn) return false
-      return true
+      const on = resolveOn(r)
+      if (statusFiltro === "Veiculando") return on
+      if (statusFiltro === "Não veiculado") return !on
+      return true // "Todos"
     })
 
     const byPI = new Map<string, GrupoPI>()
@@ -374,7 +363,7 @@ export default function Veiculacoes() {
     }
     return arr
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, debouncedBusca, showOnlyOn, showOnlyOff, statusMap, piDelivMap])
+  }, [rows, debouncedBusca, statusFiltro, statusMap, piDelivMap])
 
   // Totais gerais
   const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
@@ -564,16 +553,12 @@ export default function Veiculacoes() {
           >
             Recolher todos
           </button>
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700 border border-slate-300 rounded-2xl px-3 py-2 bg-white">
-            <input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} className="h-4 w-4 accent-red-600" />
-            modo compacto
-          </label>
         </div>
       </div>
 
       {/* Filtros */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 xl:grid-cols-9 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-10 gap-4">
           <div>
             <label className="block text-sm font-semibold text-slate-800 mb-1">Início</label>
             <input
@@ -643,6 +628,21 @@ export default function Veiculacoes() {
               className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
           </div>
+
+          {/* novo filtro de status */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-800 mb-1">Status</label>
+            <select
+              value={statusFiltro}
+              onChange={(e) => setStatusFiltro(e.target.value as any)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+            >
+              <option>Todos</option>
+              <option>Veiculando</option>
+              <option>Não veiculado</option>
+            </select>
+          </div>
+
           <div className="xl:col-span-2">
             <label className="block text-sm font-semibold text-slate-800 mb-1">Busca (qualquer campo)</label>
             <input
@@ -654,27 +654,8 @@ export default function Veiculacoes() {
           </div>
         </div>
 
-        {/* Subfiltros por status + Ignorar período */}
+        {/* Ignorar período + Atualizar */}
         <div className="mt-4 flex flex-wrap items-center gap-4">
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={showOnlyOn}
-              onChange={(e) => { setShowOnlyOn(e.target.checked); if (e.target.checked) setShowOnlyOff(false) }}
-              className="h-4 w-4 accent-emerald-600"
-            />
-            Mostrar apenas <span className="font-semibold text-emerald-700">veiculando</span>
-          </label>
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={showOnlyOff}
-              onChange={(e) => { setShowOnlyOff(e.target.checked); if (e.target.checked) setShowOnlyOn(false) }}
-              className="h-4 w-4 accent-red-600"
-            />
-            Mostrar apenas <span className="font-semibold text-red-700">não veiculado</span>
-          </label>
-
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -773,8 +754,6 @@ export default function Veiculacoes() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      {/* (removidos os botões solicitados) */}
-
                       {/* Entrega do PI */}
                       <button
                         onClick={() => abrirEntregaPI(g)}
@@ -802,8 +781,8 @@ export default function Veiculacoes() {
 
                   {/* Grid de veiculações */}
                   {isOpen && (
-                    <div className={classNames("p-4", compact && "p-3")}>
-                      <div className={classNames("grid gap-4", compact ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3")}>
+                    <div className="p-4">
+                      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
                         {g.itens.map((r, idx) => {
                           const on = resolveOn(r)
                           const delivered = isDeliveredByPI(r)
@@ -826,7 +805,7 @@ export default function Veiculacoes() {
                                 delivered ? "ring-2 ring-emerald-300" : (on ? "ring-2 ring-emerald-200" : "ring-2 ring-red-300")
                               )}
                             >
-                              <div className={classNames("p-4", compact && "p-3")}>
+                              <div className="p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
                                     <div className="font-medium text-slate-900 truncate">
