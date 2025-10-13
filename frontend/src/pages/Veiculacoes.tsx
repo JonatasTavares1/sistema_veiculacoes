@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom"
 // ======================== Config/Util ========================
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
-// não usamos endpoint de status do backend; ON/OFF é só local
+// não usamos endpoint de status do backend; veiculando/não veiculado é só local
 const HAS_STATUS_ENDPOINT = false
 
 type RowAgenda = {
@@ -26,7 +26,7 @@ type RowAgenda = {
   diretoria?: string | null
   uf_cliente?: string | null
 
-  // ignorado para a UI de ON/OFF manual:
+  // ignorado para a UI de veiculando/não veiculado manual:
   em_veiculacao?: boolean | null
   status_atualizado_em?: string | null
 }
@@ -139,7 +139,7 @@ type GrupoPI = {
 }
 
 // ======================== Persistência Local ========================
-// ON/OFF por veiculação (MANUAL)
+// veiculando/não veiculado por veiculação (MANUAL)
 const LS_KEY_ON = "veiculacoes_status_manual_v1"
 type LocalStatus = { on: boolean; ts: string }
 function loadStatuses(): Record<string, LocalStatus> {
@@ -211,7 +211,7 @@ export default function Veiculacoes() {
   const [statusMap, setStatusMap] = useState<Record<string, LocalStatus>>(() => loadStatuses())
   const [piDelivMap, setPiDelivMap] = useState<Record<string, PIDelivery>>(() => loadPIDeliveries())
 
-  // ON/OFF manual
+  // veiculando/não veiculado manual
   function resolveOn(r: RowAgenda): boolean {
     const local = statusMap[String(r.id)]
     return local?.on ?? false
@@ -478,7 +478,7 @@ export default function Veiculacoes() {
     return classNames("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border", klass)
   }
 
-  // Badge: ⚠ só no DIA DO INÍCIO quando estiver OFF (e PI não entregue)
+  // Badge: ⚠ só no DIA DO INÍCIO quando estiver não veiculado (e PI não entregue)
   function statusBadge(r: RowAgenda) {
     const deliveredPI = isDeliveredByPI(r)
     if (deliveredPI) {
@@ -498,9 +498,9 @@ export default function Veiculacoes() {
       return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">✅ Veiculando</span>
     }
     if (!within && on) {
-      return <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-semibold">⏳ Fora do período (ON)</span>
+      return <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-semibold">⏳ Fora do período (veiculando)</span>
     }
-    return <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 text-xs font-semibold">⛔ Off</span>
+    return <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 text-xs font-semibold">⛔ Não veiculado</span>
   }
 
   function deliveryPillPI(r: RowAgenda) {
@@ -523,25 +523,23 @@ export default function Veiculacoes() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-extrabold text-slate-900">Veiculações — Agenda</h1>
-          <div className="mt-2 text-slate-600 flex flex-wrap gap-3">
-            
-          </div>
+          <div className="mt-2 text-slate-600 flex flex-wrap gap-3"></div>
           {/* KPIs de status */}
           <div className="mt-2 flex flex-wrap gap-2 text-sm">
             <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-800 px-2.5 py-1 border border-emerald-200">
-              No período (devem estar ON): <b className="ml-1">{kpis.shouldOn}</b>
+              No período (deveriam estar veiculando): <b className="ml-1">{kpis.shouldOn}</b>
             </span>
             <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-800 px-2.5 py-1 border border-blue-200">
-              Marcados ON: <b className="ml-1">{kpis.markedOn}</b>
+              Marcados como veiculando: <b className="ml-1">{kpis.markedOn}</b>
             </span>
             {kpis.mismatchShouldButOff > 0 && (
               <span className="inline-flex items-center rounded-full bg-red-50 text-red-800 px-2.5 py-1 border border-red-200">
-                Devem estar ON, mas OFF: <b className="ml-1">{kpis.mismatchShouldButOff}</b>
+                Deveriam veicular, mas não veiculados: <b className="ml-1">{kpis.mismatchShouldButOff}</b>
               </span>
             )}
             {kpis.mismatchOutButOn > 0 && (
               <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 px-2.5 py-1 border border-amber-200">
-                Fora do período, mas ON: <b className="ml-1">{kpis.mismatchOutButOn}</b>
+                Fora do período, mas marcados veiculando: <b className="ml-1">{kpis.mismatchOutButOn}</b>
               </span>
             )}
           </div>
@@ -665,7 +663,7 @@ export default function Veiculacoes() {
               onChange={(e) => { setShowOnlyOn(e.target.checked); if (e.target.checked) setShowOnlyOff(false) }}
               className="h-4 w-4 accent-emerald-600"
             />
-            Mostrar apenas <span className="font-semibold text-emerald-700">veiculando (ON)</span>
+            Mostrar apenas <span className="font-semibold text-emerald-700">veiculando</span>
           </label>
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
@@ -674,7 +672,7 @@ export default function Veiculacoes() {
               onChange={(e) => { setShowOnlyOff(e.target.checked); if (e.target.checked) setShowOnlyOn(false) }}
               className="h-4 w-4 accent-red-600"
             />
-            Mostrar apenas <span className="font-semibold text-red-700">não veiculando (OFF)</span>
+            Mostrar apenas <span className="font-semibold text-red-700">não veiculado</span>
           </label>
 
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
@@ -775,40 +773,7 @@ export default function Veiculacoes() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => exportarXLSX(g.itens, `agenda_${g.numero_pi}`)}
-                        className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
-                      >
-                        Exportar PI
-                      </button>
-                      <button
-                        onClick={() => bulkSetOn(g.itens.map(i => i.id), true)}
-                        className="px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
-                      >
-                        Marcar todos ON
-                      </button>
-                      <button
-                        onClick={() => bulkSetOn(g.itens.map(i => i.id), false)}
-                        className="px-3 py-2 rounded-xl bg-slate-700 text-white hover:bg-slate-800"
-                      >
-                        Marcar todos OFF
-                      </button>
-                      <button
-                        onClick={() => {
-                          const now = todayISO()
-                          const idsOn: number[] = []
-                          const idsOff: number[] = []
-                          for (const r of g.itens) {
-                            const dentro = withinRangeInclusive(now, r.data_inicio, r.data_fim)
-                            if (dentro) idsOn.push(r.id); else idsOff.push(r.id)
-                          }
-                          if (idsOn.length) bulkSetOn(idsOn, true)
-                          if (idsOff.length) bulkSetOn(idsOff, false)
-                        }}
-                        className="px-3 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700"
-                      >
-                        ON só no período
-                      </button>
+                      {/* (removidos os botões solicitados) */}
 
                       {/* Entrega do PI */}
                       <button
@@ -904,7 +869,7 @@ export default function Veiculacoes() {
                                   <div className="text-right">
                                     <div className="text-slate-900 font-semibold">{fmtMoney(r.valor)}</div>
 
-                                    {/* Toggle ON/OFF — manual */}
+                                    {/* Toggle veiculando/não veiculado — manual */}
                                     <label className="mt-2 inline-flex items-center gap-2 text-xs">
                                       <input
                                         type="checkbox"
@@ -913,7 +878,7 @@ export default function Veiculacoes() {
                                         className="h-4 w-4 accent-emerald-600"
                                         title="Marcar como veiculando"
                                       />
-                                      {on ? <span className="text-emerald-700 font-semibold">ON</span> : <span className="text-red-700 font-semibold">OFF</span>}
+                                      {on ? <span className="text-emerald-700 font-semibold">veiculando</span> : <span className="text-red-700 font-semibold">não veiculado</span>}
                                     </label>
 
                                     {/* Ações por veic (sem entrega aqui) */}
@@ -937,18 +902,18 @@ export default function Veiculacoes() {
                                 )}
                                 {!atrasouFim && atrasadaInicioHoje && (
                                   <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
-                                    <b>Atrasada:</b> início é <b>{parseISODateToBR(r.data_inicio)}</b> (HOJE), está <b>OFF</b> e o PI não foi entregue.
+                                    <b>Atrasada:</b> início é <b>{parseISODateToBR(r.data_inicio)}</b> (HOJE), está <b>não veiculado</b> e o PI não foi entregue.
                                   </div>
                                 )}
                                 {!atrasouFim && !atrasadaInicioHoje && atrasouDepoisDoInicio && (
                                   <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
-                                    <b>Atrasada:</b> deveria ter <b>iniciado</b> em <b>{parseISODateToBR(r.data_inicio)}</b>, está <b>OFF</b> e o PI não foi entregue.
+                                    <b>Atrasada:</b> deveria ter <b>iniciado</b> em <b>{parseISODateToBR(r.data_inicio)}</b>, está <b>não veiculado</b> e o PI não foi entregue.
                                   </div>
                                 )}
 
                                 {!delivered && !within && on && (
                                   <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-                                    Esta veiculação está <b>fora do período</b>, mas foi marcada como ON.
+                                    Esta veiculação está <b>fora do período</b>, mas foi marcada como <b>veiculando</b>.
                                   </div>
                                 )}
 

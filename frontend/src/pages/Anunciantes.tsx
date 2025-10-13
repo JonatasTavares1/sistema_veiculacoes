@@ -15,11 +15,18 @@ type Anunciante = {
   id: number
   nome_anunciante: string
   razao_social_anunciante?: string | null
-  cnpj_anunciante: string            // aqui pode vir CPF ou CNPJ (formatado)
+  cnpj_anunciante: string            // pode vir CPF/CNPJ (formatado)
   uf_cliente?: string | null
   executivo: string
   email_anunciante?: string | null
   data_cadastro?: string | null
+
+  // 🔥 Novos campos
+  grupo_empresarial?: string | null
+  codinome?: string | null
+  site?: string | null
+  linkedin?: string | null
+  instagram?: string | null
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -62,7 +69,7 @@ const UFS = [
 function digits(s: string) { return (s || "").replace(/\D+/g, "") }
 function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
 
-// ---- Formatação progressiva CPF/CNPJ (sem padding/underscore) ----
+// ---- Formatação progressiva CPF/CNPJ ----
 function formatCpfPartial(v: string) {
   const d = digits(v).slice(0, 11)
   if (d.length <= 3) return d
@@ -80,16 +87,24 @@ function formatCnpjPartial(v: string) {
 }
 function formatDocPartial(v: string) {
   const d = digits(v)
-  if (d.length <= 11) return formatCpfPartial(v)      // até 11 vai no padrão CPF
-  return formatCnpjPartial(v)                         // acima de 11, CNPJ
+  if (d.length <= 11) return formatCpfPartial(v)
+  return formatCnpjPartial(v)
 }
 function normalizeDocForSave(v: string) {
-  // Mantém com pontuação (frontend envia assim), backend só armazena string.
-  // Se quiser enviar só dígitos: return digits(v)
+  // Mantém com pontuação (como o backend aceita string). Se preferir só dígitos, troque por: return digits(v)
   return formatDocPartial(v)
 }
 
-// ---- Export helpers (xlsx se possível; fallback CSV) ----
+// ---- Normalizador simples de URL (adiciona https:// se faltar) ----
+function normalizeUrl(u?: string | null): string | null {
+  if (!u) return null
+  const t = u.trim()
+  if (!t) return null
+  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(t)) return t
+  return `https://${t}`
+}
+
+// ---- Export helpers ----
 function downloadBlob(content: string | Blob, filename: string, mime: string) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mime })
   const url = URL.createObjectURL(blob)
@@ -120,14 +135,11 @@ function deepClean<T = any>(obj: T): T {
     const t = obj.trim()
     return (t === "" ? null : (t as any))
   }
-  if (Array.isArray(obj)) {
-    return obj.map(deepClean) as any
-  }
+  if (Array.isArray(obj)) return obj.map(deepClean) as any
   if (typeof obj === "object") {
     const out: any = {}
     for (const [k, v] of Object.entries(obj as any)) {
-      const cleaned = deepClean(v as any)
-      out[k] = cleaned
+      out[k] = deepClean(v as any)
     }
     return out
   }
@@ -142,6 +154,13 @@ export default function Anunciantes() {
   const [uf, setUf] = useState("DF")
   const [email, setEmail] = useState("")
   const [executivo, setExecutivo] = useState("")
+
+  // 🔥 novos campos no form
+  const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
+  const [codinome, setCodinome] = useState("")
+  const [site, setSite] = useState("")
+  const [linkedin, setLinkedin] = useState("")
+  const [instagram, setInstagram] = useState("")
 
   // dados
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
@@ -239,11 +258,20 @@ export default function Anunciantes() {
         cnpj_anunciante: normalizeDocForSave(doc), // aceita CPF ou CNPJ
         uf_cliente: uf,
         executivo,
-        email_anunciante: email, // será convertido para null se vazio
+        email_anunciante: email,
+
+        // novos
+        grupo_empresarial: grupoEmpresarial,
+        codinome,
+        site: normalizeUrl(site),
+        linkedin: normalizeUrl(linkedin),
+        instagram: normalizeUrl(instagram),
       }
       const body = deepClean(rawBody)
       await postJSON(`${API}/anunciantes`, body)
+      // reset
       setNome(""); setRazao(""); setDoc(""); setUf("DF"); setEmail(""); setExecutivo("")
+      setGrupoEmpresarial(""); setCodinome(""); setSite(""); setLinkedin(""); setInstagram("")
       await carregar()
       alert("Anunciante cadastrado com sucesso!")
     } catch (e: any) {
@@ -263,6 +291,11 @@ export default function Anunciantes() {
       UF: a.uf_cliente || "",
       Executivo: a.executivo || "",
       Email: a.email_anunciante || "",
+      "Grupo Empresarial": a.grupo_empresarial || "",
+      Codinome: a.codinome || "",
+      Site: a.site || "",
+      LinkedIn: a.linkedin || "",
+      Instagram: a.instagram || "",
       "Data de Cadastro": a.data_cadastro || "",
     }))
     const nomeArq = `anunciantes_${new Date().toISOString().slice(0,10)}.xlsx`
@@ -282,12 +315,21 @@ export default function Anunciantes() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
+    const d = digits(q)
     if (!q) return lista
-    return lista.filter(a =>
-      a.nome_anunciante.toLowerCase().includes(q) ||
-      (a.cnpj_anunciante || "").toLowerCase().includes(q) ||
-      (a.executivo || "").toLowerCase().includes(q)
-    )
+    return lista.filter(a => {
+      const inUrl = (u?: string | null) => (u || "").toLowerCase().includes(q)
+      return (
+        a.nome_anunciante.toLowerCase().includes(q) ||
+        (a.codinome || "").toLowerCase().includes(q) ||
+        (a.grupo_empresarial || "").toLowerCase().includes(q) ||
+        (a.cnpj_anunciante || "").toLowerCase().includes(q) ||
+        (d && digits(a.cnpj_anunciante || "").includes(d)) ||
+        (a.executivo || "").toLowerCase().includes(q) ||
+        (a.email_anunciante || "").toLowerCase().includes(q) ||
+        inUrl(a.site) || inUrl(a.linkedin) || inUrl(a.instagram)
+      )
+    })
   }, [lista, busca])
 
   // máscara de exibição na tabela (garante pontuação correta)
@@ -303,6 +345,13 @@ export default function Anunciantes() {
       razao_social_anunciante: a.razao_social_anunciante || "",
       uf_cliente: a.uf_cliente || "DF",
       executivo: a.executivo || "",
+
+      // novos
+      grupo_empresarial: a.grupo_empresarial || "",
+      codinome: a.codinome || "",
+      site: a.site || "",
+      linkedin: a.linkedin || "",
+      instagram: a.instagram || "",
     })
     setEditOpen(true)
   }
@@ -317,7 +366,7 @@ export default function Anunciantes() {
   }
   async function salvarEdicao() {
     if (!editItem) return
-    // validações mínimas (permite limpar email e razão social; executivo continua obrigatório)
+    // validações mínimas
     if (!editItem.nome_anunciante?.trim()) { setEditErro("Nome é obrigatório."); return }
     if (!editItem.executivo?.trim()) { setEditErro("Executivo é obrigatório."); return }
     if (!emailOk(editItem.email_anunciante || "")) { setEditErro("Email inválido."); return }
@@ -331,6 +380,13 @@ export default function Anunciantes() {
         uf_cliente: editItem.uf_cliente || "",
         executivo: editItem.executivo,
         email_anunciante: editItem.email_anunciante ?? "",
+
+        // novos
+        grupo_empresarial: editItem.grupo_empresarial ?? "",
+        codinome: editItem.codinome ?? "",
+        site: normalizeUrl(editItem.site || ""),
+        linkedin: normalizeUrl(editItem.linkedin || ""),
+        instagram: normalizeUrl(editItem.instagram || ""),
       }
       const body = deepClean(raw)
       await putJSON(`${API}/anunciantes/${editItem.id}`, body)
@@ -341,6 +397,21 @@ export default function Anunciantes() {
     } finally {
       setSavingEdit(false)
     }
+  }
+
+  const LinkPill = ({ href, label }: { href?: string | null, label: string }) => {
+    if (!href) return null
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 text-xs font-semibold transition"
+        title={href}
+      >
+        {label}
+      </a>
+    )
   }
 
   return (
@@ -362,7 +433,7 @@ export default function Anunciantes() {
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{erro}</div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Nome do Anunciante</label>
             <input
@@ -439,6 +510,57 @@ export default function Anunciantes() {
               {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
             </select>
           </div>
+
+          {/* 🔥 Novos campos */}
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Grupo Empresarial</label>
+            <input
+              value={grupoEmpresarial}
+              onChange={(e) => setGrupoEmpresarial(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Grupo ACME"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Codinome</label>
+            <input
+              value={codinome}
+              onChange={(e) => setCodinome(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Identificador curto (único)"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Site</label>
+            <input
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="ex.: empresa.com.br"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">LinkedIn</label>
+            <input
+              value={linkedin}
+              onChange={(e) => setLinkedin(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="ex.: linkedin.com/company/empresa"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Instagram</label>
+            <input
+              value={instagram}
+              onChange={(e) => setInstagram(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="ex.: instagram.com/empresa"
+            />
+          </div>
         </div>
 
         <div className="mt-6">
@@ -460,8 +582,8 @@ export default function Anunciantes() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, documento ou executivo"
-              className="w-72 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Buscar por nome, codinome, documento, executivo, grupo..."
+              className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
             <button
               onClick={() => exportarPlanilha(filtrada)}
@@ -487,7 +609,18 @@ export default function Anunciantes() {
               <table className="min-w-full divide-y divide-red-200">
                 <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
                   <tr>
-                    {["Nome", "Documento", "UF", "Executivo", "Email", "Data de Cadastro", "Ações"].map(h => (
+                    {[
+                      "Nome / Razão",
+                      "Codinome",
+                      "Grupo",
+                      "Documento",
+                      "UF",
+                      "Executivo",
+                      "Contato",
+                      "Redes",
+                      "Cadastro",
+                      "Ações",
+                    ].map(h => (
                       <th
                         key={h}
                         className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide"
@@ -517,6 +650,14 @@ export default function Anunciantes() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
+                        {a.codinome ? <span className="font-mono">{a.codinome}</span> : <span className="text-slate-400">—</span>}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
+                        {a.grupo_empresarial || <span className="text-slate-400">—</span>}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
                         <span className="font-mono">{maskDocDisplay(a.cnpj_anunciante)}</span>
                       </td>
 
@@ -531,16 +672,33 @@ export default function Anunciantes() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        {a.email_anunciante ? (
-                          <a
-                            href={`mailto:${a.email_anunciante}`}
-                            className="underline decoration-red-300 hover:decoration-red-500 break-all"
-                          >
-                            {a.email_anunciante}
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {a.email_anunciante ? (
+                            <a
+                              href={`mailto:${a.email_anunciante}`}
+                              className="underline decoration-red-300 hover:decoration-red-500 break-all"
+                            >
+                              {a.email_anunciante}
+                            </a>
+                          ) : <span className="text-slate-400">—</span>}
+                          {a.site ? (
+                            <a
+                              href={a.site}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-red-700 underline decoration-red-300 hover:decoration-red-500 break-all"
+                            >
+                              {a.site}
+                            </a>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          <LinkPill href={a.linkedin} label="LinkedIn" />
+                          <LinkPill href={a.instagram} label="Instagram" />
+                        </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-700 text-sm">
@@ -592,65 +750,117 @@ export default function Anunciantes() {
                 </div>
               )}
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
-                <input
-                  value={editItem.nome_anunciante || ""}
-                  onChange={(e) => campoEdit("nome_anunciante", e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
-              </div>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                  <input
+                    value={editItem.nome_anunciante || ""}
+                    onChange={(e) => campoEdit("nome_anunciante", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
-                <input
-                  value={editItem.razao_social_anunciante || ""}
-                  onChange={(e) => campoEdit("razao_social_anunciante", e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
+                  <input
+                    value={editItem.razao_social_anunciante || ""}
+                    onChange={(e) => campoEdit("razao_social_anunciante", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Documento (CPF/CNPJ)</label>
-                <input
-                  value={editItem.cnpj_anunciante || ""}
-                  onChange={(e) => campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))}
-                  onBlur={() => campoEdit("cnpj_anunciante", formatDocPartial(editItem.cnpj_anunciante || ""))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Codinome</label>
+                  <input
+                    value={editItem.codinome || ""}
+                    onChange={(e) => campoEdit("codinome", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Identificador curto (único)"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
-                <select
-                  value={editItem.uf_cliente || "DF"}
-                  onChange={(e) => campoEdit("uf_cliente", e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                >
-                  {UFS.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Grupo Empresarial</label>
+                  <input
+                    value={editItem.grupo_empresarial || ""}
+                    onChange={(e) => campoEdit("grupo_empresarial", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
-                <select
-                  value={editItem.executivo || ""}
-                  onChange={(e) => campoEdit("executivo", e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                >
-                  <option value="">— Selecione —</option>
-                  {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Documento (CPF/CNPJ)</label>
+                  <input
+                    value={editItem.cnpj_anunciante || ""}
+                    onChange={(e) => campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))}
+                    onBlur={() => campoEdit("cnpj_anunciante", formatDocPartial(editItem.cnpj_anunciante || ""))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
-                <input
-                  value={editItem.email_anunciante || ""}
-                  onChange={(e) => campoEdit("email_anunciante", e.target.value)}
-                  placeholder="contato@empresa.com.br"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                  <select
+                    value={editItem.uf_cliente || "DF"}
+                    onChange={(e) => campoEdit("uf_cliente", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                  <select
+                    value={editItem.executivo || ""}
+                    onChange={(e) => campoEdit("executivo", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">— Selecione —</option>
+                    {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                  <input
+                    value={editItem.email_anunciante || ""}
+                    onChange={(e) => campoEdit("email_anunciante", e.target.value)}
+                    placeholder="contato@empresa.com.br"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* Redes / Sites */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Site</label>
+                  <input
+                    value={editItem.site || ""}
+                    onChange={(e) => campoEdit("site", e.target.value)}
+                    placeholder="ex.: empresa.com.br"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">LinkedIn</label>
+                  <input
+                    value={editItem.linkedin || ""}
+                    onChange={(e) => campoEdit("linkedin", e.target.value)}
+                    placeholder="ex.: linkedin.com/company/empresa"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Instagram</label>
+                  <input
+                    value={editItem.instagram || ""}
+                    onChange={(e) => campoEdit("instagram", e.target.value)}
+                    placeholder="ex.: instagram.com/empresa"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
               </div>
 
               <div className="pt-2">
