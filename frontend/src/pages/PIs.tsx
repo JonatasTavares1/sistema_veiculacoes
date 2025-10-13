@@ -79,6 +79,7 @@ const DEFAULT_EXECUTIVOS = [
 ]
 const DIRETORIAS = ["Governo Federal", "Governo Estadual", "Rafael Augusto"]
 
+// ===== helpers de formatação =====
 function fmtMoney(v?: number | null) {
   if (v == null || Number.isNaN(v)) return "R$ 0,00"
   return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -100,6 +101,7 @@ function mesToYM(s?: string | null): string {
   return ""
 }
 
+// ===== http =====
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -124,7 +126,6 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   }
   return r.json()
 }
-// >>> helper de DELETE
 async function delJSON(url: string): Promise<void> {
   const r = await fetch(url, { method: "DELETE" })
   if (!r.ok) {
@@ -140,7 +141,7 @@ async function delJSON(url: string): Promise<void> {
   }
 }
 
-// --- helpers para fallback das veiculações vindas no /detalhe ---
+// ===== helpers veiculações/PI =====
 function coalesceValor(v?: { valor?: number|null; valor_liquido?: number|null; valor_bruto?: number|null }) {
   if (!v) return null
   return v.valor_liquido ?? v.valor ?? v.valor_bruto ?? null
@@ -173,6 +174,7 @@ function flattenVeicsFromDetalhe(det: PiDetalhe | null): VeiculacaoRow[] {
   return out
 }
 
+// ===================== Componente =====================
 export default function PIs() {
   const [lista, setLista] = useState<PIItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -194,6 +196,7 @@ export default function PIs() {
   const [detalheLoading, setDetalheLoading] = useState(false)
   const [veics, setVeics] = useState<VeiculacaoRow[]>([])
   const [veicsError, setVeicsError] = useState<string | null>(null)
+  const [selectedPiMeta, setSelectedPiMeta] = useState<PIItem | null>(null) // <-- meta completo do PI
 
   // editor PI básico
   const [editOpen, setEditOpen] = useState(false)
@@ -201,8 +204,11 @@ export default function PIs() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  // ids sendo excluídos (pra desabilitar o botão)
+  // ids sendo excluídos
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
+
+  // view: tabela ou cards
+  const [view, setView] = useState<"table" | "cards">("table")
 
   async function carregar() {
     setLoading(true); setErro(null)
@@ -290,7 +296,7 @@ export default function PIs() {
       colMoney.forEach((k) => {
         const cell = xlsx.utils.encode_cell({ r: i + 1, c: Object.keys(rows[0]).indexOf(k) })
         const v = r[k as keyof typeof r] as number
-        ws[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
+        ;(ws as any)[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
       })
     })
 
@@ -331,6 +337,9 @@ export default function PIs() {
     setDetalheLoading(true)
     setVeics([])
     setVeicsError(null)
+    // pegue o meta completo do PI da lista atual
+    setSelectedPiMeta(lista.find(p => p.id === pi_id) || null)
+
     try {
       const det = await getJSON<PiDetalhe>(`${API}/pis/${pi_id}/detalhe`)
       setDetalhePI(det)
@@ -351,6 +360,7 @@ export default function PIs() {
     setDetalhePI(null)
     setVeics([])
     setVeicsError(null)
+    setSelectedPiMeta(null)
   }
 
   // editor
@@ -411,7 +421,6 @@ export default function PIs() {
     }
   }
 
-  // >>> excluir PI
   async function excluirPI(pi: PIItem) {
     if (!confirm(`Excluir PI ${pi.numero_pi} (#${pi.id})? Esta ação não pode ser desfeita.`)) return
     setDeletingIds(prev => new Set(prev).add(pi.id))
@@ -430,12 +439,20 @@ export default function PIs() {
     }
   }
 
+  // ===== render =====
   return (
     <div className="space-y-8">
       {/* Título + ações */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-4xl font-extrabold text-slate-900">PIs Cadastrados</h1>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setView(v => v === "table" ? "cards" : "table")}
+            className="px-5 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50"
+            title="Alternar visualização"
+          >
+            {view === "table" ? "🗂️ Ver como Cards" : "📋 Ver como Tabela"}
+          </button>
           <button
             onClick={exportarXLSX}
             className="px-5 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50"
@@ -548,7 +565,7 @@ export default function PIs() {
         </div>
       </section>
 
-      {/* Lista */}
+      {/* Lista (Tabela ou Cards) */}
       <section>
         {loading ? (
           <div className="p-4 text-slate-600 text-lg">Carregando…</div>
@@ -558,7 +575,7 @@ export default function PIs() {
           <div className="p-8 rounded-2xl border border-dashed border-slate-300 text-center text-slate-600">
             Nenhum PI encontrado.
           </div>
-        ) : (
+        ) : view === "table" ? (
           <div className="overflow-hidden rounded-2xl border border-red-200 shadow-sm">
             <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-red-100">
               <div className="text-slate-700">{filtrada.length} registro(s)</div>
@@ -623,13 +640,6 @@ export default function PIs() {
                               🔎 Detalhes
                             </button>
                             <button
-                              onClick={() => abrirDetalhesPorId(pi.id)}
-                              className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-700 text-sm hover:bg-emerald-50"
-                              title="Ver veiculações deste PI"
-                            >
-                              📅 Veiculações
-                            </button>
-                            <button
                               onClick={() => abrirEditor(pi)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
                               title="Editar dados do PI"
@@ -653,21 +663,122 @@ export default function PIs() {
               </table>
             </div>
           </div>
+        ) : (
+          // ====== GRID DE CARDS ======
+          <div className="space-y-3">
+            <div className="text-slate-700">{filtrada.length} registro(s)</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+              {filtrada.map((pi) => {
+                const piMatriz = (pi.tipo_pi === "CS" || pi.tipo_pi === "Abatimento") ? (pi.numero_pi_matriz || "") : ""
+                const dataVenda = (pi.dia_venda && pi.mes_venda) ? `${pi.dia_venda}/${pi.mes_venda}` : ""
+                const excluindo = deletingIds.has(pi.id)
+                return (
+                  <div
+                    key={pi.id}
+                    className="rounded-2xl border border-red-200 bg-white shadow-sm hover:shadow-md transition overflow-hidden"
+                  >
+                    <div className="px-5 py-4 border-b border-red-100 bg-gradient-to-r from-white to-red-50/30">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs uppercase tracking-wide text-red-700 font-semibold">PI</div>
+                          <div className="font-mono text-xl font-extrabold text-slate-900 truncate">{pi.numero_pi}</div>
+                          {piMatriz && (
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              Matriz: <span className="font-mono">{piMatriz}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500">Valor Líquido</div>
+                          <div className="text-lg font-bold text-slate-900">{fmtMoney(pi.valor_liquido)}</div>
+                          <div className="text-xs text-slate-500 mt-1">Valor Total</div>
+                          <div className="text-sm font-semibold text-slate-900">{fmtMoney(pi.valor_bruto)}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-4 space-y-2">
+                      <div className="text-sm">
+                        <span className="text-slate-500">Cliente:</span>{" "}
+                        <span className="font-medium text-slate-900">{pi.nome_anunciante || "—"}</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-slate-500">Campanha:</span>{" "}
+                        <span className="font-medium text-slate-900">{pi.nome_campanha || "—"}</span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="inline-flex items-center rounded-full bg-red-50 text-red-800 px-2.5 py-1 border border-red-200">
+                          {pi.tipo_pi}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-1 border border-slate-200" title="Praça">
+                          {pi.uf_cliente || "—"}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-800 px-2.5 py-1 border border-blue-200" title="Meio">
+                          {pi.canal || "—"}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-800 px-2.5 py-1 border border-emerald-200" title="Diretoria">
+                          {pi.diretoria || "—"}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-purple-50 text-purple-800 px-2.5 py-1 border border-purple-200" title="Executivo">
+                          {pi.executivo || "—"}
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-slate-600">
+                        Emissão: <span className="font-medium text-slate-800">{parseISODateToBR(pi.data_emissao) || "—"}</span>
+                        {dataVenda && (
+                          <>
+                            {" "}| Venda: <span className="font-medium text-slate-800">{dataVenda}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => abrirDetalhesPorId(pi.id)}
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
+                        title="Ver detalhes do PI"
+                      >
+                        🔎 Detalhes
+                      </button>
+                      <button
+                        onClick={() => abrirEditor(pi)}
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
+                        title="Editar dados do PI"
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
+                        onClick={() => excluirPI(pi)}
+                        disabled={excluindo}
+                        className="px-3 py-1.5 rounded-xl border border-red-300 text-red-700 text-sm hover:bg-white disabled:opacity-60"
+                        title="Excluir PI"
+                      >
+                        {excluindo ? "⏳ Excluindo…" : "🗑️ Excluir"}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         )}
       </section>
 
-      {/* Painel de detalhes (somente leitura) */}
+      {/* Painel de detalhes (todas as informações) */}
       {detalhePI && (
         <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
           <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Detalhe do PI</div>
                 <div className="mt-1 text-3xl font-extrabold text-slate-900">
-                  <span className="font-mono">{detalhePI.numero_pi}</span>
+                  <span className="font-mono truncate">{detalhePI.numero_pi}</span>
                 </div>
-                <div className="text-slate-600 mt-1">
+                <div className="text-slate-600 mt-1 truncate">
                   {detalhePI.anunciante || "—"} • {detalhePI.campanha || "—"}
                 </div>
               </div>
@@ -680,6 +791,30 @@ export default function PIs() {
             </div>
 
             <div className="p-6 space-y-6">
+              {/* Informações completas do PI */}
+              {selectedPiMeta && (
+                <div className="rounded-2xl border border-slate-200">
+                  <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Informações do PI</div>
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <InfoRow label="Tipo" value={selectedPiMeta.tipo_pi} />
+                    <InfoRow label="PI Matriz" value={(selectedPiMeta.tipo_pi === "CS" || selectedPiMeta.tipo_pi === "Abatimento") ? (selectedPiMeta.numero_pi_matriz || "—") : "—"} mono />
+                    <InfoRow label="PI Normal (CS)" value={selectedPiMeta.tipo_pi === "CS" ? (selectedPiMeta.numero_pi_normal || "—") : "—"} mono />
+                    <InfoRow label="Agência" value={selectedPiMeta.nome_agencia || "—"} />
+                    <InfoRow label="CNPJ Agência" value={selectedPiMeta.cnpj_agencia || "—"} mono />
+                    <InfoRow label="Data de Emissão" value={parseISODateToBR(selectedPiMeta.data_emissao) || "—"} />
+                    <InfoRow label="Valor Líquido" value={fmtMoney(selectedPiMeta.valor_liquido)} />
+                    <InfoRow label="Valor Total" value={fmtMoney(selectedPiMeta.valor_bruto)} />
+                    <InfoRow label="Praça" value={selectedPiMeta.uf_cliente || "—"} />
+                    <InfoRow label="Meio" value={selectedPiMeta.canal || "—"} />
+                    <InfoRow label="Campanha" value={selectedPiMeta.nome_campanha || "—"} />
+                    <InfoRow label="Diretoria" value={selectedPiMeta.diretoria || "—"} />
+                    <InfoRow label="Executivo" value={selectedPiMeta.executivo || "—"} />
+                    <InfoRow label="Data da Venda" value={(selectedPiMeta.dia_venda && selectedPiMeta.mes_venda) ? `${selectedPiMeta.dia_venda}/${selectedPiMeta.mes_venda}` : "—"} />
+                    <InfoRow label="Observações" value={selectedPiMeta.observacoes || "—"} full />
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="text-sm text-slate-500">Total do PI</div>
                 <div className="text-2xl font-bold">{fmtMoney(detalhePI.total_pi)}</div>
@@ -750,7 +885,7 @@ export default function PIs() {
                 </div>
               )}
 
-              {/* ...campos do editor permanecem iguais... */}
+              {/* ...seus campos do editor... */}
 
               <div className="pt-2">
                 <button
@@ -766,6 +901,18 @@ export default function PIs() {
         </div>
       )}
 
+    </div>
+  )
+}
+
+/** Sub-componente para linhas de informação do PI */
+function InfoRow({ label, value, mono = false, full = false }: { label: string; value: any; mono?: boolean; full?: boolean }) {
+  return (
+    <div className={full ? "md:col-span-2" : ""}>
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-0.5 text-slate-900 ${mono ? "font-mono" : "font-medium"}`}>
+        {String(value ?? "—")}
+      </div>
     </div>
   )
 }
