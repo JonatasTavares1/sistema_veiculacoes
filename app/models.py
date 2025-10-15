@@ -61,7 +61,7 @@ class PI(Base):
     numero_pi_normal = Column(String, nullable=True)   # usado se tipo_pi == "CS"
 
     # Tipo de PI
-    tipo_pi = Column(String, nullable=False)  # "Matriz" | "Normal" | "CS" | "Abatimento"
+    tipo_pi = Column(String, nullable=False)  # "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
 
     # Anunciante
     nome_anunciante = Column(String)
