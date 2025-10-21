@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 // ====== Tipos ======
-type TipoPI = "Matriz" | "Normal" | "CS" | "Abatimento"
+type TipoPI = "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
 type PISimple = { numero_pi: string; nome_campanha?: string | null }
 
 type VeicDraft = {
@@ -36,6 +36,15 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
+  if (!r.ok) {
+    let detail = await r.text()
+    try { detail = (await r.json()).detail ?? detail } catch {}
+    throw new Error(detail || `Erro ${r.status}`)
+  }
+  return r.json()
+}
+async function postForm<T>(url: string, form: FormData): Promise<T> {
+  const r = await fetch(url, { method: "POST", body: form })
   if (!r.ok) {
     let detail = await r.text()
     try { detail = (await r.json()).detail ?? detail } catch {}
@@ -85,13 +94,6 @@ function parseMoney(input: string): number | null {
   }
   const n = Number(t)
   return Number.isFinite(n) ? n : null
-}
-function parsePercent(input: string): number | null {
-  const t = (input ?? "").toString().trim().replace("%","").replace(",", ".")
-  if (!t) return null
-  const n = Number(t)
-  if (!Number.isFinite(n)) return null
-  return Math.max(0, Math.min(100, n))
 }
 function nearEq(a: number, b: number, tol = 0.01) {
   return Math.abs(a - b) <= tol
@@ -145,6 +147,10 @@ export default function CadastroPI() {
   const [opcoesProdutoNome, setOpcoesProdutoNome] = useState<string[]>([])
   const [produtos, setProdutos] = useState<ProdutoDraft[]>([])
 
+  // ===== Anexos (PI e Proposta)
+  const [arquivoPi, setArquivoPi] = useState<File | null>(null)
+  const [arquivoProposta, setArquivoProposta] = useState<File | null>(null)
+
   // ===== UX
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -182,7 +188,7 @@ export default function CadastroPI() {
   // alterna seções condicionais
   useEffect(() => {
     setErro(null); setMsg(null)
-    if (tipoPI !== "Abatimento") setNumeroPIMatriz("")
+    if (tipoPI !== "Abatimento" && tipoPI !== "Veiculação") setNumeroPIMatriz("")
     if (tipoPI !== "CS") setNumeroPINormal("")
   }, [tipoPI])
 
@@ -229,6 +235,26 @@ export default function CadastroPI() {
   }
 
   // ===== Produtos & Veiculações - helpers
+  function setVeic(idx: number, vIdx: number, patch: Partial<VeicDraft>) {
+    setProdutos(prev => prev.map((p, i) => {
+      if (i !== idx) return p
+      const novo = { ...p }
+      novo.veiculacoes = p.veiculacoes.map((v, j) => {
+        if (j !== vIdx) return v
+        const merged: VeicDraft = { ...v, ...patch }
+
+        // Auto-preenchimento do LÍQUIDO quando alterar BRUTO ou DESCONTO
+        const mudouBruto = Object.prototype.hasOwnProperty.call(patch, "valor_bruto")
+        const mudouDesc  = Object.prototype.hasOwnProperty.call(patch, "desconto")
+        if ((mudouBruto || mudouDesc) && merged.valor_bruto != null && merged.desconto != null) {
+          const calc = Number((merged.valor_bruto * (1 - (merged.desconto || 0) / 100)).toFixed(2))
+          merged.valor_liquido = calc
+        }
+        return merged
+      })
+      return novo
+    }))
+  }
   function addProduto() {
     setProdutos(prev => [...prev, { nome: "", veiculacoes: [] }])
   }
@@ -263,13 +289,8 @@ export default function CadastroPI() {
       i === idx ? { ...p, veiculacoes: p.veiculacoes.filter((_, j) => j !== vIdx) } : p
     ))
   }
-  function setVeic(idx: number, vIdx: number, patch: Partial<VeicDraft>) {
-    setProdutos(prev => prev.map((p, i) =>
-      i === idx ? { ...p, veiculacoes: p.veiculacoes.map((v, j) => j === vIdx ? { ...v, ...patch } : v) } : p
-    ))
-  }
 
-  // Cálculo por VEICULAÇÃO (substitui cálculo que estava no Produto)
+  // Cálculo por VEICULAÇÃO (para conferência visual)
   function numbersFromVeic(v: VeicDraft) {
     const b = v.valor_bruto ?? null
     const d = v.desconto ?? null
@@ -298,7 +319,7 @@ export default function CadastroPI() {
   const podeEnviar = useMemo(() => {
     if (!numeroPI.trim()) return false
     if (tipoPI === "CS" && !numeroPINormal) return false
-    if (tipoPI === "Abatimento" && !numeroPIMatriz) return false
+    if ((tipoPI === "Abatimento" || tipoPI === "Veiculação") && !numeroPIMatriz) return false
     // precisa ter ao menos 1 produto
     if (produtos.length === 0) return false
     // precisa ter ao menos 1 veiculação
@@ -314,6 +335,37 @@ export default function CadastroPI() {
     return true
   }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, produtos, algumMismatchVeic, valorBruto, valorLiquido, somaBrutoVeics, somaLiquidoVeics])
 
+  // ===== Upload de anexos após criar PI
+  async function uploadAnexos(pi: { id: number; numero_pi: string }) {
+    // Esta rota precisa existir no backend:
+    // POST /pis/{pi_id}/anexos  (multipart/form-data)
+    // fields: arquivo (file), tipo ("pi_pdf" | "proposta")
+    const uploads: string[] = []
+    try {
+      if (arquivoPi) {
+        const fd = new FormData()
+        fd.append("tipo", "pi_pdf")
+        fd.append("arquivo", arquivoPi, arquivoPi.name)
+        await postForm(`${API}/pis/${pi.id}/anexos`, fd)
+        uploads.push("PI (PDF)")
+      }
+    } catch (e: any) {
+      console.warn("Falha ao enviar PDF do PI:", e?.message || e)
+    }
+    try {
+      if (arquivoProposta) {
+        const fd = new FormData()
+        fd.append("tipo", "proposta")
+        fd.append("arquivo", arquivoProposta, arquivoProposta.name)
+        await postForm(`${API}/pis/${pi.id}/anexos`, fd)
+        uploads.push("Proposta")
+      }
+    } catch (e: any) {
+      console.warn("Falha ao enviar Proposta:", e?.message || e)
+    }
+    return uploads
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true); setErro(null); setMsg(null)
@@ -322,25 +374,6 @@ export default function CadastroPI() {
       if (produtos.length === 0) throw new Error("Adicione ao menos um produto.")
       const totalVeics = produtos.reduce((acc, p) => acc + p.veiculacoes.length, 0)
       if (totalVeics === 0) throw new Error("Adicione ao menos uma veiculação (é onde ficam os valores).")
-
-      // divergências em veiculações
-      const diverg: Array<{ produto: string; idx: number; lInf: number; lCalc: number; }> = []
-      produtos.forEach((p) => {
-        p.veiculacoes.forEach((v, i) => {
-          const { lInf, lCalc, mismatch } = numbersFromVeic(v)
-          if (mismatch) diverg.push({
-            produto: p.nome || `Produto`,
-            idx: i + 1,
-            lInf: lInf!, lCalc: lCalc!
-          })
-        })
-      })
-      if (diverg.length) {
-        const lista = diverg.map(x =>
-          `• ${x.produto} — Veiculação #${x.idx}: Líquido informado ${fmtMoney(x.lInf)} ≠ calculado ${fmtMoney(x.lCalc)}`
-        ).join("\n")
-        throw new Error(`Ajuste os valores das veiculações:\n${lista}`)
-      }
 
       const vb = parseMoney(valorBruto); const vl = parseMoney(valorLiquido)
       if (vb == null || vl == null) throw new Error("Informe o Valor Bruto e o Valor Líquido do PI.")
@@ -356,6 +389,9 @@ export default function CadastroPI() {
       const payload: any = {
         numero_pi: numeroPI.trim(),
         tipo_pi: tipoPI,
+        // vínculos
+        ...(tipoPI === "CS" ? { numero_pi_normal: numeroPINormal } : {}),
+        ...(tipoPI === "Abatimento" || tipoPI === "Veiculação" ? { numero_pi_matriz: numeroPIMatriz } : {}),
         // anunciante
         nome_anunciante: nomeAnunciante || undefined,
         razao_social_anunciante: razaoAnunciante || undefined,
@@ -383,8 +419,6 @@ export default function CadastroPI() {
         valor_liquido: Number(vl.toFixed(2)),
         observacoes: (observacoes || "").trim(),
       }
-      if (tipoPI === "Abatimento") payload.numero_pi_matriz = numeroPIMatriz
-      if (tipoPI === "CS") payload.numero_pi_normal = numeroPINormal
 
       const pi = await postJSON<any>(`${API}/pis`, payload)
 
@@ -409,9 +443,18 @@ export default function CadastroPI() {
       }
       if (chamadas.length) await Promise.all(chamadas)
 
-      setMsg(`PI criada: ${pi.numero_pi} (${pi.tipo_pi})`)
+      // 3) envia anexos (se a rota existir no backend)
+      const anexosOk = await uploadAnexos(pi)
+
+      setMsg(
+        `PI criada: ${pi.numero_pi} (${pi.tipo_pi})` +
+        (anexosOk.length ? `\nAnexos enviados: ${anexosOk.join(", ")}` : "")
+      )
+      // limpa formulário principal
       setNumeroPI("")
       setProdutos([])
+      setArquivoPi(null)
+      setArquivoProposta(null)
     } catch (err: any) {
       setErro(err?.message || "Erro ao cadastrar PI.")
     } finally {
@@ -429,8 +472,6 @@ export default function CadastroPI() {
           <span className="h-2 w-2 rounded-full bg-red-600" /> modo cadastro
         </span>
       </div>
-
-      {/* (Importar do PDF removido) */}
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Identificação */}
@@ -452,7 +493,7 @@ export default function CadastroPI() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Tipo de PI</label>
               <div className="flex flex-wrap gap-2">
-                {(["Matriz","Normal","CS","Abatimento"] as const).map((tipo) => {
+                {(["Matriz","Normal","CS","Abatimento","Veiculação"] as const).map((tipo) => {
                   const selected = tipoPI === tipo
                   return (
                     <button
@@ -475,10 +516,12 @@ export default function CadastroPI() {
           </div>
 
           {/* vínculos condicionais */}
-          {tipoPI === "Abatimento" && (
+          {(tipoPI === "Abatimento" || tipoPI === "Veiculação") && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div className="md:col-span-3">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Vincular a PI Matriz (com saldo)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Vincular a PI Matriz ({tipoPI})
+                </label>
                 <select
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                   value={numeroPIMatriz}
@@ -499,7 +542,7 @@ export default function CadastroPI() {
             <div className="mt-4">
               <label className="block text-sm font-medium text-slate-700 mb-1">Vincular a PI Normal</label>
               <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-2xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 value={numeroPINormal}
                 onChange={(e) => setNumeroPINormal(e.target.value)}
               >
@@ -514,7 +557,7 @@ export default function CadastroPI() {
           )}
         </section>
 
-        {/* Anunciante */}
+        {/* Informações do Anunciante */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Informações do Anunciante</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -859,7 +902,7 @@ export default function CadastroPI() {
                                       />
                                     </td>
 
-                                    {/* Desconto % */}
+                                    {/* Desconto % (auto preenche líquido) */}
                                     <td className="px-3 py-2">
                                       <input
                                         type="number"
@@ -1011,6 +1054,36 @@ export default function CadastroPI() {
               />
             </div>
           </div>
+        </section>
+
+        {/* Anexos */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Anexos</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">PDF do PI</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setArquivoPi(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+              <div className="text-xs text-slate-500 mt-1">{arquivoPi?.name}</div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Proposta (PDF)</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setArquivoProposta(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+              <div className="text-xs text-slate-500 mt-1">{arquivoProposta?.name}</div>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            Os arquivos são enviados após o PI ser criado. É esperado o endpoint <code>/pis/&#123;pi_id&#125;/anexos</code> no backend.
+          </p>
         </section>
 
         {/* Ações */}
