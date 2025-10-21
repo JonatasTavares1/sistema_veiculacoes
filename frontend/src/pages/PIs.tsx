@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 type PIItem = {
   id: number
   numero_pi: string
-  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" | string
+  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" |"veiculação" | string
   numero_pi_matriz?: string | null
   numero_pi_normal?: string | null
   nome_anunciante?: string | null

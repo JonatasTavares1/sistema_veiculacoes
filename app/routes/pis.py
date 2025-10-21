@@ -1,7 +1,7 @@
-# app/routes/pis.py
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -23,6 +23,9 @@ from app.utils.pi_pdf import extract_structured_fields_from_pdf
 
 router = APIRouter(prefix="/pis", tags=["pis"])
 
+# -------- uploads base dir --------
+UPLOAD_ROOT = Path(os.getenv("PI_UPLOAD_DIR", "uploads")) / "pis"
+UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 # --------------------- infra ---------------------
 
@@ -372,3 +375,73 @@ def listar_veiculacoes_do_pi(pi_id: int, db: Session = Depends(get_db)):
     """
     rows = pi_crud.list_veiculacoes_by_pi(db, pi_id)
     return rows
+
+
+# ---------- NOVOS: anexos (PI PDF e Proposta) ----------
+
+@router.get("/{pi_id:int}/arquivos")
+def listar_arquivos(pi_id: int, db: Session = Depends(get_db)):
+    anexos = pi_crud.anexos_list(db, pi_id)
+    return [
+        {
+            "id": a.id,
+            "tipo": a.tipo,
+            "filename": a.filename,
+            "path": a.path,
+            "mime": a.mime,
+            "size": a.size,
+            "uploaded_at": a.uploaded_at,
+        }
+        for a in anexos
+    ]
+
+
+@router.post("/{pi_id:int}/arquivos")
+async def subir_arquivos(
+    pi_id: int,
+    arquivo_pi: UploadFile | None = File(None, description="PDF do PI"),
+    proposta: UploadFile | None = File(None, description="PDF da Proposta"),
+    db: Session = Depends(get_db),
+):
+    if arquivo_pi is None and proposta is None:
+        raise HTTPException(status_code=400, detail="Envie ao menos um arquivo (arquivo_pi ou proposta).")
+
+    base = UPLOAD_ROOT / str(pi_id)
+    base.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+
+    async def _save_one(up: UploadFile, tipo: str):
+        if not (up.filename or "").lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"O arquivo '{up.filename}' precisa ser PDF.")
+        safe_name = f"{tipo}-{uuid4().hex}.pdf"
+        dest = base / safe_name
+        with open(dest, "wb") as f:
+            f.write(await up.read())
+        reg = pi_crud.anexos_add(
+            db,
+            pi_id,
+            tipo=tipo,
+            filename=up.filename or safe_name,
+            path=str(dest).replace("\\", "/"),
+            mime=up.content_type,
+            size=None,
+        )
+        saved.append(
+            {
+                "id": reg.id,
+                "tipo": reg.tipo,
+                "filename": reg.filename,
+                "path": reg.path,
+                "mime": reg.mime,
+                "size": reg.size,
+                "uploaded_at": reg.uploaded_at,
+            }
+        )
+
+    if arquivo_pi is not None:
+        await _save_one(arquivo_pi, "pi_pdf")
+    if proposta is not None:
+        await _save_one(proposta, "proposta_pdf")
+
+    return {"uploaded": saved}

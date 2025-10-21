@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.database import init_db
 
@@ -27,6 +29,14 @@ app.add_middleware(
     allow_credentials=False,   # se precisar de cookies, troque para True e mantenha origens explícitas
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# >>> SERVIR UPLOADS (PDFs do PI/Proposta)
+# Use PI_UPLOAD_DIR se quiser customizar (default: ./uploads)
+app.mount(
+    "/uploads",
+    StaticFiles(directory=os.getenv("PI_UPLOAD_DIR", "uploads")),
+    name="uploads",
 )
 
 @app.on_event("startup")

@@ -1,6 +1,7 @@
 # app/models.py
+from datetime import datetime
 from sqlalchemy.orm import relationship, foreign, remote
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_, DateTime
 
 # ✅ Base central
 from app.models_base import Base
@@ -57,11 +58,12 @@ class PI(Base):
     numero_pi = Column(String, nullable=False, unique=True)
 
     # Vinculação
-    numero_pi_matriz = Column(String, nullable=True)   # usado se tipo_pi == "Abatimento"
+    numero_pi_matriz = Column(String, nullable=True)   # usado se tipo_pi in {"Abatimento","Veiculação"}
     numero_pi_normal = Column(String, nullable=True)   # usado se tipo_pi == "CS"
 
     # Tipo de PI
-    tipo_pi = Column(String, nullable=False)  # "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
+    # "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
+    tipo_pi = Column(String, nullable=False)
 
     # Anunciante
     nome_anunciante = Column(String)
@@ -105,8 +107,8 @@ class PI(Base):
     produtos = relationship(
         "Produto",
         back_populates="pi",
-        cascade="save-update, merge",   # sem delete-orphan
-        passive_deletes=True            # respeita ondelete do FK em Produto.pi_id
+        cascade="save-update, merge",
+        passive_deletes=True
     )
 
     # Veiculações deste PI (para consultas globais por PI)
@@ -135,31 +137,42 @@ class PI(Base):
         viewonly=True,
     )
 
+    # NOVO: anexos (PDF do PI e Proposta)
+    anexos = relationship("PIAnexo", back_populates="pi", cascade="all, delete-orphan")
+
+
+class PIAnexo(Base):
+    __tablename__ = "pi_anexos"
+
+    id = Column(Integer, primary_key=True)
+    pi_id = Column(Integer, ForeignKey("pis.id", ondelete="CASCADE"), nullable=False)
+
+    # tipo: "pi_pdf" ou "proposta_pdf"
+    tipo = Column(String, nullable=False)
+    filename = Column(String, nullable=False)          # nome original
+    path = Column(String, nullable=False)              # caminho salvo (relativo/absoluto)
+    mime = Column(String, nullable=True)
+    size = Column(Integer, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    pi = relationship("PI", back_populates="anexos")
+
 
 class Produto(Base):
     __tablename__ = 'produtos'
 
     id = Column(Integer, primary_key=True)
-    # unique=True opcional, mas recomendado para catálogo global por nome
     nome = Column(String, nullable=False, unique=True)
 
-    # FK opcional para PI; se o PI for apagado, solta o vínculo
-    pi_id = Column(
-        Integer,
-        ForeignKey('pis.id', ondelete="SET NULL"),
-        nullable=True
-    )
+    pi_id = Column(Integer, ForeignKey('pis.id', ondelete="SET NULL"), nullable=True)
 
-    # Catálogo (sem preço)
     descricao = Column(String, nullable=True)
 
-    # Metadados de catálogo
-    categoria = Column(String, nullable=True)           # ex.: PORTAL, PAINEL, RÁDIO...
-    modalidade_preco = Column(String, nullable=True)    # ex.: DIARIA, SEMANAL, CPM, MENSAL...
-    base_segundos = Column(Integer, nullable=True)      # ex.: 30, 60
-    unidade_rotulo = Column(String, nullable=True)      # ex.: "dia", "semana", "CPM"…
+    categoria = Column(String, nullable=True)
+    modalidade_preco = Column(String, nullable=True)
+    base_segundos = Column(Integer, nullable=True)
+    unidade_rotulo = Column(String, nullable=True)
 
-    # Relacionamentos
     pi = relationship("PI", back_populates="produtos")
     veiculacoes = relationship("Veiculacao", back_populates="produto", cascade="all, delete-orphan")
 
@@ -172,23 +185,18 @@ class Veiculacao(Base):
     produto_id = Column(Integer, ForeignKey('produtos.id'))
     pi_id = Column(Integer, ForeignKey('pis.id'))
 
-    # Colunas adicionais
     canal = Column(String, nullable=True)
     formato = Column(String, nullable=True)
 
-    # Período (strings “ISO” no CRUD)
     data_inicio = Column(String)  # "YYYY-MM-DD"
     data_fim = Column(String)     # "YYYY-MM-DD" ou None
 
-    # Métrica de contratação
-    quantidade = Column(Integer)  # dias, semanas, spots, impressões etc.
+    quantidade = Column(Integer)
 
-    # 💰 Preço 100% na veiculação
     valor_bruto = Column(Float, nullable=True)
     desconto = Column(Float, nullable=True)        # percentual (0..100)
     valor_liquido = Column(Float, nullable=True)
 
-    # Relacionamentos
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
     entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")

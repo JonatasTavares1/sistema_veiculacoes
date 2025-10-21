@@ -4,10 +4,10 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, asc
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import PI, Produto, Veiculacao
+from app.models import PI, Produto, Veiculacao, PIAnexo
 
 # =========================================================
 # Helpers
@@ -20,6 +20,8 @@ def _normalize_tipo(tipo: Optional[str]) -> str:
     if t.lower() == "cs":
         return "CS"
     # Mantém capitalização das demais
+    if t.lower() == "veiculação" or t.lower() == "veiculacao":
+        return "Veiculação"
     return t.capitalize()
 
 def _clean_empty_strings(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -121,7 +123,7 @@ def calcular_valor_abatido(db: Session, numero_pi_matriz: str) -> float:
 def calcular_saldo_restante(
     db: Session,
     numero_pi_matriz: str,
-    *,
+    * ,
     ignorar_pi_id: Optional[int] = None,
 ) -> float:
     matriz = get_by_numero(db, numero_pi_matriz)
@@ -193,6 +195,15 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
         if not pi_normal or pi_normal.tipo_pi != "Normal":
             raise ValueError(f"PI Normal '{num_normal}' não encontrado.")
         dados["numero_pi_matriz"] = None
+
+    elif tipo == "Veiculação":
+        num_matriz = dados.get("numero_pi_matriz")
+        if not num_matriz:
+            raise ValueError("Para cadastrar uma VEICULAÇÃO é obrigatório informar o PI Matriz.")
+        pi_matriz = get_by_numero(db, num_matriz)
+        if not pi_matriz or pi_matriz.tipo_pi != "Matriz":
+            raise ValueError(f"PI Matriz '{num_matriz}' não encontrado.")
+        dados["numero_pi_normal"] = None
 
     elif tipo in ("Matriz", "Normal"):
         dados["numero_pi_matriz"] = None
@@ -278,6 +289,14 @@ def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
         if not normal or normal.tipo_pi != "Normal":
             raise ValueError(f"PI Normal '{pi.numero_pi_normal}' não encontrado.")
         pi.numero_pi_matriz = None
+
+    elif tipo == "Veiculação":
+        if not pi.numero_pi_matriz:
+            raise ValueError("Veiculação requer 'numero_pi_matriz'.")
+        matriz = get_by_numero(db, pi.numero_pi_matriz)
+        if not matriz or matriz.tipo_pi != "Matriz":
+            raise ValueError(f"PI Matriz '{pi.numero_pi_matriz}' não encontrado.")
+        pi.numero_pi_normal = None
 
     elif tipo in ("Matriz", "Normal"):
         pi.numero_pi_matriz = None
@@ -435,6 +454,15 @@ def compose_create(db: Session, payload: Dict[str, Any]) -> PI:
         if not pi_normal or pi_normal.tipo_pi != "Normal":
             raise ValueError(f"PI Normal '{num_normal}' não encontrado.")
         dados_pi["numero_pi_matriz"] = None
+
+    elif tipo == "Veiculação":
+        num_matriz = dados_pi.get("numero_pi_matriz")
+        if not num_matriz:
+            raise ValueError("Para cadastrar uma VEICULAÇÃO é obrigatório informar o PI Matriz.")
+        pi_matriz = get_by_numero(db, num_matriz)
+        if not pi_matriz or pi_matriz.tipo_pi != "Matriz":
+            raise ValueError(f"PI Matriz '{num_matriz}' não encontrado.")
+        dados_pi["numero_pi_normal"] = None
 
     elif tipo in ("Matriz", "Normal"):
         dados_pi["numero_pi_matriz"] = None
@@ -617,7 +645,7 @@ def list_veiculacoes_agenda(
     db: Session,
     inicio: date,
     fim: date,
-    *,
+    * ,
     canal: Optional[str] = None,
     formato: Optional[str] = None,
     executivo: Optional[str] = None,
@@ -681,6 +709,7 @@ def list_veiculacoes_agenda(
             )
         )
     return out
+
 def list_veiculacoes_by_pi(db: Session, pi_id: int) -> List[Dict[str, Any]]:
     """
     Retorna as veiculações de um PI já mapeadas no formato esperado por
@@ -726,3 +755,41 @@ def list_veiculacoes_by_pi(db: Session, pi_id: int) -> List[Dict[str, Any]]:
             "uf_cliente": getattr(pi, "uf_cliente", None),
         })
     return out
+
+# =========================================================
+# CRUD de Anexos (PDF PI e Proposta)
+# =========================================================
+
+def anexos_list(db: Session, pi_id: int):
+    return (
+        db.query(PIAnexo)
+        .filter(PIAnexo.pi_id == pi_id)
+        .order_by(PIAnexo.uploaded_at.desc())
+        .all()
+    )
+
+def anexos_add(
+    db: Session,
+    pi_id: int,
+    *,
+    tipo: str,
+    filename: str,
+    path: str,
+    mime: Optional[str],
+    size: Optional[int]
+):
+    pi = get_by_id(db, pi_id)
+    if not pi:
+        raise ValueError("PI não encontrado para anexar arquivos.")
+    reg = PIAnexo(
+        pi_id=pi_id,
+        tipo=tipo,
+        filename=filename,
+        path=path,
+        mime=mime,
+        size=size
+    )
+    db.add(reg)
+    db.commit()
+    db.refresh(reg)
+    return reg

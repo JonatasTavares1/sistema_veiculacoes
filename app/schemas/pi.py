@@ -1,10 +1,10 @@
 from typing import Optional, Literal, List
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 # ======== PI ========
 
-TipoPI = Literal["Matriz", "Normal", "CS", "Abatimento"]
+TipoPI = Literal["Matriz", "Normal", "CS", "Abatimento", "Veiculação"]
 
 class PISimpleOut(BaseModel):
     numero_pi: str
@@ -12,7 +12,7 @@ class PISimpleOut(BaseModel):
 
 class PIBase(BaseModel):
     # vínculos
-    numero_pi_matriz: Optional[str] = None    # Abatimento usa
+    numero_pi_matriz: Optional[str] = None    # Abatimento e Veiculação usam
     numero_pi_normal: Optional[str] = None    # CS usa
 
     # anunciante / agência / venda
@@ -49,6 +49,18 @@ class PICreate(PIBase):
 class PIUpdate(PIBase):
     numero_pi: Optional[str] = None
     tipo_pi: Optional[TipoPI] = None
+
+class PIAnexoOut(BaseModel):
+    id: int
+    tipo: str
+    filename: str
+    path: str
+    mime: Optional[str] = None
+    size: Optional[int] = None
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class PIOut(BaseModel):
     # básicos
@@ -92,6 +104,9 @@ class PIOut(BaseModel):
 
     observacoes: Optional[str] = None
     eh_matriz: Optional[bool] = None
+
+    # opcional expor anexos
+    # anexos: List[PIAnexoOut] = []
 
     class Config:
         from_attributes = True  # Pydantic v2
