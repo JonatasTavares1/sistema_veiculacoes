@@ -8,14 +8,21 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.schemas.pi import (
-    PICreate, PIUpdate, PIOut, PISimpleOut,
-    ProdutoIn, ProdutoOut, VeiculacaoOut, PiDetalheOut, VeiculacaoAgendaOut
+    PICreate,
+    PIUpdate,
+    PIOut,
+    PISimpleOut,
+    ProdutoIn,
+    ProdutoOut,
+    VeiculacaoOut,
+    PiDetalheOut,
+    VeiculacaoAgendaOut,
 )
 from app.crud import pi_crud
 from app.database import SessionLocal
@@ -36,7 +43,6 @@ def get_db():
     finally:
         db.close()
 
-
 def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path:
     suffix = expected_ext if expected_ext.startswith(".") else f".{expected_ext}"
     tmp_dir = Path(tempfile.gettempdir())
@@ -51,7 +57,6 @@ def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path
         pass
 
     return tmp_path
-
 
 # --------------------- helpers desta rota ---------------------
 
@@ -69,65 +74,12 @@ def _best_valor(v) -> Optional[float]:
                 pass
     return None
 
-
 def _to_detalhe(pi) -> PiDetalheOut:
     """
-    Converte o objeto PI (já com pi.produtos 'transitórios' montados no CRUD)
-    para o schema de saída PiDetalheOut.
+    O CRUD já monta atributos transitórios (produtos_agg, total_pi).
+    O schema PiDetalheOut tem validation_alias para ler isso direto.
     """
-    produtos_out: List[ProdutoOut] = []
-    total_pi = 0.0
-
-    for p in (getattr(pi, "produtos", None) or []):
-        veics = []
-        total_produto = 0.0
-
-        for v in (getattr(p, "veiculacoes", None) or []):
-            # melhor valor para exibição/cálculo
-            best = _best_valor(v) or 0.0
-            total_produto += best
-
-            veics.append(
-                VeiculacaoOut(
-                    id=v.id,
-                    canal=getattr(v, "canal", None),
-                    formato=getattr(v, "formato", None),
-                    data_inicio=getattr(v, "data_inicio", None),
-                    data_fim=getattr(v, "data_fim", None),
-                    quantidade=getattr(v, "quantidade", None),
-
-                    # preços completos (novo modelo)
-                    valor_bruto=getattr(v, "valor_bruto", None),
-                    desconto=getattr(v, "desconto", None),
-                    valor_liquido=getattr(v, "valor_liquido", None),
-
-                    # compat legado (usado em telas antigas / agenda)
-                    valor=best,
-                )
-            )
-
-        total_pi += total_produto
-
-        produtos_out.append(
-            ProdutoOut(
-                id=p.id,
-                nome=p.nome,
-                descricao=getattr(p, "descricao", None),
-                total_produto=round(float(total_produto), 2),
-                veiculacoes=veics,
-            )
-        )
-
-    return PiDetalheOut(
-        id=pi.id,
-        numero_pi=pi.numero_pi,
-        anunciante=getattr(pi, "nome_anunciante", None),
-        campanha=getattr(pi, "nome_campanha", None),
-        emissao=getattr(pi, "data_emissao", None),
-        total_pi=round(float(total_pi), 2),
-        produtos=produtos_out,
-    )
-
+    return PiDetalheOut.model_validate(pi)
 
 def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
     """
@@ -143,20 +95,14 @@ def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
         for v in veics_in:
             veics_out.append(
                 {
-                    # identificação (preserva id para update)
                     "id": v.get("id"),
-
-                    # conteúdo:
                     "canal": v.get("canal"),
                     "formato": v.get("formato"),
                     "data_inicio": v.get("data_inicio"),
                     "data_fim": v.get("data_fim"),
                     "quantidade": v.get("quantidade"),
-
-                    # preços (novo modelo preferencial):
                     "valor_bruto": v.get("valor_bruto"),
                     "desconto": v.get("desconto"),
-                    # se vier só `valor`, assume como `valor_liquido`
                     "valor_liquido": v.get("valor_liquido", v.get("valor")),
                 }
             )
@@ -170,6 +116,28 @@ def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
         )
     return out
 
+# ===================== NOVO: helpers de anexos/arquivo =====================
+
+_TIPO_ALIAS = {
+    "pi": "pi_pdf",
+    "proposta": "proposta_pdf",
+}
+
+def _get_latest_anexo(db: Session, pi_id: int, tipo_query: str):
+    """
+    Retorna o último anexo do tipo solicitado para o PI.
+    tipo_query: 'pi' ou 'proposta' (case-insensitive)
+    """
+    tipo_norm = (tipo_query or "").strip().lower()
+    tipo_bd = _TIPO_ALIAS.get(tipo_norm)
+    if not tipo_bd:
+        raise HTTPException(status_code=400, detail="Parâmetro 'tipo' deve ser 'pi' ou 'proposta'.")
+
+    anexos = pi_crud.anexos_list(db, pi_id)  # já vem ordenado por uploaded_at desc
+    for a in anexos:
+        if (a.tipo or "").lower() == tipo_bd:
+            return a
+    return None
 
 # --------------------- endpoints ---------------------
 
@@ -178,23 +146,19 @@ def listar_matriz_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_matriz_ativos(db)
     return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
 
-
 @router.get("/normal/ativos", response_model=List[PISimpleOut])
 def listar_normal_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_normal_ativos(db)
     return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
-
 
 @router.get("/{numero_pi}/saldo")
 def saldo_matriz(numero_pi: str, db: Session = Depends(get_db)):
     saldo = pi_crud.calcular_saldo_restante(db, numero_pi)
     return {"numero_pi_matriz": numero_pi, "saldo_restante": saldo}
 
-
 @router.get("", response_model=List[PIOut])
 def listar_todos(db: Session = Depends(get_db)):
     return pi_crud.list_all(db)
-
 
 @router.get("/{pi_id:int}", response_model=PIOut)
 def obter_por_id(pi_id: int, db: Session = Depends(get_db)):
@@ -203,14 +167,12 @@ def obter_por_id(pi_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return reg
 
-
 @router.get("/numero/{numero_pi}", response_model=PIOut)
 def obter_por_numero(numero_pi: str, db: Session = Depends(get_db)):
     reg = pi_crud.get_by_numero(db, numero_pi)
     if not reg:
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return reg
-
 
 @router.post("", response_model=PIOut, status_code=status.HTTP_201_CREATED)
 def criar_pi(body: PICreate, db: Session = Depends(get_db)):
@@ -220,7 +182,6 @@ def criar_pi(body: PICreate, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-
 @router.put("/{pi_id:int}", response_model=PIOut)
 def atualizar_pi(pi_id: int, body: PIUpdate, db: Session = Depends(get_db)):
     try:
@@ -229,7 +190,6 @@ def atualizar_pi(pi_id: int, body: PIUpdate, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-
 @router.delete("/{pi_id:int}")
 def deletar_pi(pi_id: int, db: Session = Depends(get_db)):
     try:
@@ -237,7 +197,6 @@ def deletar_pi(pi_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"ok": True, "deleted_id": pi_id})
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-
 
 # ---------- detalhe ----------
 
@@ -248,7 +207,6 @@ def obter_detalhe_por_id(pi_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return _to_detalhe(reg)
 
-
 @router.get("/numero/{numero_pi}/detalhe", response_model=PiDetalheOut)
 def obter_detalhe_por_numero(numero_pi: str, db: Session = Depends(get_db)):
     reg = pi_crud.get_with_relations_by_numero(db, numero_pi)
@@ -256,13 +214,11 @@ def obter_detalhe_por_numero(numero_pi: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return _to_detalhe(reg)
 
-
 # ---------- compose & sync (com tradução de 'valor' -> 'valor_liquido') ----------
 
 class PIComposeIn(BaseModel):
     pi: PICreate
     produtos: List[ProdutoIn] = []
-
 
 @router.post("/compose", response_model=PiDetalheOut, status_code=status.HTTP_201_CREATED)
 def criar_composto(body: PIComposeIn, db: Session = Depends(get_db)):
@@ -275,10 +231,8 @@ def criar_composto(body: PIComposeIn, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-
 class ProdutosSyncIn(BaseModel):
     produtos: List[ProdutoIn] = []
-
 
 @router.put("/{pi_id:int}/produtos/sync", response_model=PiDetalheOut)
 def sync_produtos(pi_id: int, body: ProdutosSyncIn, db: Session = Depends(get_db)):
@@ -289,7 +243,6 @@ def sync_produtos(pi_id: int, body: ProdutosSyncIn, db: Session = Depends(get_db
         return _to_detalhe(full)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-
 
 # ---------- importação / extração de PDF ----------
 
@@ -329,7 +282,6 @@ async def extrair_pdf_para_preenchimento(
         except Exception:
             pass
 
-
 @router.post("/importar", response_model=PIOut, status_code=status.HTTP_201_CREATED)
 async def importar_pi(
     arquivo_pdf: UploadFile = File(..., description="PDF do PI"),
@@ -364,8 +316,7 @@ async def importar_pi(
         except Exception:
             pass
 
-
-# ---------- NOVO: lista de veiculações do PI (útil para a Agenda/Front) ----------
+# ---------- lista de veiculações do PI (útil para a Agenda/Front) ----------
 
 @router.get("/{pi_id:int}/veiculacoes", response_model=List[VeiculacaoAgendaOut])
 def listar_veiculacoes_do_pi(pi_id: int, db: Session = Depends(get_db)):
@@ -376,8 +327,7 @@ def listar_veiculacoes_do_pi(pi_id: int, db: Session = Depends(get_db)):
     rows = pi_crud.list_veiculacoes_by_pi(db, pi_id)
     return rows
 
-
-# ---------- NOVOS: anexos (PI PDF e Proposta) ----------
+# ---------- anexos (PI PDF e Proposta) ----------
 
 @router.get("/{pi_id:int}/arquivos")
 def listar_arquivos(pi_id: int, db: Session = Depends(get_db)):
@@ -394,7 +344,6 @@ def listar_arquivos(pi_id: int, db: Session = Depends(get_db)):
         }
         for a in anexos
     ]
-
 
 @router.post("/{pi_id:int}/arquivos")
 async def subir_arquivos(
@@ -443,5 +392,76 @@ async def subir_arquivos(
         await _save_one(arquivo_pi, "pi_pdf")
     if proposta is not None:
         await _save_one(proposta, "proposta_pdf")
+
+    return {"uploaded": saved}
+
+# ---------- ALIASES de compatibilidade: /pis/{id}/anexos ----------
+
+@router.get("/{pi_id:int}/anexos")
+def listar_anexos_alias(pi_id: int, db: Session = Depends(get_db)):
+    """
+    Alias para compatibilidade com o front antigo.
+    Retorna a mesma estrutura de /pis/{pi_id}/arquivos.
+    """
+    anexos = pi_crud.anexos_list(db, pi_id)
+    return [
+        {
+            "id": a.id,
+            "tipo": a.tipo,
+            "filename": a.filename,
+            "path": a.path,
+            "mime": a.mime,
+            "size": a.size,
+            "uploaded_at": a.uploaded_at,
+        }
+        for a in anexos
+    ]
+
+@router.post("/{pi_id:int}/anexos")
+async def subir_anexos_alias(
+    pi_id: int,
+    files: List[UploadFile] | None = File(None, description="um ou mais PDFs"),
+    tipo: Optional[str] = Form(default="pi_pdf"),
+    db: Session = Depends(get_db),
+):
+    """
+    Alias para compatibilidade com o front antigo.
+    Aceita multipart com campo 'files' (1..N PDFs) e 'tipo' opcional (pi_pdf|proposta_pdf).
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="Envie ao menos um arquivo em 'files'.")
+
+    base = UPLOAD_ROOT / str(pi_id)
+    base.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for up in files:
+        if not (up.filename or "").lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"O arquivo '{up.filename}' precisa ser PDF.")
+        safe_name = f"{(tipo or 'pi_pdf')}-{uuid4().hex}.pdf"
+        dest = base / safe_name
+        with open(dest, "wb") as f:
+            f.write(await up.read())
+
+        reg = pi_crud.anexos_add(
+            db,
+            pi_id,
+            tipo=tipo or "pi_pdf",
+            filename=up.filename or safe_name,
+            path=str(dest).replace("\\", "/"),
+            mime=up.content_type,
+            size=None,
+        )
+        saved.append(
+            {
+                "id": reg.id,
+                "tipo": reg.tipo,
+                "filename": reg.filename,
+                "path": reg.path,
+                "mime": reg.mime,
+                "size": reg.size,
+                "uploaded_at": reg.uploaded_at,
+            }
+        )
 
     return {"uploaded": saved}

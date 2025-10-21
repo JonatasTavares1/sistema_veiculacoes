@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 type PIItem = {
   id: number
   numero_pi: string
-  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" |"veiculação" | string
+  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação" | "veiculação" | string
   numero_pi_matriz?: string | null
   numero_pi_normal?: string | null
   nome_anunciante?: string | null
@@ -23,6 +23,12 @@ type PIItem = {
   dia_venda?: string | number | null
   mes_venda?: string | null
   observacoes?: string | null
+  // 👇 suportes para anexos (se sua API já mandar as URLs):
+  arquivo_pi_url?: string | null
+  arquivo_proposta_url?: string | null
+  // …ou flags, caso prefira detectar por endpoint convencional
+  tem_arquivo_pi?: boolean | null
+  tem_arquivo_proposta?: boolean | null
 }
 
 type PiDetalhe = {
@@ -174,6 +180,27 @@ function flattenVeicsFromDetalhe(det: PiDetalhe | null): VeiculacaoRow[] {
   return out
 }
 
+// ===== helpers de arquivo =====
+function normalizeTipo(tipo: string) {
+  return (tipo || "").toLowerCase()
+}
+function mostraPIMatriz(tipo: string) {
+  const t = normalizeTipo(tipo)
+  // agora mostra matriz também para "Veiculação"
+  return t === "cs" || t === "abatimento" || t === "veiculação" || t === "veiculacao"
+}
+function buildArquivoUrl(pi: PIItem, qual: "pi" | "proposta") {
+  // prioridade: se a API já mandou URLs prontas
+  if (qual === "pi" && pi.arquivo_pi_url) return pi.arquivo_pi_url
+  if (qual === "proposta" && pi.arquivo_proposta_url) return pi.arquivo_proposta_url
+  // fallback: endpoints convencionais
+  return `${API}/pis/${pi.id}/arquivo?tipo=${qual}`
+}
+function temArquivo(pi: PIItem, qual: "pi" | "proposta") {
+  if (qual === "pi") return !!(pi.arquivo_pi_url || pi.tem_arquivo_pi || true) // exibimos o botão; backend decide 404 se não tiver
+  return !!(pi.arquivo_proposta_url || pi.tem_arquivo_proposta || true)
+}
+
 // ===================== Componente =====================
 export default function PIs() {
   const [lista, setLista] = useState<PIItem[]>([])
@@ -182,7 +209,7 @@ export default function PIs() {
 
   // filtros
   const [busca, setBusca] = useState("")
-  const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento">("Todos")
+  const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação">("Todos")
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
   const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("")
@@ -247,7 +274,12 @@ export default function PIs() {
         (p.nome_agencia || "").toLowerCase().includes(q) ||
         (p.cnpj_agencia || "").toLowerCase().includes(q)
 
-      const okTipo = (tipo === "Todos") || (p.tipo_pi === tipo)
+      const okTipo =
+        tipo === "Todos" ||
+        p.tipo_pi === tipo ||
+        (tipo === "Veiculação" && normalizeTipo(p.tipo_pi) === "veiculação") ||
+        (tipo === "Veiculação" && normalizeTipo(p.tipo_pi) === "veiculacao")
+
       const okDir = (diretoria === "Todos") || ((p.diretoria || "") === diretoria)
       const okExec = (executivo === "Todos") || ((p.executivo || "") === executivo)
       const okMes = !ymFiltro || (mesToYM(p.mes_venda) === ymFiltro)
@@ -271,7 +303,7 @@ export default function PIs() {
       ID: pi.id,
       PI: pi.numero_pi,
       "Tipo de PI": pi.tipo_pi,
-      "PI Matriz": (pi.tipo_pi === "CS" || pi.tipo_pi === "Abatimento") ? (pi.numero_pi_matriz || "") : "",
+      "PI Matriz": (mostraPIMatriz(pi.tipo_pi)) ? (pi.numero_pi_matriz || "") : "",
       Cliente: pi.nome_anunciante || "",
       "Agência": pi.nome_agencia || "",
       "CNPJ Agência": pi.cnpj_agencia || "",
@@ -337,7 +369,6 @@ export default function PIs() {
     setDetalheLoading(true)
     setVeics([])
     setVeicsError(null)
-    // pegue o meta completo do PI da lista atual
     setSelectedPiMeta(lista.find(p => p.id === pi_id) || null)
 
     try {
@@ -394,8 +425,8 @@ export default function PIs() {
       const payload: any = {
         numero_pi: editDraft.numero_pi?.trim(),
         tipo_pi: editDraft.tipo_pi,
-        numero_pi_matriz: (editDraft.tipo_pi === "Abatimento") ? (editDraft.numero_pi_matriz || null) : null,
-        numero_pi_normal: (editDraft.tipo_pi === "CS") ? (editDraft.numero_pi_normal || null) : null,
+        numero_pi_matriz: (mostraPIMatriz(editDraft.tipo_pi)) ? (editDraft.numero_pi_matriz || null) : null,
+        numero_pi_normal: (normalizeTipo(editDraft.tipo_pi) === "cs") ? (editDraft.numero_pi_normal || null) : null,
         nome_anunciante: editDraft.nome_anunciante || null,
         nome_agencia: editDraft.nome_agencia || null,
         data_emissao: (editDraft.data_emissao || "").trim() || null,
@@ -489,7 +520,7 @@ export default function PIs() {
               onChange={(e) => setTipo(e.target.value as any)}
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
-              {["Todos", "Matriz", "Normal", "CS", "Abatimento"].map(t => (
+              {["Todos", "Matriz", "Normal", "CS", "Abatimento", "Veiculação"].map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -587,7 +618,7 @@ export default function PIs() {
                     {[
                       "ID","PI","Tipo de PI","PI Matriz","Cliente","Agência","Data de Emissão",
                       "Valor Total","Valor Líquido","Praça","Meio","Campanha",
-                      "Diretoria","Executivo","Data da Venda","Ações"
+                      "Diretoria","Executivo","Data da Venda","Arquivos","Ações"
                     ].map(h => (
                       <th key={h} className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide">
                         {h}
@@ -598,8 +629,10 @@ export default function PIs() {
                 <tbody className="divide-y divide-red-100">
                   {filtrada.map((pi, idx) => {
                     const dataVenda = (pi.dia_venda && pi.mes_venda) ? `${pi.dia_venda}/${pi.mes_venda}` : ""
-                    const piMatriz = (pi.tipo_pi === "CS" || pi.tipo_pi === "Abatimento") ? (pi.numero_pi_matriz || "") : ""
+                    const piMatriz = (mostraPIMatriz(pi.tipo_pi)) ? (pi.numero_pi_matriz || "") : ""
                     const excluindo = deletingIds.has(pi.id)
+                    const urlPI = buildArquivoUrl(pi, "pi")
+                    const urlProp = buildArquivoUrl(pi, "proposta")
                     return (
                       <tr
                         key={pi.id}
@@ -630,6 +663,31 @@ export default function PIs() {
                         <td className="px-6 py-4 text-slate-800 text-base">{pi.diretoria || "—"}</td>
                         <td className="px-6 py-4 text-slate-800 text-base">{pi.executivo || "—"}</td>
                         <td className="px-6 py-4 text-slate-800 text-base">{dataVenda || "—"}</td>
+
+                        {/* Arquivos */}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <a
+                              href={urlPI}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                              title="Baixar PI (PDF)"
+                            >
+                              📄 PI
+                            </a>
+                            <a
+                              href={urlProp}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                              title="Baixar Proposta (PDF)"
+                            >
+                              📎 Proposta
+                            </a>
+                          </div>
+                        </td>
+
                         <td className="px-6 py-4">
                           <div className="flex flex-wrap items-center gap-2">
                             <button
@@ -669,9 +727,11 @@ export default function PIs() {
             <div className="text-slate-700">{filtrada.length} registro(s)</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
               {filtrada.map((pi) => {
-                const piMatriz = (pi.tipo_pi === "CS" || pi.tipo_pi === "Abatimento") ? (pi.numero_pi_matriz || "") : ""
+                const piMatriz = (mostraPIMatriz(pi.tipo_pi)) ? (pi.numero_pi_matriz || "") : ""
                 const dataVenda = (pi.dia_venda && pi.mes_venda) ? `${pi.dia_venda}/${pi.mes_venda}` : ""
                 const excluindo = deletingIds.has(pi.id)
+                const urlPI = buildArquivoUrl(pi, "pi")
+                const urlProp = buildArquivoUrl(pi, "proposta")
                 return (
                   <div
                     key={pi.id}
@@ -732,6 +792,28 @@ export default function PIs() {
                             {" "}| Venda: <span className="font-medium text-slate-800">{dataVenda}</span>
                           </>
                         )}
+                      </div>
+
+                      {/* Arquivos */}
+                      <div className="pt-2 flex flex-wrap gap-2">
+                        <a
+                          href={urlPI}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
+                          title="Baixar PI (PDF)"
+                        >
+                          📄 PI
+                        </a>
+                        <a
+                          href={urlProp}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
+                          title="Baixar Proposta (PDF)"
+                        >
+                          📎 Proposta
+                        </a>
                       </div>
                     </div>
 
@@ -797,8 +879,8 @@ export default function PIs() {
                   <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Informações do PI</div>
                   <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                     <InfoRow label="Tipo" value={selectedPiMeta.tipo_pi} />
-                    <InfoRow label="PI Matriz" value={(selectedPiMeta.tipo_pi === "CS" || selectedPiMeta.tipo_pi === "Abatimento") ? (selectedPiMeta.numero_pi_matriz || "—") : "—"} mono />
-                    <InfoRow label="PI Normal (CS)" value={selectedPiMeta.tipo_pi === "CS" ? (selectedPiMeta.numero_pi_normal || "—") : "—"} mono />
+                    <InfoRow label="PI Matriz" value={mostraPIMatriz(selectedPiMeta.tipo_pi) ? (selectedPiMeta.numero_pi_matriz || "—") : "—"} mono />
+                    <InfoRow label="PI Normal (CS)" value={normalizeTipo(selectedPiMeta.tipo_pi) === "cs" ? (selectedPiMeta.numero_pi_normal || "—") : "—"} mono />
                     <InfoRow label="Agência" value={selectedPiMeta.nome_agencia || "—"} />
                     <InfoRow label="CNPJ Agência" value={selectedPiMeta.cnpj_agencia || "—"} mono />
                     <InfoRow label="Data de Emissão" value={parseISODateToBR(selectedPiMeta.data_emissao) || "—"} />
@@ -811,6 +893,28 @@ export default function PIs() {
                     <InfoRow label="Executivo" value={selectedPiMeta.executivo || "—"} />
                     <InfoRow label="Data da Venda" value={(selectedPiMeta.dia_venda && selectedPiMeta.mes_venda) ? `${selectedPiMeta.dia_venda}/${selectedPiMeta.mes_venda}` : "—"} />
                     <InfoRow label="Observações" value={selectedPiMeta.observacoes || "—"} full />
+                  </div>
+
+                  {/* Arquivos anexados no detalhe */}
+                  <div className="px-4 pb-4">
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <a
+                        href={buildArquivoUrl(selectedPiMeta, "pi")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                      >
+                        📄 Baixar PI (PDF)
+                      </a>
+                      <a
+                        href={buildArquivoUrl(selectedPiMeta, "proposta")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                      >
+                        📎 Baixar Proposta (PDF)
+                      </a>
+                    </div>
                   </div>
                 </div>
               )}
@@ -885,7 +989,7 @@ export default function PIs() {
                 </div>
               )}
 
-              {/* ...seus campos do editor... */}
+              {/* seus campos do editor aqui (mantive como antes) */}
 
               <div className="pt-2">
                 <button
