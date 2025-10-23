@@ -23,10 +23,9 @@ type PIItem = {
   dia_venda?: string | number | null
   mes_venda?: string | null
   observacoes?: string | null
-  // 👇 suportes para anexos (se sua API já mandar as URLs):
+  // (mantidos para compat, mas não usados nos links)
   arquivo_pi_url?: string | null
   arquivo_proposta_url?: string | null
-  // …ou flags, caso prefira detectar por endpoint convencional
   tem_arquivo_pi?: boolean | null
   tem_arquivo_proposta?: boolean | null
 }
@@ -76,6 +75,8 @@ type VeiculacaoRow = {
   diretoria?: string | null
   uf_cliente?: string | null
 }
+
+type AnexoMap = Record<number, { pi: boolean; proposta: boolean }>
 
 const DEFAULT_EXECUTIVOS = [
   "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
@@ -186,19 +187,16 @@ function normalizeTipo(tipo: string) {
 }
 function mostraPIMatriz(tipo: string) {
   const t = normalizeTipo(tipo)
-  // agora mostra matriz também para "Veiculação"
   return t === "cs" || t === "abatimento" || t === "veiculação" || t === "veiculacao"
 }
+
+/**
+ * Agora usamos o endpoint do backend:
+ *   GET /pis/{id}/arquivo?tipo=pi|proposta&modo=download
+ * (modo=download força baixar; sem o parâmetro o back redireciona para o Drive).
+ */
 function buildArquivoUrl(pi: PIItem, qual: "pi" | "proposta") {
-  // prioridade: se a API já mandou URLs prontas
-  if (qual === "pi" && pi.arquivo_pi_url) return pi.arquivo_pi_url
-  if (qual === "proposta" && pi.arquivo_proposta_url) return pi.arquivo_proposta_url
-  // fallback: endpoints convencionais
-  return `${API}/pis/${pi.id}/arquivo?tipo=${qual}`
-}
-function temArquivo(pi: PIItem, qual: "pi" | "proposta") {
-  if (qual === "pi") return !!(pi.arquivo_pi_url || pi.tem_arquivo_pi || true) // exibimos o botão; backend decide 404 se não tiver
-  return !!(pi.arquivo_proposta_url || pi.tem_arquivo_proposta || true)
+  return `${API}/pis/${pi.id}/arquivo?tipo=${qual}&modo=download`
 }
 
 // ===================== Componente =====================
@@ -206,6 +204,9 @@ export default function PIs() {
   const [lista, setLista] = useState<PIItem[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  // mapa de anexos por PI
+  const [anexos, setAnexos] = useState<AnexoMap>({})
 
   // filtros
   const [busca, setBusca] = useState("")
@@ -223,7 +224,7 @@ export default function PIs() {
   const [detalheLoading, setDetalheLoading] = useState(false)
   const [veics, setVeics] = useState<VeiculacaoRow[]>([])
   const [veicsError, setVeicsError] = useState<string | null>(null)
-  const [selectedPiMeta, setSelectedPiMeta] = useState<PIItem | null>(null) // <-- meta completo do PI
+  const [selectedPiMeta, setSelectedPiMeta] = useState<PIItem | null>(null)
 
   // editor PI básico
   const [editOpen, setEditOpen] = useState(false)
@@ -241,20 +242,38 @@ export default function PIs() {
     setLoading(true); setErro(null)
     try {
       const pis = await getJSON<PIItem[]>(`${API}/pis`)
-      setLista(Array.isArray(pis) ? pis : [])
+      const arr = Array.isArray(pis) ? pis : []
+      setLista(arr)
 
+      // executivos
       const exsFromApi = await getJSON<string[]>(`${API}/executivos`).catch(() => [])
-      const exsFromData = Array.from(new Set(pis.map(p => (p.executivo || "").trim()).filter(Boolean)))
+      const exsFromData = Array.from(new Set(arr.map(p => (p.executivo || "").trim()).filter(Boolean)))
       const merged = Array.from(new Set([...(Array.isArray(exsFromApi) ? exsFromApi : []), ...DEFAULT_EXECUTIVOS, ...exsFromData]))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, "pt-BR"))
       setExecutivos(merged)
+
+      // anexos por PI (busca em paralelo)
+      const map: AnexoMap = {}
+      await Promise.all(
+        arr.map(async (p) => {
+          try {
+            const lista = await getJSON<Array<{ tipo: string }>>(`${API}/pis/${p.id}/arquivos`)
+            const tipos = new Set((lista || []).map(a => (a.tipo || "").toLowerCase()))
+            map[p.id] = { pi: tipos.has("pi_pdf"), proposta: tipos.has("proposta_pdf") }
+          } catch {
+            map[p.id] = { pi: false, proposta: false }
+          }
+        })
+      )
+      setAnexos(map)
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar PIs.")
     } finally {
       setLoading(false)
     }
   }
+
   useEffect(() => { carregar() }, [])
 
   const filtrada = useMemo(() => {
@@ -633,6 +652,8 @@ export default function PIs() {
                     const excluindo = deletingIds.has(pi.id)
                     const urlPI = buildArquivoUrl(pi, "pi")
                     const urlProp = buildArquivoUrl(pi, "proposta")
+                    const temPi = anexos[pi.id]?.pi ?? false
+                    const temProp = anexos[pi.id]?.proposta ?? false
                     return (
                       <tr
                         key={pi.id}
@@ -668,20 +689,28 @@ export default function PIs() {
                         <td className="px-6 py-4">
                           <div className="flex flex-wrap items-center gap-2">
                             <a
-                              href={urlPI}
+                              href={temPi ? urlPI : undefined}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Baixar PI (PDF)"
+                              className={`px-3 py-1.5 rounded-xl border text-sm ${
+                                temPi
+                                  ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                  : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                              }`}
+                              title={temPi ? "Baixar PI (PDF)" : "Sem PI anexado"}
                             >
                               📄 PI
                             </a>
                             <a
-                              href={urlProp}
+                              href={temProp ? urlProp : undefined}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Baixar Proposta (PDF)"
+                              className={`px-3 py-1.5 rounded-xl border text-sm ${
+                                temProp
+                                  ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                  : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                              }`}
+                              title={temProp ? "Baixar Proposta (PDF)" : "Sem Proposta anexada"}
                             >
                               📎 Proposta
                             </a>
@@ -732,6 +761,8 @@ export default function PIs() {
                 const excluindo = deletingIds.has(pi.id)
                 const urlPI = buildArquivoUrl(pi, "pi")
                 const urlProp = buildArquivoUrl(pi, "proposta")
+                const temPi = anexos[pi.id]?.pi ?? false
+                const temProp = anexos[pi.id]?.proposta ?? false
                 return (
                   <div
                     key={pi.id}
@@ -797,20 +828,28 @@ export default function PIs() {
                       {/* Arquivos */}
                       <div className="pt-2 flex flex-wrap gap-2">
                         <a
-                          href={urlPI}
+                          href={temPi ? urlPI : undefined}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
-                          title="Baixar PI (PDF)"
+                          className={`px-3 py-1.5 rounded-xl border text-sm ${
+                            temPi
+                              ? "border-slate-300 text-slate-700 hover:bg-white"
+                              : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                          }`}
+                          title={temPi ? "Baixar PI (PDF)" : "Sem PI anexado"}
                         >
                           📄 PI
                         </a>
                         <a
-                          href={urlProp}
+                          href={temProp ? urlProp : undefined}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
-                          title="Baixar Proposta (PDF)"
+                          className={`px-3 py-1.5 rounded-xl border text-sm ${
+                            temProp
+                              ? "border-slate-300 text-slate-700 hover:bg-white"
+                              : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                          }`}
+                          title={temProp ? "Baixar Proposta (PDF)" : "Sem Proposta anexada"}
                         >
                           📎 Proposta
                         </a>
@@ -899,18 +938,26 @@ export default function PIs() {
                   <div className="px-4 pb-4">
                     <div className="mt-2 flex flex-wrap gap-2">
                       <a
-                        href={buildArquivoUrl(selectedPiMeta, "pi")}
+                        href={anexos[selectedPiMeta.id]?.pi ? buildArquivoUrl(selectedPiMeta, "pi") : undefined}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          anexos[selectedPiMeta.id]?.pi
+                            ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                            : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                        }`}
                       >
                         📄 Baixar PI (PDF)
                       </a>
                       <a
-                        href={buildArquivoUrl(selectedPiMeta, "proposta")}
+                        href={anexos[selectedPiMeta.id]?.proposta ? buildArquivoUrl(selectedPiMeta, "proposta") : undefined}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          anexos[selectedPiMeta.id]?.proposta
+                            ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                            : "border-slate-200 text-slate-400 cursor-not-allowed pointer-events-none"
+                        }`}
                       >
                         📎 Baixar Proposta (PDF)
                       </a>
@@ -989,7 +1036,7 @@ export default function PIs() {
                 </div>
               )}
 
-              {/* seus campos do editor aqui (mantive como antes) */}
+              {/* seus campos do editor aqui (mantidos) */}
 
               <div className="pt-2">
                 <button
@@ -1009,7 +1056,6 @@ export default function PIs() {
   )
 }
 
-/** Sub-componente para linhas de informação do PI */
 function InfoRow({ label, value, mono = false, full = false }: { label: string; value: any; mono?: boolean; full?: boolean }) {
   return (
     <div className={full ? "md:col-span-2" : ""}>

@@ -58,10 +58,20 @@ const UFS = [
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO","EX (Exterior)"
 ]
+
+// ⚠️ Mantive a nomenclatura igual à que você já usa no backend
+// para não quebrar telas/filtros: "RADIO", "Youtube", "Pátrocinio de eventos".
 const CANAIS = [
-  "Rede Sociais","DOOH", 
-  "RADIO","PORTAL","Youtube","OUTROS","Pátrocinio de eventos"
+  "SITE",                 // <— default do formulário
+  "Rede Sociais",
+  "DOOH",
+  "RADIO",
+  "PORTAL",
+  "Youtube",
+  "OUTROS",
+  "Pátrocinio de eventos",
 ]
+
 const PERFIS = ["Privado", "Governo estadual", "Governo federal","Privado - Gestão Executiva"]
 const SUBPERFIS = [
   "Privado","Governo estadual","GDF - DETRAN","Sistema S Federal","Governo Federal",
@@ -160,7 +170,8 @@ export default function CadastroPI() {
   useEffect(() => {
     (async () => {
       try {
-        const mats = await getJSON<PISimple[]>(`${API}/matrizes/ativos`).catch(() => getJSON<PISimple[]>(`${API}/pis/matriz/ativos`))
+        // endpoints corretos do backend /pis/...
+        const mats = await getJSON<PISimple[]>(`${API}/pis/matriz/ativos`)
         setMatrizesAtivas(mats || [])
       } catch {}
       try {
@@ -169,7 +180,7 @@ export default function CadastroPI() {
       } catch {}
       try {
         const ex = await getJSON<string[]>(`${API}/executivos`)
-        if (Array.isArray(ex) && ex.length) { setExecutivos(ex); setExecutivo(ex[0]) }
+        if (Array.isArray(ex) && ex.length) setExecutivos(ex)
       } catch {}
       // nomes de produtos (catálogo)
       try {
@@ -184,6 +195,11 @@ export default function CadastroPI() {
       }
     })()
   }, [])
+
+  // sincroniza executivo default quando a lista chegar/alterar
+  useEffect(() => {
+    if (executivos.length) setExecutivo(executivos[0])
+  }, [executivos])
 
   // alterna seções condicionais
   useEffect(() => {
@@ -332,37 +348,31 @@ export default function CadastroPI() {
     if (vb == null || vl == null) return false
     // somatórios das veiculações precisam bater com PI
     if (!nearEq(vb, somaBrutoVeics) || !nearEq(vl, somaLiquidoVeics)) return false
+    // mês de venda (se informado) precisa estar em MM/AAAA
+    if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) return false
     return true
-  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, produtos, algumMismatchVeic, valorBruto, valorLiquido, somaBrutoVeics, somaLiquidoVeics])
+  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, produtos, algumMismatchVeic, valorBruto, valorLiquido, somaBrutoVeics, somaLiquidoVeics, mesVenda])
 
   // ===== Upload de anexos após criar PI
+  // agora usamos: POST /pis/{pi_id}/arquivos (multipart) com campos "arquivo_pi" e "proposta"
   async function uploadAnexos(pi: { id: number; numero_pi: string }) {
-    // Esta rota precisa existir no backend:
-    // POST /pis/{pi_id}/anexos  (multipart/form-data)
-    // fields: arquivo (file), tipo ("pi_pdf" | "proposta")
     const uploads: string[] = []
+    const falhas: string[] = []
+
+    if (!arquivoPi && !arquivoProposta) return uploads
+
     try {
-      if (arquivoPi) {
-        const fd = new FormData()
-        fd.append("tipo", "pi_pdf")
-        fd.append("arquivo", arquivoPi, arquivoPi.name)
-        await postForm(`${API}/pis/${pi.id}/anexos`, fd)
-        uploads.push("PI (PDF)")
-      }
+      const fd = new FormData()
+      if (arquivoPi)     fd.append("arquivo_pi", arquivoPi, arquivoPi.name)
+      if (arquivoProposta) fd.append("proposta",   arquivoProposta, arquivoProposta.name)
+      await postForm(`${API}/pis/${pi.id}/arquivos`, fd)
+      if (arquivoPi) uploads.push("PI (PDF)")
+      if (arquivoProposta) uploads.push("Proposta (PDF)")
     } catch (e: any) {
-      console.warn("Falha ao enviar PDF do PI:", e?.message || e)
+      falhas.push(e?.message || String(e))
     }
-    try {
-      if (arquivoProposta) {
-        const fd = new FormData()
-        fd.append("tipo", "proposta")
-        fd.append("arquivo", arquivoProposta, arquivoProposta.name)
-        await postForm(`${API}/pis/${pi.id}/anexos`, fd)
-        uploads.push("Proposta")
-      }
-    } catch (e: any) {
-      console.warn("Falha ao enviar Proposta:", e?.message || e)
-    }
+
+    if (falhas.length) setErro(`Falha ao enviar anexos:\n- ${falhas.join("\n- ")}`)
     return uploads
   }
 
@@ -383,6 +393,9 @@ export default function CadastroPI() {
           `• Bruto do PI: ${fmtMoney(vb)} | Soma das veiculações: ${fmtMoney(somaBrutoVeics)}\n` +
           `• Líquido do PI: ${fmtMoney(vl)} | Soma das veiculações: ${fmtMoney(somaLiquidoVeics)}`
         )
+      }
+      if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) {
+        throw new Error('Mês da venda deve estar no formato MM/AAAA.')
       }
 
       // 1) cria o PI
@@ -443,18 +456,27 @@ export default function CadastroPI() {
       }
       if (chamadas.length) await Promise.all(chamadas)
 
-      // 3) envia anexos (se a rota existir no backend)
+      // 3) envia anexos (se informados) pela rota nova /pis/{id}/arquivos
       const anexosOk = await uploadAnexos(pi)
 
       setMsg(
         `PI criada: ${pi.numero_pi} (${pi.tipo_pi})` +
         (anexosOk.length ? `\nAnexos enviados: ${anexosOk.join(", ")}` : "")
       )
-      // limpa formulário principal
+
+      // Reset mais completo do formulário
+      setTipoPI("Normal")
       setNumeroPI("")
+      setNumeroPIMatriz("")
+      setNumeroPINormal("")
+      setCnpjAnunciante(""); setNomeAnunciante(""); setRazaoAnunciante(""); setUfCliente("DF")
+      setTemAgencia(true); setCnpjAgencia(""); setNomeAgencia(""); setRazaoAgencia(""); setUfAgencia("DF")
+      setNomeCampanha(""); setCanal("SITE"); setPerfilAnunciante("Privado"); setSubperfilAnunciante("Privado")
+      setMesVenda(""); setDiaVenda(""); setVencimento(""); setDataEmissao("")
+      setExecutivo(executivos[0] ?? EXECUTIVOS_FALLBACK[0]); setDiretoria(DIRETORIAS[0])
+      setValorBruto(""); setValorLiquido(""); setObservacoes("")
       setProdutos([])
-      setArquivoPi(null)
-      setArquivoProposta(null)
+      setArquivoPi(null); setArquivoProposta(null)
     } catch (err: any) {
       setErro(err?.message || "Erro ao cadastrar PI.")
     } finally {
@@ -650,7 +672,7 @@ export default function CadastroPI() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Agência</label>
               <input
                 type="text"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 value={nomeAgencia}
                 onChange={(e) => setNomeAgencia(e.target.value)}
               />
@@ -1082,7 +1104,7 @@ export default function CadastroPI() {
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            Os arquivos são enviados após o PI ser criado. É esperado o endpoint <code>/pis/&#123;pi_id&#125;/anexos</code> no backend.
+            Os arquivos são enviados após o PI ser criado. Endpoint usado: <code>/pis/&#123;pi_id&#125;/arquivos</code> com campos <code>arquivo_pi</code> e <code>proposta</code>.
           </p>
         </section>
 

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -27,10 +28,15 @@ from app.schemas.pi import (
 from app.crud import pi_crud
 from app.database import SessionLocal
 from app.utils.pi_pdf import extract_structured_fields_from_pdf
+from app.utils.drive_upload import (
+    upload_pdf_to_drive,
+    get_drive_file_meta,
+    download_drive_file_bytes,
+)
 
 router = APIRouter(prefix="/pis", tags=["pis"])
 
-# -------- uploads base dir --------
+# -------- uploads base dir (usado para temporários/extrator e fallback local) --------
 UPLOAD_ROOT = Path(os.getenv("PI_UPLOAD_DIR", "uploads")) / "pis"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -61,10 +67,6 @@ def _save_upload_to_temp(upload: UploadFile, expected_ext: str = ".pdf") -> Path
 # --------------------- helpers desta rota ---------------------
 
 def _best_valor(v) -> Optional[float]:
-    """
-    Escolhe o melhor valor para exibição/cálculo:
-    1) valor_liquido, 2) valor (legado), 3) valor_bruto.
-    """
     for key in ("valor_liquido", "valor", "valor_bruto"):
         val = getattr(v, key, None)
         if val is not None:
@@ -75,18 +77,9 @@ def _best_valor(v) -> Optional[float]:
     return None
 
 def _to_detalhe(pi) -> PiDetalheOut:
-    """
-    O CRUD já monta atributos transitórios (produtos_agg, total_pi).
-    O schema PiDetalheOut tem validation_alias para ler isso direto.
-    """
     return PiDetalheOut.model_validate(pi)
 
 def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
-    """
-    Traduz ProdutoIn (que usa VeiculacaoIn com `valor` e/ou novo modelo)
-    para o payload que o pi_crud espera (veiculação com `valor_liquido`/`valor_bruto`/`desconto`).
-    Mantém `canal`, `formato`, datas e quantidade.
-    """
     out: List[Dict[str, Any]] = []
     for p in produtos or []:
         p_dict = p.model_dump()
@@ -116,24 +109,26 @@ def _map_produtos_para_crud(produtos: List[ProdutoIn]) -> List[Dict[str, Any]]:
         )
     return out
 
-# ===================== NOVO: helpers de anexos/arquivo =====================
+# ===================== helpers de anexos/arquivo =====================
 
 _TIPO_ALIAS = {
     "pi": "pi_pdf",
     "proposta": "proposta_pdf",
 }
 
-def _get_latest_anexo(db: Session, pi_id: int, tipo_query: str):
-    """
-    Retorna o último anexo do tipo solicitado para o PI.
-    tipo_query: 'pi' ou 'proposta' (case-insensitive)
-    """
+def _tipo_norm_to_db(tipo_query: str) -> str:
     tipo_norm = (tipo_query or "").strip().lower()
     tipo_bd = _TIPO_ALIAS.get(tipo_norm)
     if not tipo_bd:
         raise HTTPException(status_code=400, detail="Parâmetro 'tipo' deve ser 'pi' ou 'proposta'.")
+    return tipo_bd
 
-    anexos = pi_crud.anexos_list(db, pi_id)  # já vem ordenado por uploaded_at desc
+def _which_from_tipo_db(tipo_db: str) -> Literal["pi", "proposta"]:
+    return "pi" if (tipo_db or "").startswith("pi") else "proposta"
+
+def _get_latest_anexo(db: Session, pi_id: int, tipo_query: str):
+    tipo_bd = _tipo_norm_to_db(tipo_query)
+    anexos = pi_crud.anexos_list(db, pi_id)  # ordenado por uploaded_at desc
     for a in anexos:
         if (a.tipo or "").lower() == tipo_bd:
             return a
@@ -214,7 +209,7 @@ def obter_detalhe_por_numero(numero_pi: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PI não encontrado.")
     return _to_detalhe(reg)
 
-# ---------- compose & sync (com tradução de 'valor' -> 'valor_liquido') ----------
+# ---------- compose & sync ----------
 
 class PIComposeIn(BaseModel):
     pi: PICreate
@@ -316,18 +311,14 @@ async def importar_pi(
         except Exception:
             pass
 
-# ---------- lista de veiculações do PI (útil para a Agenda/Front) ----------
+# ---------- lista de veiculações ----------
 
 @router.get("/{pi_id:int}/veiculacoes", response_model=List[VeiculacaoAgendaOut])
 def listar_veiculacoes_do_pi(pi_id: int, db: Session = Depends(get_db)):
-    """
-    Retorna todas as veiculações pertencentes ao PI informado, já com
-    dados suficientes para a Agenda (cliente/campanha/canal/formato/datas/valor).
-    """
     rows = pi_crud.list_veiculacoes_by_pi(db, pi_id)
     return rows
 
-# ---------- anexos (PI PDF e Proposta) ----------
+# ---------- anexos (PI PDF e Proposta) — Google Drive ----------
 
 @router.get("/{pi_id:int}/arquivos")
 def listar_arquivos(pi_id: int, db: Session = Depends(get_db)):
@@ -337,7 +328,7 @@ def listar_arquivos(pi_id: int, db: Session = Depends(get_db)):
             "id": a.id,
             "tipo": a.tipo,
             "filename": a.filename,
-            "path": a.path,
+            "path": a.path,  # gdrive://<fileId> ou caminho local legado
             "mime": a.mime,
             "size": a.size,
             "uploaded_at": a.uploaded_at,
@@ -352,30 +343,37 @@ async def subir_arquivos(
     proposta: UploadFile | None = File(None, description="PDF da Proposta"),
     db: Session = Depends(get_db),
 ):
+    """
+    Envia anexos para o Google Drive usando a credencial/pasta correspondente:
+    - arquivo_pi  -> service account/pasta de PI
+    - proposta    -> service account/pasta de Propostas
+    Registra no BD com path="gdrive://<fileId>".
+    """
     if arquivo_pi is None and proposta is None:
         raise HTTPException(status_code=400, detail="Envie ao menos um arquivo (arquivo_pi ou proposta).")
 
-    base = UPLOAD_ROOT / str(pi_id)
-    base.mkdir(parents=True, exist_ok=True)
+    saved: List[Dict[str, Any]] = []
 
-    saved = []
-
-    async def _save_one(up: UploadFile, tipo: str):
+    async def _save_one(up: UploadFile, tipo_db: str):
         if not (up.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail=f"O arquivo '{up.filename}' precisa ser PDF.")
-        safe_name = f"{tipo}-{uuid4().hex}.pdf"
-        dest = base / safe_name
-        with open(dest, "wb") as f:
-            f.write(await up.read())
+
+        which = _which_from_tipo_db(tipo_db)  # "pi" | "proposta"
+        content = await up.read()
+        safe_name = f"{tipo_db}-{uuid4().hex}.pdf"
+
+        drive_file = upload_pdf_to_drive(content, safe_name, which=which)
+
         reg = pi_crud.anexos_add(
             db,
             pi_id,
-            tipo=tipo,
+            tipo=tipo_db,
             filename=up.filename or safe_name,
-            path=str(dest).replace("\\", "/"),
-            mime=up.content_type,
-            size=None,
+            path=f"gdrive://{drive_file['id']}",
+            mime=drive_file.get("mimeType") or up.content_type,
+            size=len(content),
         )
+
         saved.append(
             {
                 "id": reg.id,
@@ -385,6 +383,8 @@ async def subir_arquivos(
                 "mime": reg.mime,
                 "size": reg.size,
                 "uploaded_at": reg.uploaded_at,
+                "webViewLink": drive_file.get("webViewLink"),
+                "webContentLink": drive_file.get("webContentLink"),
             }
         )
 
@@ -395,14 +395,10 @@ async def subir_arquivos(
 
     return {"uploaded": saved}
 
-# ---------- ALIASES de compatibilidade: /pis/{id}/anexos ----------
+# ---------- ALIASES de compatibilidade para o front ----------
 
 @router.get("/{pi_id:int}/anexos")
 def listar_anexos_alias(pi_id: int, db: Session = Depends(get_db)):
-    """
-    Alias para compatibilidade com o front antigo.
-    Retorna a mesma estrutura de /pis/{pi_id}/arquivos.
-    """
     anexos = pi_crud.anexos_list(db, pi_id)
     return [
         {
@@ -420,39 +416,51 @@ def listar_anexos_alias(pi_id: int, db: Session = Depends(get_db)):
 @router.post("/{pi_id:int}/anexos")
 async def subir_anexos_alias(
     pi_id: int,
-    files: List[UploadFile] | None = File(None, description="um ou mais PDFs"),
+    # novo formato (usado no front atual): 1 arquivo + tipo
+    arquivo: UploadFile | None = File(None, description="PDF"),
     tipo: Optional[str] = Form(default="pi_pdf"),
+    # compat legado: lista de arquivos via "files"
+    files: List[UploadFile] | None = File(None, description="um ou mais PDFs"),
     db: Session = Depends(get_db),
 ):
     """
-    Alias para compatibilidade com o front antigo.
-    Aceita multipart com campo 'files' (1..N PDFs) e 'tipo' opcional (pi_pdf|proposta_pdf).
+    Aceita:
+    - novo:  tipo=("pi_pdf"|"proposta"| "pi"|"proposta") + arquivo (UploadFile)
+    - legado: files=[...], com 'tipo' aplicado para todos
     """
-    if not files:
-        raise HTTPException(status_code=400, detail="Envie ao menos um arquivo em 'files'.")
+    uploads = []
+    if arquivo is None and not files:
+        raise HTTPException(status_code=400, detail="Envie 'arquivo' (novo) ou 'files' (legado).")
 
-    base = UPLOAD_ROOT / str(pi_id)
-    base.mkdir(parents=True, exist_ok=True)
+    # normaliza tipo
+    tipo_raw = (tipo or "pi_pdf").strip().lower()
+    if tipo_raw in {"pi", "pi_pdf"}:
+        tipo_db = "pi_pdf"
+    elif tipo_raw in {"proposta", "proposta_pdf"}:
+        tipo_db = "proposta_pdf"
+    else:
+        raise HTTPException(status_code=400, detail="tipo deve ser 'pi'|'pi_pdf' ou 'proposta'|'proposta_pdf'.")
 
-    saved = []
-    for up in files:
+    async def _save(up: UploadFile):
         if not (up.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail=f"O arquivo '{up.filename}' precisa ser PDF.")
-        safe_name = f"{(tipo or 'pi_pdf')}-{uuid4().hex}.pdf"
-        dest = base / safe_name
-        with open(dest, "wb") as f:
-            f.write(await up.read())
+
+        which = _which_from_tipo_db(tipo_db)  # "pi" | "proposta"
+        content = await up.read()
+        safe_name = f"{tipo_db}-{uuid4().hex}.pdf"
+
+        drive_file = upload_pdf_to_drive(content, safe_name, which=which)
 
         reg = pi_crud.anexos_add(
             db,
             pi_id,
-            tipo=tipo or "pi_pdf",
+            tipo=tipo_db,
             filename=up.filename or safe_name,
-            path=str(dest).replace("\\", "/"),
-            mime=up.content_type,
-            size=None,
+            path=f"gdrive://{drive_file['id']}",
+            mime=drive_file.get("mimeType") or up.content_type,
+            size=len(content),
         )
-        saved.append(
+        uploads.append(
             {
                 "id": reg.id,
                 "tipo": reg.tipo,
@@ -461,7 +469,60 @@ async def subir_anexos_alias(
                 "mime": reg.mime,
                 "size": reg.size,
                 "uploaded_at": reg.uploaded_at,
+                "webViewLink": drive_file.get("webViewLink"),
+                "webContentLink": drive_file.get("webContentLink"),
             }
         )
 
-    return {"uploaded": saved}
+    if arquivo is not None:
+        await _save(arquivo)
+    if files:
+        for up in files:
+            await _save(up)
+
+    return {"uploaded": uploads}
+
+# ---------- NOVA ROTA: obter anexo mais recente (pi|proposta) ----------
+
+@router.get("/{pi_id:int}/arquivo")
+def obter_arquivo_mais_recente(
+    pi_id: int,
+    tipo: Literal["pi", "proposta"] = Query("pi", description="Tipo do anexo"),
+    modo: Literal["redirect", "download"] = Query("redirect", description="redirect abre link do Drive; download faz proxy"),
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna o anexo mais recente do tipo informado.
+    - modo=redirect: redireciona para webViewLink/webContentLink do Drive
+    - modo=download: baixa via API (StreamingResponse) com Content-Disposition
+    """
+    anexo = _get_latest_anexo(db, pi_id, tipo)
+    if not anexo:
+        raise HTTPException(status_code=404, detail="Nenhum anexo encontrado para o tipo solicitado.")
+
+    path = (anexo.path or "").strip()
+
+    # Se for arquivo em Google Drive
+    if path.startswith("gdrive://"):
+        file_id = path.split("://", 1)[1]
+
+        if modo == "download":
+            data, name, mime = download_drive_file_bytes(file_id)
+            headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+            return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
+
+        # redirect (padrão): enviar ao link do Drive
+        meta = get_drive_file_meta(file_id)
+        url = meta.get("webViewLink") or meta.get("webContentLink")
+        if url:
+            return RedirectResponse(url)
+        # fallback: se não houver link, faz download
+        data, name, mime = download_drive_file_bytes(file_id)
+        headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+        return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
+
+    # Fallback: anexo legado salvo em disco local
+    if os.path.exists(path):
+        return FileResponse(path, filename=anexo.filename or os.path.basename(path))
+
+    raise HTTPException(status_code=410, detail="Caminho de anexo inválido ou não disponível.")

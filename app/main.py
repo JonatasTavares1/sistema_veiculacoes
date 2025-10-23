@@ -1,13 +1,17 @@
+# app/main.py
+from dotenv import load_dotenv
+load_dotenv()  # <<< carrega .env antes de qualquer import que dependa de variáveis
+
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
 
 from app.database import init_db
 
 # Routers
 from app.routes.pis import router as pis_router
-from app.routes.agencia import router as agencias_router 
+from app.routes.agencia import router as agencias_router
 from app.routes.entregas import router as entregas_router
 from app.routes.anunciantes import router as anunciantes_router
 from app.routes.executivos import router as executivos_router
@@ -26,18 +30,16 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_credentials=False,   # se precisar de cookies, troque para True e mantenha origens explícitas
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# >>> SERVIR UPLOADS (PDFs do PI/Proposta)
-# Use PI_UPLOAD_DIR se quiser customizar (default: ./uploads)
-app.mount(
-    "/uploads",
-    StaticFiles(directory=os.getenv("PI_UPLOAD_DIR", "uploads")),
-    name="uploads",
-)
+# Static: garantir que a pasta exista antes de montar
+uploads_dir = os.getenv("PI_UPLOAD_DIR", "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 @app.on_event("startup")
 def _startup():
@@ -59,5 +61,6 @@ def healthcheck():
 
 if __name__ == "__main__":
     import uvicorn
-    init_db()
+    # init_db() não é necessário aqui porque já roda no evento de startup,
+    # mas não faz mal se quiser manter.
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
