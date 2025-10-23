@@ -21,12 +21,22 @@ type Anunciante = {
   email_anunciante?: string | null
   data_cadastro?: string | null
 
-  // 🔥 Novos campos
+  // 🔥 Campos existentes
   grupo_empresarial?: string | null
   codinome?: string | null
   site?: string | null
   linkedin?: string | null
   instagram?: string | null
+
+  // 🧩 Novos campos
+  endereco?: string | null
+  segmento?: string | null
+  subsegmento?: string | null
+  logradouro?: string | null
+  bairro?: string | null
+  cep?: string | null
+  telefone_socio1?: string | null
+  telefone_socio2?: string | null
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -95,6 +105,21 @@ function normalizeDocForSave(v: string) {
   return formatDocPartial(v)
 }
 
+// ---- CEP e Telefone (máscaras simples) ----
+function formatCepPartial(v: string) {
+  const d = digits(v).slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0,5)}-${d.slice(5)}`
+}
+function formatPhoneBR(v: string) {
+  const d = digits(v).slice(0, 11) // 10 ou 11 dígitos
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
+  // 11 dígitos (celular)
+  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
+}
+
 // ---- Normalizador simples de URL (adiciona https:// se faltar) ----
 function normalizeUrl(u?: string | null): string | null {
   if (!u) return null
@@ -155,12 +180,22 @@ export default function Anunciantes() {
   const [email, setEmail] = useState("")
   const [executivo, setExecutivo] = useState("")
 
-  // 🔥 novos campos no form
+  // 🔥 campos já existentes no form
   const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
   const [codinome, setCodinome] = useState("")
   const [site, setSite] = useState("")
   const [linkedin, setLinkedin] = useState("")
   const [instagram, setInstagram] = useState("")
+
+  // 🧩 novos campos no form
+  const [endereco, setEndereco] = useState("")
+  const [segmento, setSegmento] = useState("")
+  const [subsegmento, setSubsegmento] = useState("")
+  const [logradouro, setLogradouro] = useState("")
+  const [bairro, setBairro] = useState("")
+  const [cep, setCep] = useState("")
+  const [telefoneSocio1, setTelefoneSocio1] = useState("")
+  const [telefoneSocio2, setTelefoneSocio2] = useState("")
 
   // dados
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
@@ -222,9 +257,17 @@ export default function Anunciantes() {
         const nomeFantasia = data.nome_fantasia || data.fantasia || ""
         const razaoSocial  = data.razao_social || data.nome || ""
         const ufApi        = data.uf || data.estado || ""
+        const logradouroApi = data.logradouro || data.descricao_tipo_logradouro && data.descricao_logradouro ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}` : data.logradouro || ""
+        const bairroApi    = data.bairro || ""
+        const cepApi       = data.cep || ""
+
         if (nomeFantasia) setNome(nomeFantasia)
         if (razaoSocial) setRazao(razaoSocial)
         if (ufApi && UFS.includes(ufApi)) setUf(ufApi)
+        if (logradouroApi) setLogradouro(logradouroApi)
+        if (bairroApi) setBairro(bairroApi)
+        if (cepApi) setCep(formatCepPartial(cepApi))
+
         alert("Dados preenchidos automaticamente pelo CNPJ.")
       } else {
         alert("CNPJ não encontrado.")
@@ -260,18 +303,31 @@ export default function Anunciantes() {
         executivo,
         email_anunciante: email,
 
-        // novos
+        // existentes
         grupo_empresarial: grupoEmpresarial,
         codinome,
         site: normalizeUrl(site),
         linkedin: normalizeUrl(linkedin),
         instagram: normalizeUrl(instagram),
+
+        // novos
+        endereco,
+        segmento,
+        subsegmento,
+        logradouro,
+        bairro,
+        cep: formatCepPartial(cep),
+        telefone_socio1: formatPhoneBR(telefoneSocio1),
+        telefone_socio2: formatPhoneBR(telefoneSocio2),
       }
       const body = deepClean(rawBody)
       await postJSON(`${API}/anunciantes`, body)
+
       // reset
       setNome(""); setRazao(""); setDoc(""); setUf("DF"); setEmail(""); setExecutivo("")
       setGrupoEmpresarial(""); setCodinome(""); setSite(""); setLinkedin(""); setInstagram("")
+      setEndereco(""); setSegmento(""); setSubsegmento(""); setLogradouro(""); setBairro(""); setCep("")
+      setTelefoneSocio1(""); setTelefoneSocio2("")
       await carregar()
       alert("Anunciante cadastrado com sucesso!")
     } catch (e: any) {
@@ -296,6 +352,14 @@ export default function Anunciantes() {
       Site: a.site || "",
       LinkedIn: a.linkedin || "",
       Instagram: a.instagram || "",
+      Endereço: a.endereco || "",
+      Logradouro: a.logradouro || "",
+      Bairro: a.bairro || "",
+      CEP: a.cep || "",
+      Segmento: a.segmento || "",
+      "Subsegmento": a.subsegmento || "",
+      "Telefone Sócio 1": a.telefone_socio1 || "",
+      "Telefone Sócio 2": a.telefone_socio2 || "",
       "Data de Cadastro": a.data_cadastro || "",
     }))
     const nomeArq = `anunciantes_${new Date().toISOString().slice(0,10)}.xlsx`
@@ -319,10 +383,20 @@ export default function Anunciantes() {
     if (!q) return lista
     return lista.filter(a => {
       const inUrl = (u?: string | null) => (u || "").toLowerCase().includes(q)
+      const inText = (s?: string | null) => (s || "").toLowerCase().includes(q)
       return (
         a.nome_anunciante.toLowerCase().includes(q) ||
-        (a.codinome || "").toLowerCase().includes(q) ||
-        (a.grupo_empresarial || "").toLowerCase().includes(q) ||
+        inText(a.razao_social_anunciante) ||
+        inText(a.codinome) ||
+        inText(a.grupo_empresarial) ||
+        inText(a.endereco) ||
+        inText(a.logradouro) ||
+        inText(a.bairro) ||
+        inText(a.segmento) ||
+        inText(a.subsegmento) ||
+        inText(a.cep) ||
+        inText(a.telefone_socio1) ||
+        inText(a.telefone_socio2) ||
         (a.cnpj_anunciante || "").toLowerCase().includes(q) ||
         (d && digits(a.cnpj_anunciante || "").includes(d)) ||
         (a.executivo || "").toLowerCase().includes(q) ||
@@ -346,12 +420,21 @@ export default function Anunciantes() {
       uf_cliente: a.uf_cliente || "DF",
       executivo: a.executivo || "",
 
-      // novos
       grupo_empresarial: a.grupo_empresarial || "",
       codinome: a.codinome || "",
       site: a.site || "",
       linkedin: a.linkedin || "",
       instagram: a.instagram || "",
+
+      // novos
+      endereco: a.endereco || "",
+      segmento: a.segmento || "",
+      subsegmento: a.subsegmento || "",
+      logradouro: a.logradouro || "",
+      bairro: a.bairro || "",
+      cep: a.cep || "",
+      telefone_socio1: a.telefone_socio1 || "",
+      telefone_socio2: a.telefone_socio2 || "",
     })
     setEditOpen(true)
   }
@@ -381,12 +464,21 @@ export default function Anunciantes() {
         executivo: editItem.executivo,
         email_anunciante: editItem.email_anunciante ?? "",
 
-        // novos
         grupo_empresarial: editItem.grupo_empresarial ?? "",
         codinome: editItem.codinome ?? "",
         site: normalizeUrl(editItem.site || ""),
         linkedin: normalizeUrl(editItem.linkedin || ""),
         instagram: normalizeUrl(editItem.instagram || ""),
+
+        // novos
+        endereco: editItem.endereco ?? "",
+        segmento: editItem.segmento ?? "",
+        subsegmento: editItem.subsegmento ?? "",
+        logradouro: editItem.logradouro ?? "",
+        bairro: editItem.bairro ?? "",
+        cep: formatCepPartial(editItem.cep || ""),
+        telefone_socio1: formatPhoneBR(editItem.telefone_socio1 || ""),
+        telefone_socio2: formatPhoneBR(editItem.telefone_socio2 || ""),
       }
       const body = deepClean(raw)
       await putJSON(`${API}/anunciantes/${editItem.id}`, body)
@@ -511,7 +603,7 @@ export default function Anunciantes() {
             </select>
           </div>
 
-          {/* 🔥 Novos campos */}
+          {/* 🔥 Campos existentes */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Grupo Empresarial</label>
             <input
@@ -561,6 +653,93 @@ export default function Anunciantes() {
               placeholder="ex.: instagram.com/empresa"
             />
           </div>
+
+          {/* 🧩 Novos campos */}
+          <div className="xl:col-span-2">
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Endereço (complemento/observações)</label>
+            <input
+              value={endereco}
+              onChange={(e) => setEndereco(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Sala 402, Bloco B, Centro Empresarial..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Logradouro</label>
+            <input
+              value={logradouro}
+              onChange={(e) => setLogradouro(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Av. Paulista, 1000"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Bairro</label>
+            <input
+              value={bairro}
+              onChange={(e) => setBairro(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Bela Vista"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">CEP</label>
+            <input
+              value={cep}
+              onChange={(e) => setCep(formatCepPartial(e.target.value))}
+              onBlur={() => setCep(formatCepPartial(cep))}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="00000-000"
+              inputMode="numeric"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Segmento</label>
+            <input
+              value={segmento}
+              onChange={(e) => setSegmento(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Varejo, Tecnologia, Saúde..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Subsegmento</label>
+            <input
+              value={subsegmento}
+              onChange={(e) => setSubsegmento(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="Ex.: Supermercado, SaaS, Hospital..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 1</label>
+            <input
+              value={telefoneSocio1}
+              onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
+              onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="(11) 90000-0000"
+              inputMode="tel"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 2</label>
+            <input
+              value={telefoneSocio2}
+              onChange={(e) => setTelefoneSocio2(formatPhoneBR(e.target.value))}
+              onBlur={() => setTelefoneSocio2(formatPhoneBR(telefoneSocio2))}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              placeholder="(11) 90000-0000"
+              inputMode="tel"
+            />
+          </div>
         </div>
 
         <div className="mt-6">
@@ -582,7 +761,7 @@ export default function Anunciantes() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, codinome, documento, executivo, grupo..."
+              placeholder="Buscar por nome, codinome, documento, executivo, grupo, localidade, segmento..."
               className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
             <button
@@ -615,7 +794,8 @@ export default function Anunciantes() {
                       "Grupo",
                       "Documento",
                       "UF",
-                      "Executivo",
+                      "Segmento",
+                      "Localidade",
                       "Contato",
                       "Redes",
                       "Cadastro",
@@ -668,7 +848,19 @@ export default function Anunciantes() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        <div className="truncate">{a.executivo || "—"}</div>
+                        <div className="flex flex-col">
+                          <span className="truncate">{a.segmento || "—"}</span>
+                          {a.subsegmento ? <span className="text-sm text-slate-500 truncate">{a.subsegmento}</span> : null}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-base">
+                        <div className="flex flex-col">
+                          <span className="truncate">{a.logradouro || a.endereco || "—"}</span>
+                          <span className="text-sm text-slate-500 truncate">
+                            {a.bairro ? `${a.bairro} • ` : ""}{a.cep || ""}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
@@ -681,6 +873,8 @@ export default function Anunciantes() {
                               {a.email_anunciante}
                             </a>
                           ) : <span className="text-slate-400">—</span>}
+                          {a.telefone_socio1 ? <span className="text-sm text-slate-700">{a.telefone_socio1}</span> : null}
+                          {a.telefone_socio2 ? <span className="text-sm text-slate-700">{a.telefone_socio2}</span> : null}
                           {a.site ? (
                             <a
                               href={a.site}
@@ -859,6 +1053,91 @@ export default function Anunciantes() {
                     onChange={(e) => campoEdit("instagram", e.target.value)}
                     placeholder="ex.: instagram.com/empresa"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* 🧩 Novos campos */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Endereço (complemento/observações)</label>
+                  <input
+                    value={editItem.endereco || ""}
+                    onChange={(e) => campoEdit("endereco", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Logradouro</label>
+                  <input
+                    value={editItem.logradouro || ""}
+                    onChange={(e) => campoEdit("logradouro", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Ex.: Rua/Av. e número"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Bairro</label>
+                  <input
+                    value={editItem.bairro || ""}
+                    onChange={(e) => campoEdit("bairro", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">CEP</label>
+                  <input
+                    value={editItem.cep || ""}
+                    onChange={(e) => campoEdit("cep", formatCepPartial(e.target.value))}
+                    onBlur={() => campoEdit("cep", formatCepPartial(editItem.cep || ""))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Segmento</label>
+                  <input
+                    value={editItem.segmento || ""}
+                    onChange={(e) => campoEdit("segmento", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Ex.: Varejo, Tecnologia, Saúde..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Subsegmento</label>
+                  <input
+                    value={editItem.subsegmento || ""}
+                    onChange={(e) => campoEdit("subsegmento", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Ex.: Supermercado, SaaS, Hospital..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 1</label>
+                  <input
+                    value={editItem.telefone_socio1 || ""}
+                    onChange={(e) => campoEdit("telefone_socio1", formatPhoneBR(e.target.value))}
+                    onBlur={() => campoEdit("telefone_socio1", formatPhoneBR(editItem.telefone_socio1 || ""))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="(11) 90000-0000"
+                    inputMode="tel"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 2</label>
+                  <input
+                    value={editItem.telefone_socio2 || ""}
+                    onChange={(e) => campoEdit("telefone_socio2", formatPhoneBR(e.target.value))}
+                    onBlur={() => campoEdit("telefone_socio2", formatPhoneBR(editItem.telefone_socio2 || ""))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="(11) 90000-0000"
+                    inputMode="tel"
                   />
                 </div>
               </div>
