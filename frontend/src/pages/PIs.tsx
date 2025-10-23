@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 type PIItem = {
   id: number
   numero_pi: string
-  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação" | "veiculação" | string
+  tipo_pi: "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação" | string
   numero_pi_matriz?: string | null
   numero_pi_normal?: string | null
   nome_anunciante?: string | null
@@ -98,6 +98,22 @@ function parseISODateToBR(s?: string | null) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
 }
+function BRtoISODate(s?: string | null) {
+  // dd/MM/yyyy -> yyyy-MM-dd
+  if (!s) return ""
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s.trim())
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  // já veio iso
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s.trim())) return s.trim()
+  return ""
+}
+function ISOtoBRDate(s?: string | null) {
+  // yyyy-MM-dd -> dd/MM/yyyy
+  if (!s) return ""
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim())
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  return s || ""
+}
 function mesToYM(s?: string | null): string {
   if (!s) return ""
   const t = s.trim()
@@ -105,6 +121,15 @@ function mesToYM(s?: string | null): string {
   if (m1) return `${m1[2]}-${m1[1]}`
   const m2 = /^(\d{4})-(\d{2})$/.exec(t)
   if (m2) return t
+  return ""
+}
+function YMtoBRMonth(s?: string | null) {
+  // yyyy-MM -> MM/YYYY
+  if (!s) return ""
+  const m = /^(\d{4})-(\d{2})$/.exec(s.trim())
+  if (m) return `${m[2]}/${m[1]}`
+  const m2 = /^(\d{2})\/(\d{4})$/.exec(s.trim())
+  if (m2) return s.trim()
   return ""
 }
 
@@ -418,7 +443,9 @@ export default function PIs() {
     setEditError(null)
     setEditDraft({
       ...pi,
+      // guardamos no draft em BR (pra compat com o resto) mas o input usa ISO
       data_emissao: parseISODateToBR(pi.data_emissao),
+      mes_venda: YMtoBRMonth(pi.mes_venda || "") || pi.mes_venda || "",
     })
     setEditOpen(true)
   }
@@ -437,6 +464,20 @@ export default function PIs() {
     const n = Number(t.replace(/\./g, "").replace(",", "."))
     return Number.isFinite(n) ? n : null
   }
+  function normalizaDataEmissaoParaAPI(s?: string | null) {
+    if (!s) return null
+    const t = s.trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return ISOtoBRDate(t) // veio ISO do input date
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(t)) return t
+    return t
+  }
+  function normalizaMesVendaParaAPI(s?: string | null) {
+    if (!s) return null
+    const t = s.trim()
+    if (/^\d{4}-\d{2}$/.test(t)) return YMtoBRMonth(t) // volta como MM/YYYY
+    if (/^\d{2}\/\d{4}$/.test(t)) return t
+    return t
+  }
   async function salvarEditor() {
     if (!editDraft) return
     setSavingEdit(true); setEditError(null)
@@ -448,7 +489,8 @@ export default function PIs() {
         numero_pi_normal: (normalizeTipo(editDraft.tipo_pi) === "cs") ? (editDraft.numero_pi_normal || null) : null,
         nome_anunciante: editDraft.nome_anunciante || null,
         nome_agencia: editDraft.nome_agencia || null,
-        data_emissao: (editDraft.data_emissao || "").trim() || null,
+        cnpj_agencia: editDraft.cnpj_agencia || null,
+        data_emissao: normalizaDataEmissaoParaAPI(editDraft.data_emissao),
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -457,7 +499,7 @@ export default function PIs() {
         diretoria: editDraft.diretoria || null,
         executivo: editDraft.executivo || null,
         dia_venda: (editDraft.dia_venda ?? "") as any || null,
-        mes_venda: editDraft.mes_venda || null,
+        mes_venda: normalizaMesVendaParaAPI(editDraft.mes_venda),
         observacoes: editDraft.observacoes || null,
       }
       await putJSON<PIItem>(`${API}/pis/${editDraft.id}`, payload)
@@ -1036,15 +1078,218 @@ export default function PIs() {
                 </div>
               )}
 
-              {/* seus campos do editor aqui (mantidos) */}
+              {/* ====== FORM DO EDITOR ====== */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* PI / Tipo */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Número do PI</label>
+                  <input
+                    value={editDraft.numero_pi || ""}
+                    onChange={(e) => campo("numero_pi", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
 
-              <div className="pt-2">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de PI</label>
+                  <select
+                    value={editDraft.tipo_pi as any}
+                    onChange={(e) => campo("tipo_pi", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    {["Matriz", "Normal", "CS", "Abatimento", "Veiculação"].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Condicionais */}
+                {mostraPIMatriz(editDraft.tipo_pi) && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">PI Matriz</label>
+                    <input
+                      value={editDraft.numero_pi_matriz || ""}
+                      onChange={(e) => campo("numero_pi_matriz", e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono"
+                      placeholder="Ex: 12345"
+                    />
+                  </div>
+                )}
+
+                {normalizeTipo(editDraft.tipo_pi) === "cs" && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">PI Normal (CS)</label>
+                    <input
+                      value={editDraft.numero_pi_normal || ""}
+                      onChange={(e) => campo("numero_pi_normal", e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono"
+                      placeholder="Ex: 67890"
+                    />
+                  </div>
+                )}
+
+                {/* Agência / CNPJ */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Agência</label>
+                  <input
+                    value={editDraft.nome_agencia || ""}
+                    onChange={(e) => campo("nome_agencia", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">CNPJ da Agência</label>
+                  <input
+                    value={editDraft.cnpj_agencia || ""}
+                    onChange={(e) => campo("cnpj_agencia", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* Anunciante / Campanha */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Anunciante</label>
+                  <input
+                    value={editDraft.nome_anunciante || ""}
+                    onChange={(e) => campo("nome_anunciante", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Campanha</label>
+                  <input
+                    value={editDraft.nome_campanha || ""}
+                    onChange={(e) => campo("nome_campanha", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* Emissão */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Data de Emissão</label>
+                  <input
+                    type="date"
+                    value={BRtoISODate(editDraft.data_emissao) || ""}
+                    onChange={(e) => campo("data_emissao", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                  <div className="text-xs text-slate-500 mt-1">
+                    Salva como <code>dd/MM/yyyy</code>.
+                  </div>
+                </div>
+
+                {/* Valores */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Total (R$)</label>
+                  <input
+                    inputMode="decimal"
+                    value={editDraft.valor_bruto ?? ""}
+                    onChange={(e) => campo("valor_bruto", e.target.value)}
+                    placeholder="0,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Líquido (R$)</label>
+                  <input
+                    inputMode="decimal"
+                    value={editDraft.valor_liquido ?? ""}
+                    onChange={(e) => campo("valor_liquido", e.target.value)}
+                    placeholder="0,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* Praça / Meio */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Praça (UF)</label>
+                  <input
+                    value={editDraft.uf_cliente || ""}
+                    onChange={(e) => campo("uf_cliente", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Ex: SP"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Meio</label>
+                  <input
+                    value={editDraft.canal || ""}
+                    onChange={(e) => campo("canal", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+
+                {/* Diretoria / Executivo */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Diretoria</label>
+                  <select
+                    value={editDraft.diretoria || ""}
+                    onChange={(e) => campo("diretoria", e.target.value || null)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">—</option>
+                    {DIRETORIAS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                  <select
+                    value={editDraft.executivo || ""}
+                    onChange={(e) => campo("executivo", e.target.value || null)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">—</option>
+                    {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                  </select>
+                </div>
+
+                {/* Venda (dia / mês) */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Dia da Venda</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={Number(editDraft.dia_venda ?? "") || ""}
+                    onChange={(e) => campo("dia_venda", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Mês da Venda</label>
+                  <input
+                    type="month"
+                    value={mesToYM(editDraft.mes_venda || "") || ""}
+                    onChange={(e) => campo("mes_venda", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                  <div className="text-xs text-slate-500 mt-1">Salva como <code>MM/YYYY</code>.</div>
+                </div>
+
+                {/* Observações (full) */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Observações</label>
+                  <textarea
+                    value={editDraft.observacoes || ""}
+                    onChange={(e) => campo("observacoes", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 min-h-[100px]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center gap-3">
                 <button
                   onClick={salvarEditor}
                   disabled={savingEdit}
                   className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
                 >
                   {savingEdit ? "Salvando..." : "Salvar alterações"}
+                </button>
+                <button
+                  onClick={fecharEditor}
+                  className="px-6 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50"
+                >
+                  Cancelar
                 </button>
               </div>
             </div>
