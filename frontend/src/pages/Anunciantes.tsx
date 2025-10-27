@@ -101,7 +101,7 @@ function formatDocPartial(v: string) {
   return formatCnpjPartial(v)
 }
 function normalizeDocForSave(v: string) {
-  // Mantém com pontuação (como o backend aceita string). Se preferir só dígitos, troque por: return digits(v)
+  // Mantém formatação (como o backend aceita string). Para só dígitos, use: return digits(v)
   return formatDocPartial(v)
 }
 
@@ -113,10 +113,10 @@ function formatCepPartial(v: string) {
 }
 function formatPhoneBR(v: string) {
   const d = digits(v).slice(0, 11) // 10 ou 11 dígitos
+  if (!d) return ""
   if (d.length <= 2) return `(${d}`
   if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`
   if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
-  // 11 dígitos (celular)
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
 }
 
@@ -257,7 +257,11 @@ export default function Anunciantes() {
         const nomeFantasia = data.nome_fantasia || data.fantasia || ""
         const razaoSocial  = data.razao_social || data.nome || ""
         const ufApi        = data.uf || data.estado || ""
-        const logradouroApi = data.logradouro || data.descricao_tipo_logradouro && data.descricao_logradouro ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}` : data.logradouro || ""
+        const logradouroApi =
+          data.logradouro ||
+          ((data.descricao_tipo_logradouro && data.descricao_logradouro)
+            ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}`
+            : "")
         const bairroApi    = data.bairro || ""
         const cepApi       = data.cep || ""
 
@@ -521,43 +525,40 @@ export default function Anunciantes() {
         </div>
       </div>
 
-      {/* Formulário */}
+      {/* Formulário (3 por linha no xl) */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{erro}</div>}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+          {/* Linha 1 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Nome do Anunciante</label>
             <input
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: ACME Ltda"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Razão Social</label>
             <input
               value={razao}
               onChange={(e) => setRazao(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: ACME Indústria e Comércio LTDA"
             />
           </div>
-
           <div>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">Documento (CPF ou CNPJ)</label>
             <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <label className="block text-xl font-semibold text-slate-800 mb-2">Documento (CPF ou CNPJ)</label>
-                <input
-                  value={doc}
-                  onChange={(e) => setDoc(formatDocPartial(e.target.value))}
-                  onBlur={() => setDoc(formatDocPartial(doc))}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                  placeholder="CPF: 000.000.000-00  •  CNPJ: 00.000.000/0000-00"
-                />
-              </div>
+              <input
+                value={doc}
+                onChange={(e) => setDoc(formatDocPartial(e.target.value))}
+                onBlur={() => setDoc(formatDocPartial(doc))}
+                className="flex-1 h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="CPF: 000.000.000-00 • CNPJ: 00.000.000/0000-00"
+              />
               <button
                 type="button"
                 onClick={autoPreencherPorCNPJ}
@@ -570,176 +571,173 @@ export default function Anunciantes() {
             </div>
           </div>
 
+          {/* Linha 2 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">UF</label>
             <select
               value={uf}
               onChange={(e) => setUf(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
               {UFS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Email</label>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="contato@empresa.com.br"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Executivo Responsável</label>
             <select
               value={executivo}
               onChange={(e) => setExecutivo(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
               <option value="">Selecione o Executivo</option>
               {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
             </select>
           </div>
 
-          {/* 🔥 Campos existentes */}
+          {/* Linha 3 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Grupo Empresarial</label>
             <input
               value={grupoEmpresarial}
               onChange={(e) => setGrupoEmpresarial(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Grupo ACME"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Codinome</label>
             <input
               value={codinome}
               onChange={(e) => setCodinome(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Identificador curto (único)"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Site</label>
             <input
               value={site}
               onChange={(e) => setSite(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: empresa.com.br"
             />
           </div>
 
+          {/* Linha 4 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">LinkedIn</label>
             <input
               value={linkedin}
               onChange={(e) => setLinkedin(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: linkedin.com/company/empresa"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Instagram</label>
             <input
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: instagram.com/empresa"
             />
           </div>
-
-          {/* 🧩 Novos campos */}
-          <div className="xl:col-span-2">
+          <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Endereço (complemento/observações)</label>
             <input
               value={endereco}
               onChange={(e) => setEndereco(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Sala 402, Bloco B, Centro Empresarial..."
             />
           </div>
 
+          {/* Linha 5 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Logradouro</label>
             <input
               value={logradouro}
               onChange={(e) => setLogradouro(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Av. Paulista, 1000"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Bairro</label>
             <input
               value={bairro}
               onChange={(e) => setBairro(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Bela Vista"
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">CEP</label>
             <input
               value={cep}
               onChange={(e) => setCep(formatCepPartial(e.target.value))}
               onBlur={() => setCep(formatCepPartial(cep))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="00000-000"
               inputMode="numeric"
             />
           </div>
 
+          {/* Linha 6 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Segmento</label>
             <input
               value={segmento}
               onChange={(e) => setSegmento(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Varejo, Tecnologia, Saúde..."
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Subsegmento</label>
             <input
               value={subsegmento}
               onChange={(e) => setSubsegmento(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Supermercado, SaaS, Hospital..."
             />
           </div>
-
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 1</label>
             <input
               value={telefoneSocio1}
               onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
               onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="(11) 90000-0000"
               inputMode="tel"
             />
           </div>
 
+          {/* Linha 7 */}
           <div>
             <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 2</label>
             <input
               value={telefoneSocio2}
               onChange={(e) => setTelefoneSocio2(formatPhoneBR(e.target.value))}
               onBlur={() => setTelefoneSocio2(formatPhoneBR(telefoneSocio2))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="(11) 90000-0000"
               inputMode="tel"
             />
           </div>
+          {/* slots vazios para completar a linha de 3 colunas */}
+          <div className="hidden xl:block" />
+          <div className="hidden xl:block" />
         </div>
 
         <div className="mt-6">
