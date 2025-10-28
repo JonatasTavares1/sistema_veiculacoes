@@ -1,14 +1,13 @@
-#app/crud/pis_crud.py
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, or_, asc
+from sqlalchemy import and_, or_, asc, func, case
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import PI, Produto, Veiculacao, PIAnexo
+from app.models import PI, Produto, Veiculacao, PIAnexo, Entrega
 
 # =========================================================
 # Helpers
@@ -327,16 +326,19 @@ def delete(db: Session, pi_id: int) -> None:
     db.commit()
 
 # =========================================================
-# Eager load + montagem de produtos (compat com rotas atuais)
+# Eager load + montagem de produtos + ENTREGAS
 # =========================================================
 
 def _attach_produtos_to_pi(db: Session, pi: PI) -> None:
     """
     Monta atributos **transitórios** no objeto PI para a resposta:
       - pi.produtos_agg: lista de dicts {id, nome, descricao, total_produto, veiculacoes:[...] }
+        cada veiculação inclui entregas_total e entregas_pendentes
       - pi.total_pi: soma dos totais de cada produto
+      - pi.status_entregas / contadores gerais de entregas
     NÃO toca no relationship real (pi.produtos) para não acionar o ORM.
     """
+    # Carrega veiculações + produtos
     regs: List[Tuple[Veiculacao, Produto]] = (
         db.query(Veiculacao, Produto)
         .join(Produto, Veiculacao.produto_id == Produto.id)
@@ -345,7 +347,29 @@ def _attach_produtos_to_pi(db: Session, pi: PI) -> None:
         .all()
     )
 
+    # Agregação de entregas por veiculação (1 só query)
+    entregas_q = (
+        db.query(
+            Entrega.veiculacao_id.label("vid"),
+            func.count(Entrega.id).label("tot"),
+            func.sum(
+                case(
+                    (func.lower(func.coalesce(Entrega.foi_entregue, "")) == "entregue", 1),
+                    else_=0,
+                )
+            ).label("done"),
+        )
+        .filter(Entrega.pi_id == pi.id)
+        .group_by(Entrega.veiculacao_id)
+        .all()
+    )
+    entregas_map: Dict[int, Tuple[int, int]] = {row.vid: (int(row.tot or 0), int(row.done or 0)) for row in entregas_q}
+
     agrup: Dict[int, Dict[str, Any]] = {}
+
+    total_entregas_pi = 0
+    total_pendentes_pi = 0
+    total_concluidas_pi = 0
 
     for v, p in regs:
         if p.id not in agrup:
@@ -358,6 +382,10 @@ def _attach_produtos_to_pi(db: Session, pi: PI) -> None:
             }
 
         valor = _money_or_zero(v.valor_liquido, v.valor_bruto)
+
+        # contadores desta veiculação
+        tot, done = entregas_map.get(v.id, (0, 0))
+        pend = max(tot - done, 0)
 
         agrup[p.id]["veiculacoes"].append(
             {
@@ -373,9 +401,17 @@ def _attach_produtos_to_pi(db: Session, pi: PI) -> None:
                 "valor_bruto": v.valor_bruto,
                 "valor_liquido": v.valor_liquido,
                 "desconto": getattr(v, "desconto", None),
+                # >>> NOVOS campos de entrega por veiculação (batem com VeiculacaoOut)
+                "entregas_total": tot,
+                "entregas_pendentes": pend,
+                # "entregas_concluidas": done,
             }
         )
         agrup[p.id]["total_produto"] += float(valor or 0.0)
+
+        total_entregas_pi += tot
+        total_pendentes_pi += pend
+        total_concluidas_pi += done
 
     produtos_agg = list(agrup.values())
     total_pi = sum(p["total_produto"] for p in produtos_agg)
@@ -383,6 +419,21 @@ def _attach_produtos_to_pi(db: Session, pi: PI) -> None:
     # >>> Transitórios (não-relacionamento)
     setattr(pi, "produtos_agg", produtos_agg)
     setattr(pi, "total_pi", float(total_pi))
+
+    # >>> Status geral de entregas (para o topo do detalhe)
+    if total_entregas_pi == 0:
+        status = "sem-registro"
+    elif total_pendentes_pi == 0:
+        status = "entregue"
+    elif total_pendentes_pi == total_entregas_pi:
+        status = "pendente"
+    else:
+        status = "parcial"
+
+    setattr(pi, "status_entregas", status)
+    setattr(pi, "entregas_total", int(total_entregas_pi))
+    setattr(pi, "entregas_pendentes", int(total_pendentes_pi))
+    setattr(pi, "entregas_concluidas", int(total_concluidas_pi))
 
 def get_with_relations_by_numero(db: Session, numero_pi: str) -> Optional[PI]:
     reg = (
@@ -686,8 +737,27 @@ def list_veiculacoes_agenda(
 
     regs = q.order_by(Veiculacao.data_inicio.asc()).all()
 
+    # contagem de entregas por veiculação neste intervalo (opcional; deixa sem filtro de data)
+    ent_q = (
+        db.query(
+            Entrega.veiculacao_id.label("vid"),
+            func.count(Entrega.id).label("tot"),
+            func.sum(
+                case(
+                    (func.lower(func.coalesce(Entrega.foi_entregue, "")) == "entregue", 1),
+                    else_=0,
+                )
+            ).label("done"),
+        )
+        .group_by(Entrega.veiculacao_id)
+        .all()
+    )
+    ent_map: Dict[int, Tuple[int, int]] = {r.vid: (int(r.tot or 0), int(r.done or 0)) for r in ent_q}
+
     out: List[Dict[str, Any]] = []
     for v, prod, pi in regs:
+        tot, done = ent_map.get(v.id, (0, 0))
+        pend = max(tot - done, 0)
         out.append(
             dict(
                 id=v.id,
@@ -707,6 +777,9 @@ def list_veiculacoes_agenda(
                 executivo=pi.executivo,
                 diretoria=pi.diretoria,
                 uf_cliente=pi.uf_cliente,
+                # >>> NOVOS
+                entregas_total=tot,
+                entregas_pendentes=pend,
             )
         )
     return out
@@ -725,10 +798,31 @@ def list_veiculacoes_by_pi(db: Session, pi_id: int) -> List[Dict[str, Any]]:
         .all()
     )
 
+    # contagem de entregas por veiculação do PI
+    ent_q = (
+        db.query(
+            Entrega.veiculacao_id.label("vid"),
+            func.count(Entrega.id).label("tot"),
+            func.sum(
+                case(
+                    (func.lower(func.coalesce(Entrega.foi_entregue, "")) == "entregue", 1),
+                    else_=0,
+                )
+            ).label("done"),
+        )
+        .filter(Entrega.pi_id == pi_id)
+        .group_by(Entrega.veiculacao_id)
+        .all()
+    )
+    ent_map: Dict[int, Tuple[int, int]] = {r.vid: (int(r.tot or 0), int(r.done or 0)) for r in ent_q}
+
     out: List[Dict[str, Any]] = []
     for v, prod, pi in regs:
         # canal efetivo: prioriza o da veiculação; se vazio, usa o canal do PI
         effective_canal = getattr(v, "canal", None) or getattr(pi, "canal", None)
+
+        tot, done = ent_map.get(v.id, (0, 0))
+        pend = max(tot - done, 0)
 
         out.append({
             "id": v.id,
@@ -754,6 +848,10 @@ def list_veiculacoes_by_pi(db: Session, pi_id: int) -> List[Dict[str, Any]]:
             "executivo": getattr(pi, "executivo", None),
             "diretoria": getattr(pi, "diretoria", None),
             "uf_cliente": getattr(pi, "uf_cliente", None),
+
+            # >>> NOVOS
+            "entregas_total": tot,
+            "entregas_pendentes": pend,
         })
     return out
 

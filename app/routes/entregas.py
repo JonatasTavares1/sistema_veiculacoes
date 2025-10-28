@@ -1,8 +1,8 @@
 # app/routes/entregas.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.schemas.entrega import EntregaCreate, EntregaUpdate, EntregaOut
 from app.crud import entrega_crud
 from app.database import SessionLocal
@@ -16,62 +16,57 @@ def get_db():
     finally:
         db.close()
 
+# ---------- helpers de serialização ----------
+def _serialize_entrega(r) -> EntregaOut:
+    foi = (r.foi_entregue or "pendente").strip()
+    foi_lower = foi.lower()
+    entregue_bool = foi_lower in {"sim", "entregue", "ok", "1", "true"}
+    status_txt = "Entregue" if entregue_bool else "Pendente"
+    # Mantém compatibilidade com o front: inclui status/status_entrega e boolean entregue
+    return EntregaOut(
+        id=r.id,
+        pi_id=r.pi_id,
+        veiculacao_id=r.veiculacao_id,
+        data_entrega=r.data_entrega.isoformat() if r.data_entrega else "",
+        foi_entregue=foi or "pendente",
+        status=status_txt,
+        status_entrega=status_txt,
+        entregue=entregue_bool,
+        motivo=r.motivo or "",
+    )
+
 # ---- listas ----
 @router.get("", response_model=List[EntregaOut])
-def listar_todas(db: Session = Depends(get_db)):
-    regs = entrega_crud.list_all(db)
-    # serialização simples: convert date -> str ISO (YYYY-MM-DD)
-    out = []
-    for r in regs:
-        out.append(EntregaOut(
-            id=r.id,
-            veiculacao_id=r.veiculacao_id,
-            data_entrega=r.data_entrega.isoformat() if r.data_entrega else "",
-            foi_entregue=r.foi_entregue or "pendente",
-            motivo=r.motivo or "",
-        ))
-    return out
+def listar_todas(
+    db: Session = Depends(get_db),
+    pi_id: Optional[int] = Query(default=None),
+    veiculacao_id: Optional[int] = Query(default=None),
+):
+    if pi_id is not None:
+        regs = entrega_crud.list_by_pi(db, pi_id)
+    elif veiculacao_id is not None:
+        regs = entrega_crud.list_by_veiculacao(db, veiculacao_id)
+    else:
+        regs = entrega_crud.list_all(db)
+    return [_serialize_entrega(r) for r in regs]
 
 @router.get("/veiculacao/{veiculacao_id:int}", response_model=List[EntregaOut])
 def por_veiculacao(veiculacao_id: int, db: Session = Depends(get_db)):
     regs = entrega_crud.list_by_veiculacao(db, veiculacao_id)
-    return [
-        EntregaOut(
-            id=r.id,
-            veiculacao_id=r.veiculacao_id,
-            data_entrega=r.data_entrega.isoformat() if r.data_entrega else "",
-            foi_entregue=r.foi_entregue or "pendente",
-            motivo=r.motivo or "",
-        )
-        for r in regs
-    ]
+    return [_serialize_entrega(r) for r in regs]
 
-@router.get("/pendentes", response_model=List[EntregaOut])
-def pendentes(db: Session = Depends(get_db)):
-    regs = entrega_crud.list_pendentes(db)
-    return [
-        EntregaOut(
-            id=r.id,
-            veiculacao_id=r.veiculacao_id,
-            data_entrega=r.data_entrega.isoformat() if r.data_entrega else "",
-            foi_entregue=r.foi_entregue or "pendente",
-            motivo=r.motivo or "",
-        )
-        for r in regs
-    ]
+# ✅ novo: por PI (casa com o front que chama /pis/{id}/entregas)
+@router.get("/pi/{pi_id:int}", response_model=List[EntregaOut])
+def por_pi(pi_id: int, db: Session = Depends(get_db)):
+    regs = entrega_crud.list_by_pi(db, pi_id)
+    return [_serialize_entrega(r) for r in regs]
 
 # ---- CRUD ----
 @router.post("", response_model=EntregaOut, status_code=status.HTTP_201_CREATED)
 def criar(body: EntregaCreate, db: Session = Depends(get_db)):
     try:
         novo = entrega_crud.create(db, body.dict())
-        return EntregaOut(
-            id=novo.id,
-            veiculacao_id=novo.veiculacao_id,
-            data_entrega=novo.data_entrega.isoformat(),
-            foi_entregue=novo.foi_entregue or "pendente",
-            motivo=novo.motivo or "",
-        )
+        return _serialize_entrega(novo)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -79,13 +74,7 @@ def criar(body: EntregaCreate, db: Session = Depends(get_db)):
 def atualizar(entrega_id: int, body: EntregaUpdate, db: Session = Depends(get_db)):
     try:
         upd = entrega_crud.update(db, entrega_id, body.dict(exclude_unset=True))
-        return EntregaOut(
-            id=upd.id,
-            veiculacao_id=upd.veiculacao_id,
-            data_entrega=upd.data_entrega.isoformat() if upd.data_entrega else "",
-            foi_entregue=upd.foi_entregue or "pendente",
-            motivo=upd.motivo or "",
-        )
+        return _serialize_entrega(upd)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -93,13 +82,7 @@ def atualizar(entrega_id: int, body: EntregaUpdate, db: Session = Depends(get_db
 def marcar_como_entregue(entrega_id: int, db: Session = Depends(get_db)):
     try:
         ent = entrega_crud.marcar_entregue(db, entrega_id)
-        return EntregaOut(
-            id=ent.id,
-            veiculacao_id=ent.veiculacao_id,
-            data_entrega=ent.data_entrega.isoformat() if ent.data_entrega else "",
-            foi_entregue=ent.foi_entregue or "pendente",
-            motivo=ent.motivo or "",
-        )
+        return _serialize_entrega(ent)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -107,13 +90,7 @@ def marcar_como_entregue(entrega_id: int, db: Session = Depends(get_db)):
 def atualizar_motivo(entrega_id: int, motivo: str, db: Session = Depends(get_db)):
     try:
         ent = entrega_crud.atualizar_motivo(db, entrega_id, motivo)
-        return EntregaOut(
-            id=ent.id,
-            veiculacao_id=ent.veiculacao_id,
-            data_entrega=ent.data_entrega.isoformat() if ent.data_entrega else "",
-            foi_entregue=ent.foi_entregue or "pendente",
-            motivo=ent.motivo or "",
-        )
+        return _serialize_entrega(ent)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

@@ -143,6 +143,12 @@ class VeiculacaoOut(BaseModel):
     valor_liquido: Optional[float] = None
     valor: Optional[float] = None  # legado (usado na tela de detalhe e agenda)
 
+    # >>> NOVOS: contadores de entregas por veiculação (para badges no front)
+    entregas_total: int = 0
+    entregas_pendentes: int = 0
+    # opcional:
+    # entregas_concluidas: int = 0
+
     class Config:
         from_attributes = True
 
@@ -200,6 +206,13 @@ class PiDetalheOut(BaseModel):
     # lê da lista transitória criada no CRUD (_attach_produtos_to_pi)
     produtos: List[ProdutoOut] = Field(default_factory=list, validation_alias="produtos_agg")
 
+    # >>> NOVOS: status geral de entregas para o topo do detalhe
+    # "sem-registro" | "pendente" | "parcial" | "entregue"
+    status_entregas: str = "sem-registro"
+    entregas_total: int = 0
+    entregas_pendentes: int = 0
+    entregas_concluidas: int = 0
+
     class Config:
         from_attributes = True
 
@@ -222,3 +235,7 @@ class VeiculacaoAgendaOut(BaseModel):
     executivo: Optional[str] = None
     diretoria: Optional[str] = None
     uf_cliente: Optional[str] = None
+
+    # >>> NOVOS (úteis caso mostre badges também na agenda)
+    entregas_total: int = 0
+    entregas_pendentes: int = 0

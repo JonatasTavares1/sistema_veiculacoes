@@ -1,10 +1,11 @@
 # app/crud/entrega_crud.py
 from __future__ import annotations
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 
-from app.models import Entrega, Veiculacao  # valida veiculacao opcionalmente
+from app.models import Entrega, Veiculacao, PI  # valida veiculacao e preenche pi_id
 
 # ---------- utils ----------
 def _parse_date_maybe(value: str | None) -> date | None:
@@ -19,16 +20,26 @@ def _parse_date_maybe(value: str | None) -> date | None:
     return None
 
 def _normalize_status(s: str | None) -> str | None:
+    """
+    Normaliza entrada do status legado:
+    - 'Sim'  -> entregue
+    - 'Não'  -> não entregue
+    - 'pendente' -> pendente
+    """
     if s is None:
         return None
     t = s.strip().lower()
-    if t in ("sim", "s", "entregue", "ok"):
+    if t in ("sim", "s", "entregue", "ok", "1", "true"):
         return "Sim"
-    if t in ("nao", "não", "n", "nao entregue", "não entregue"):
+    if t in ("nao", "não", "n", "nao entregue", "não entregue", "0", "false"):
         return "Não"
     if t in ("pendente", "p", "aguardando"):
         return "pendente"
     raise ValueError("Status inválido. Use 'Sim', 'Não' ou 'pendente'.")
+
+def _bool_from_status(txt: Optional[str]) -> bool:
+    t = (txt or "").strip().lower()
+    return t in {"sim", "entregue", "ok", "1", "true"}
 
 # ---------- queries ----------
 def get_by_id(db: Session, entrega_id: int) -> Optional[Entrega]:
@@ -41,6 +52,14 @@ def list_by_veiculacao(db: Session, veiculacao_id: int) -> List[Entrega]:
     return (
         db.query(Entrega)
         .filter(Entrega.veiculacao_id == veiculacao_id)
+        .order_by(Entrega.data_entrega.desc())
+        .all()
+    )
+
+def list_by_pi(db: Session, pi_id: int) -> List[Entrega]:
+    return (
+        db.query(Entrega)
+        .filter(Entrega.pi_id == pi_id)
         .order_by(Entrega.data_entrega.desc())
         .all()
     )
@@ -58,11 +77,17 @@ def list_pendentes(db: Session) -> List[Entrega]:
         .all()
     )
 
+# ---------- helpers internos ----------
+def _resolve_pi_id_from_veiculacao(db: Session, veiculacao_id: int) -> Optional[int]:
+    veic = db.query(Veiculacao).get(veiculacao_id)
+    return veic.pi_id if veic else None
+
 # ---------- CRUD ----------
 def create(db: Session, dados: Dict[str, Any]) -> Entrega:
-    # valida veiculacao (opcional, mas recomendado)
+    # valida veiculacao
     veic_id = dados["veiculacao_id"]
-    if not db.query(Veiculacao).get(veic_id):
+    veic = db.query(Veiculacao).get(veic_id)
+    if not veic:
         raise ValueError(f"Veiculação {veic_id} não encontrada.")
 
     dt = _parse_date_maybe(dados.get("data_entrega"))
@@ -73,6 +98,7 @@ def create(db: Session, dados: Dict[str, Any]) -> Entrega:
 
     novo = Entrega(
         veiculacao_id=veic_id,
+        pi_id=veic.pi_id,  # ✅ preenche pi_id automaticamente
         data_entrega=dt,
         foi_entregue=status,
         motivo=dados.get("motivo") or "",
@@ -88,10 +114,12 @@ def update(db: Session, entrega_id: int, dados: Dict[str, Any]) -> Entrega:
         raise ValueError("Entrega não encontrada.")
 
     if "veiculacao_id" in dados and dados["veiculacao_id"]:
-        veic_id = dados["veiculacao_id"]
-        if not db.query(Veiculacao).get(veic_id):
+        veic_id = int(dados["veiculacao_id"])
+        veic = db.query(Veiculacao).get(veic_id)
+        if not veic:
             raise ValueError(f"Veiculação {veic_id} não encontrada.")
         ent.veiculacao_id = veic_id
+        ent.pi_id = veic.pi_id  # ✅ mantém pi_id coerente
 
     if "data_entrega" in dados and dados["data_entrega"]:
         dt = _parse_date_maybe(dados["data_entrega"])
