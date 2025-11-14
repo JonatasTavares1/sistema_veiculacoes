@@ -1,2 +1,5 @@
+.venv
 venv
 node_modules
+app/config/service_account_pi.json
+app/config/service_account_propostas.json
