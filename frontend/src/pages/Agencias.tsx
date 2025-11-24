@@ -53,7 +53,14 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
   })
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
-    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    try {
+      const t = await r.json()
+      if (t?.detail) {
+        msg += ` - ${
+          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
+        }`
+      }
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
@@ -66,7 +73,14 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   })
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
-    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    try {
+      const t = await r.json()
+      if (t?.detail) {
+        msg += ` - ${
+          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
+        }`
+      }
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
@@ -166,32 +180,72 @@ function deepClean<T = any>(obj: T): T {
   return obj
 }
 
+// Tipos locais para os blocos dinâmicos (contatos / executivos)
+type ContatoEmpresa = {
+  nome: string
+  cargo: string
+  email: string
+  telefone: string
+}
+type ExecutivoResponsavel = {
+  executivo: string
+  pracaUf: string
+  observacao: string
+}
+
 // ===================== Componente =====================
 export default function Agencias() {
-  // form
-  const [nome, setNome] = useState("")
+  // ================= FORM PRINCIPAL =================
+
+  // 2ª fileira: Nome Empresarial / Título do Estabelecimento
   const [razao, setRazao] = useState("")
+  const [nome, setNome] = useState("")
+
+  // 1ª fileira: CNPJ
   const [cnpj, setCnpj] = useState("")
-  const [uf, setUf] = useState("DF")
-  const [email, setEmail] = useState("")
-  const [executivo, setExecutivo] = useState("")
+  const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
 
-  // extras
-  const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
+  // 3ª fileira: Codinome / Grupo Empresarial
   const [codinome, setCodinome] = useState("")
-  const [site, setSite] = useState("")
-  const [linkedin, setLinkedin] = useState("")
-  const [instagram, setInstagram] = useState("")
+  const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
 
-  // 🧩 novos campos
-  const [endereco, setEndereco] = useState("")        // complemento/observações
+  // 4ª fileira: Logradouro / Número / Complemento / CEP
   const [logradouro, setLogradouro] = useState("")
-  const [bairro, setBairro] = useState("")
+  const [numero, setNumero] = useState("")
+  const [endereco, setEndereco] = useState("") // complemento / observações
   const [cep, setCep] = useState("")
+
+  // 5ª fileira: Bairro / Município / UF / Endereço completo oficial no site
+  const [bairro, setBairro] = useState("")
+  const [municipio, setMunicipio] = useState("")
+  const [uf, setUf] = useState("DF")
+  const [enderecoCompletoSite, setEnderecoCompletoSite] = useState("")
+
+  // 6ª fileira: E-mail (cartão CNPJ) / Telefone (cartão CNPJ) / Segmento / Subsegmento
+  const [email, setEmail] = useState("")          // E-mail no cartão CNPJ
+  const [telefoneSocio1, setTelefoneSocio1] = useState("") // Telefone no cartão CNPJ
   const [segmento, setSegmento] = useState("")
   const [subsegmento, setSubsegmento] = useState("")
-  const [telefoneSocio1, setTelefoneSocio1] = useState("")
-  const [telefoneSocio2, setTelefoneSocio2] = useState("")
+
+  // 7ª fileira: Site / Instagram / LinkedIn / Extensão de e-mail
+  const [site, setSite] = useState("")
+  const [instagram, setInstagram] = useState("")
+  const [linkedin, setLinkedin] = useState("")
+  const [extensaoEmail, setExtensaoEmail] = useState("")
+
+  // 8ª fileira: E-mail geral do site / Telefone geral do site
+  const [emailGeralSite, setEmailGeralSite] = useState("")
+  const [telefoneGeralSite, setTelefoneGeralSite] = useState("")
+
+  // 9ª fileira: Contatos da empresa (dinâmico)
+  const [contatos, setContatos] = useState<ContatoEmpresa[]>([
+    { nome: "", cargo: "", email: "", telefone: "" },
+  ])
+
+  // 10ª fileira: Executivos responsáveis (dinâmico)
+  const [executivosAtendimento, setExecutivosAtendimento] = useState<ExecutivoResponsavel[]>([
+    { executivo: "", pracaUf: "DF", observacao: "" },
+  ])
 
   // dados
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
@@ -201,7 +255,6 @@ export default function Agencias() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
-  const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
 
   // filtros
   const [busca, setBusca] = useState("")
@@ -219,8 +272,9 @@ export default function Agencias() {
         getJSON<string[]>(`${API}/executivos`).catch(() => []),
         getJSON<Agencia[]>(`${API}/agencias`),
       ])
-      const mergedExecs = Array.from(new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS]))
-        .sort((a, b) => a.localeCompare(b, "pt-BR"))
+      const mergedExecs = Array.from(
+        new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS]),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR"))
       setExecutivos(mergedExecs)
       setLista(Array.isArray(ags) ? ags : [])
     } catch (e: any) {
@@ -251,9 +305,14 @@ export default function Agencias() {
         const nomeFantasia = data.nome_fantasia || data.fantasia || ""
         const razaoSocial  = data.razao_social || data.nome || ""
         const ufApi        = data.uf || data.estado || ""
-        const logradouroApi = data.logradouro || (data.descricao_tipo_logradouro && data.descricao_logradouro ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}` : "")
+        const logradouroApi =
+          data.logradouro ||
+          (data.descricao_tipo_logradouro && data.descricao_logradouro
+            ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}`
+            : "")
         const bairroApi    = data.bairro || ""
         const cepApi       = data.cep || ""
+        const municipioApi = data.municipio || data.municipio_descricao || data.cidade || ""
 
         if (nomeFantasia) setNome(nomeFantasia)
         if (razaoSocial) setRazao(razaoSocial)
@@ -261,6 +320,7 @@ export default function Agencias() {
         if (logradouroApi) setLogradouro(logradouroApi)
         if (bairroApi) setBairro(bairroApi)
         if (cepApi) setCep(formatCepPartial(cepApi))
+        if (municipioApi) setMunicipio(municipioApi)
 
         alert("Dados preenchidos automaticamente pelo CNPJ.")
       } else {
@@ -274,25 +334,44 @@ export default function Agencias() {
   }
 
   function validar(): string | null {
-    if (!nome.trim()) return "Nome é obrigatório."
+    if (!cnpj.trim()) return "CNPJ é obrigatório."
     const dig = digits(cnpj)
     if (dig.length !== 14) return "O CNPJ deve conter 14 dígitos."
-    if (!executivo) return "Executivo é obrigatório."
-    if (!emailOk(email)) return "Email inválido."
+    if (!razao.trim()) return "Nome empresarial é obrigatório."
+    if (!nome.trim()) return "Nome de fantasia é obrigatório."
+
+    const principalExec = executivosAtendimento.find(
+      (e) => e.executivo && e.executivo.trim(),
+    )
+    if (!principalExec) return "Executivo responsável é obrigatório."
+
+    if (!emailOk(email)) return "Email do cartão CNPJ inválido."
     return null
   }
 
   async function salvar() {
     const msg = validar()
     if (msg) { alert(msg); return }
+
+    const principalExec = executivosAtendimento.find(
+      (e) => e.executivo && e.executivo.trim(),
+    )!
+
     setSalvando(true); setErro(null)
     try {
       const raw = {
+        // Nome fantasia e razão social
         nome_agencia: nome,
         razao_social_agencia: razao,
+
+        // CNPJ
         cnpj_agencia: formatCNPJPartial(cnpj),
+
+        // Localização básica
         uf_agencia: uf,
-        executivo,
+
+        // Responsável principal
+        executivo: principalExec.executivo,
         email_agencia: email,
 
         // extras
@@ -302,24 +381,50 @@ export default function Agencias() {
         linkedin: normalizeUrl(linkedin),
         instagram: normalizeUrl(instagram),
 
-        // novos
-        endereco,
+        // novos (endereços/segmento/telefones já existentes no backend)
+        endereco,              // complemento / observações
         logradouro,
         bairro,
         cep: formatCepPartial(cep),
         segmento,
         subsegmento,
         telefone_socio1: formatPhoneBR(telefoneSocio1),
-        telefone_socio2: formatPhoneBR(telefoneSocio2),
+        telefone_socio2: formatPhoneBR(telefoneGeralSite), // telefone geral aproveitado
+
+        // ⚠️ Campos VISUAIS novos que ainda NÃO estão mapeados no modelo:
+        // numero, municipio, enderecoCompletoSite, extensaoEmail, emailGeralSite,
+        // contatos, executivosAtendimento
       }
       const body = deepClean(raw)
       await postJSON(`${API}/agencias`, body)
 
       // reset
-      setNome(""); setRazao(""); setCnpj(""); setUf("DF"); setEmail(""); setExecutivo("")
-      setGrupoEmpresarial(""); setCodinome(""); setSite(""); setLinkedin(""); setInstagram("")
-      setEndereco(""); setLogradouro(""); setBairro(""); setCep("")
-      setSegmento(""); setSubsegmento(""); setTelefoneSocio1(""); setTelefoneSocio2("")
+      setCnpj("")
+      setRazao("")
+      setNome("")
+      setCodinome("")
+      setGrupoEmpresarial("")
+      setLogradouro("")
+      setNumero("")
+      setEndereco("")
+      setCep("")
+      setBairro("")
+      setMunicipio("")
+      setUf("DF")
+      setEnderecoCompletoSite("")
+      setEmail("")
+      setTelefoneSocio1("")
+      setSegmento("")
+      setSubsegmento("")
+      setSite("")
+      setInstagram("")
+      setLinkedin("")
+      setExtensaoEmail("")
+      setEmailGeralSite("")
+      setTelefoneGeralSite("")
+      setContatos([{ nome: "", cargo: "", email: "", telefone: "" }])
+      setExecutivosAtendimento([{ executivo: "", pracaUf: "DF", observacao: "" }])
+
       await carregar()
       alert("Agência cadastrada com sucesso!")
     } catch (e: any) {
@@ -498,6 +603,30 @@ export default function Agencias() {
     )
   }
 
+  // Helpers para linhas dinâmicas
+  function addContato() {
+    setContatos(prev => [...prev, { nome: "", cargo: "", email: "", telefone: "" }])
+  }
+  function updateContato(index: number, field: keyof ContatoEmpresa, value: string) {
+    setContatos(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c))
+  }
+
+  function addExecutivoAtendimento() {
+    setExecutivosAtendimento(prev => [
+      ...prev,
+      { executivo: "", pracaUf: "DF", observacao: "" },
+    ])
+  }
+  function updateExecutivoAtendimento(
+    index: number,
+    field: keyof ExecutivoResponsavel,
+    value: string,
+  ) {
+    setExecutivosAtendimento(prev =>
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)),
+    )
+  }
+
   // ===================== UI =====================
   return (
     <div className="space-y-8">
@@ -514,230 +643,511 @@ export default function Agencias() {
         </div>
       </div>
 
-      {/* Formulário (3 por linha) */}
+      {/* Formulário na ordem que você pediu */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{erro}</div>}
+        {erro && (
+          <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+            {erro}
+          </div>
+        )}
 
-        {/* 3 colunas no xl */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
-          {/* Linha 1 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Nome da Agência</label>
-            <input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Agência ACME"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Razão Social</label>
-            <input
-              value={razao}
-              onChange={(e) => setRazao(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: ACME Publicidade LTDA"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">CNPJ</label>
-            <div className="flex items-end gap-3">
+        <div className="space-y-6">
+          {/* GRID PRINCIPAL */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 1ª fileira: apenas CNPJ (campo menor) */}
+            <div className="xl:col-span-4">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                CNPJ
+              </label>
+              <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+                <input
+                  value={cnpj}
+                  onChange={(e) => setCnpj(formatCNPJPartial(e.target.value))}
+                  onBlur={() => setCnpj(formatCNPJPartial(cnpj))}
+                  className="w-full xl:w-[320px] h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                             focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  placeholder="12.345.678/0001-90"
+                />
+                <button
+                  type="button"
+                  onClick={autoPreencherPorCNPJ}
+                  disabled={buscandoCNPJ || digits(cnpj).length !== 14}
+                  className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold 
+                             hover:bg-red-700 disabled:opacity-60"
+                  title="Buscar dados pelo CNPJ"
+                >
+                  {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
+                </button>
+              </div>
+            </div>
+
+            {/* 2ª fileira: Nome Empresarial, Título do Estabelecimento */}
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Nome Empresarial
+              </label>
               <input
-                value={cnpj}
-                onChange={(e) => setCnpj(formatCNPJPartial(e.target.value))}
-                onBlur={() => setCnpj(formatCNPJPartial(cnpj))}
-                className="flex-1 h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="12.345.678/0001-90"
+                value={razao}
+                onChange={(e) => setRazao(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Razão social no CNPJ"
               />
-              <button
-                type="button"
-                onClick={autoPreencherPorCNPJ}
-                disabled={buscandoCNPJ || digits(cnpj).length !== 14}
-                className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
-                title="Buscar dados pelo CNPJ"
-              >
-                {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
-              </button>
+            </div>
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Título do Estabelecimento (Nome de Fantasia)
+              </label>
+              <input
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Nome fantasia / como aparece no mercado"
+              />
+            </div>
+
+            {/* 3ª fileira: Codinome, Grupo Empresarial */}
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Codinome
+              </label>
+              <input
+                value={codinome}
+                onChange={(e) => setCodinome(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Identificador curto (interno)"
+              />
+            </div>
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Grupo Empresarial
+              </label>
+              <input
+                value={grupoEmpresarial}
+                onChange={(e) => setGrupoEmpresarial(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Grupo ACME"
+              />
             </div>
           </div>
 
-          {/* Linha 2 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">UF</label>
-            <select
-              value={uf}
-              onChange={(e) => setUf(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 4ª e 5ª fileiras - Endereço */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 4ª fileira: Logradouro, Número, Complemento, CEP */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Logradouro
+              </label>
+              <input
+                value={logradouro}
+                onChange={(e) => setLogradouro(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Rua / Avenida"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Número
+              </label>
+              <input
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: 123"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Complemento
+              </label>
+              <input
+                value={endereco}
+                onChange={(e) => setEndereco(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Sala, bloco, torre, etc."
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                CEP
+              </label>
+              <input
+                value={cep}
+                onChange={(e) => setCep(formatCepPartial(e.target.value))}
+                onBlur={() => setCep(formatCepPartial(cep))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="00000-000"
+                inputMode="numeric"
+              />
+            </div>
+
+            {/* 5ª fileira: Bairro/Distrito, Município, UF, Endereço completo oficial no site */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Bairro / Distrito
+              </label>
+              <input
+                value={bairro}
+                onChange={(e) => setBairro(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Centro"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Município
+              </label>
+              <input
+                value={municipio}
+                onChange={(e) => setMunicipio(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Cidade"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                UF
+              </label>
+              <select
+                value={uf}
+                onChange={(e) => setUf(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              >
+                {UFS.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Endereço completo oficial no site
+              </label>
+              <input
+                value={enderecoCompletoSite}
+                onChange={(e) => setEnderecoCompletoSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Como aparece no site oficial"
+              />
+            </div>
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 6ª, 7ª e 8ª fileiras */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 6ª fileira: E-mail / Telefone (cartão CNPJ) / Segmento / Subsegmento */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                E-mail (cartão CNPJ)
+              </label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="E-mail fiscal / oficial"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Telefone (cartão CNPJ)
+              </label>
+              <input
+                value={telefoneSocio1}
+                onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
+                onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="(11) 90000-0000"
+                inputMode="tel"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Segmento de atuação
+              </label>
+              <input
+                value={segmento}
+                onChange={(e) => setSegmento(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Varejo, Tecnologia, Saúde..."
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Subsegmento de atuação
+              </label>
+              <input
+                value={subsegmento}
+                onChange={(e) => setSubsegmento(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Supermercado, SaaS, Hospital..."
+              />
+            </div>
+
+            {/* 7ª fileira: Site / Instagram / LinkedIn / Extensão de e-mail */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Site
+              </label>
+              <input
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: agencia.com.br"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Instagram
+              </label>
+              <input
+                value={instagram}
+                onChange={(e) => setInstagram(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: instagram.com/agencia"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                LinkedIn
+              </label>
+              <input
+                value={linkedin}
+                onChange={(e) => setLinkedin(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: linkedin.com/company/agencia"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Extensão de e-mail
+              </label>
+              <input
+                value={extensaoEmail}
+                onChange={(e) => setExtensaoEmail(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: @agencia.com.br"
+              />
+            </div>
+
+            {/* 8ª fileira: E-mail geral do site / Telefone geral do site */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                E-mail de contato geral no site
+              </label>
+              <input
+                value={emailGeralSite}
+                onChange={(e) => setEmailGeralSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="contato@agencia.com.br"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Telefone de contato geral no site
+              </label>
+              <input
+                value={telefoneGeralSite}
+                onChange={(e) => setTelefoneGeralSite(formatPhoneBR(e.target.value))}
+                onBlur={() => setTelefoneGeralSite(formatPhoneBR(telefoneGeralSite))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="(11) 90000-0000"
+                inputMode="tel"
+              />
+            </div>
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 9ª fileira: Contatos da empresa (lista dinâmica) */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Contatos da empresa
+              </h2>
+              <button
+                type="button"
+                onClick={addContato}
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                           hover:bg-red-700"
+              >
+                + Adicionar contato
+              </button>
+            </div>
+
+            {contatos.map((cont, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 xl:grid-cols-4 gap-4 border border-slate-200 rounded-2xl p-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Contato {idx + 1} - Nome
+                  </label>
+                  <input
+                    value={cont.nome}
+                    onChange={(e) => updateContato(idx, "nome", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Nome completo"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Cargo
+                  </label>
+                  <input
+                    value={cont.cargo}
+                    onChange={(e) => updateContato(idx, "cargo", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Cargo na empresa"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    value={cont.email}
+                    onChange={(e) => updateContato(idx, "email", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="email@empresa.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Telefone
+                  </label>
+                  <input
+                    value={cont.telefone}
+                    onChange={(e) =>
+                      updateContato(idx, "telefone", formatPhoneBR(e.target.value))
+                    }
+                    onBlur={(e) =>
+                      updateContato(idx, "telefone", formatPhoneBR(e.target.value))
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="(11) 90000-0000"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 10ª fileira: Executivos responsáveis (lista dinâmica) */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Executivo(s) responsável(eis) pelo atendimento
+              </h2>
+              <button
+                type="button"
+                onClick={addExecutivoAtendimento}
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                           hover:bg-red-700"
+              >
+                + Adicionar executivo
+              </button>
+            </div>
+
+            {executivosAtendimento.map((exResp, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 xl:grid-cols-3 gap-4 border border-slate-200 rounded-2xl p-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Executivo {idx + 1}
+                  </label>
+                  <select
+                    value={exResp.executivo}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "executivo", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  >
+                    <option value="">Selecione o Executivo</option>
+                    {executivos.map(ex => (
+                      <option key={ex} value={ex}>{ex}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Praças (UF) de atuação
+                  </label>
+                  <input
+                    value={exResp.pracaUf}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "pracaUf", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Ex.: DF, GO, RJ..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Observação
+                  </label>
+                  <input
+                    value={exResp.observacao}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "observacao", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Informações adicionais do executivo"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Botão salvar */}
+          <div className="pt-2">
+            <button
+              onClick={salvar}
+              disabled={salvando}
+              className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold 
+                         hover:bg-red-700 disabled:opacity-60"
             >
-              {UFS.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
+              {salvando ? "Salvando..." : "Cadastrar Agência"}
+            </button>
           </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Email</label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="contato@agencia.com.br"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Executivo Responsável</label>
-            <select
-              value={executivo}
-              onChange={(e) => setExecutivo(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            >
-              <option value="">Selecione o Executivo</option>
-              {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
-            </select>
-          </div>
-
-          {/* Linha 3 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Grupo Empresarial</label>
-            <input
-              value={grupoEmpresarial}
-              onChange={(e) => setGrupoEmpresarial(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Grupo ACME"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Codinome</label>
-            <input
-              value={codinome}
-              onChange={(e) => setCodinome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Identificador curto (único)"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Site</label>
-            <input
-              value={site}
-              onChange={(e) => setSite(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: agencia.com.br"
-            />
-          </div>
-
-          {/* Linha 4 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">LinkedIn</label>
-            <input
-              value={linkedin}
-              onChange={(e) => setLinkedin(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: linkedin.com/company/agencia"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Instagram</label>
-            <input
-              value={instagram}
-              onChange={(e) => setInstagram(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: instagram.com/agencia"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Endereço (complemento/observações)</label>
-            <input
-              value={endereco}
-              onChange={(e) => setEndereco(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Sala 402, Bloco B, Centro Empresarial..."
-            />
-          </div>
-
-          {/* Linha 5 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Logradouro</label>
-            <input
-              value={logradouro}
-              onChange={(e) => setLogradouro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Av. Paulista, 1000"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Bairro</label>
-            <input
-              value={bairro}
-              onChange={(e) => setBairro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Bela Vista"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">CEP</label>
-            <input
-              value={cep}
-              onChange={(e) => setCep(formatCepPartial(e.target.value))}
-              onBlur={() => setCep(formatCepPartial(cep))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="00000-000"
-              inputMode="numeric"
-            />
-          </div>
-
-          {/* Linha 6 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Segmento</label>
-            <input
-              value={segmento}
-              onChange={(e) => setSegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Varejo, Tecnologia, Saúde..."
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Subsegmento</label>
-            <input
-              value={subsegmento}
-              onChange={(e) => setSubsegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Supermercado, SaaS, Hospital..."
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 1</label>
-            <input
-              value={telefoneSocio1}
-              onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
-              onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="(11) 90000-0000"
-              inputMode="tel"
-            />
-          </div>
-
-          {/* Linha 7 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 2</label>
-            <input
-              value={telefoneSocio2}
-              onChange={(e) => setTelefoneSocio2(formatPhoneBR(e.target.value))}
-              onBlur={() => setTelefoneSocio2(formatPhoneBR(telefoneSocio2))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="(11) 90000-0000"
-              inputMode="tel"
-            />
-          </div>
-          {/* os dois próximos slots desta linha ficam vazios para manter 3 colunas */}
-          <div className="hidden xl:block" />
-          <div className="hidden xl:block" />
-        </div>
-
-        <div className="mt-6">
-          <button
-            onClick={salvar}
-            disabled={salvando}
-            className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
-          >
-            {salvando ? "Salvando..." : "Cadastrar Agência"}
-          </button>
         </div>
       </section>
 
@@ -750,17 +1160,21 @@ export default function Agencias() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome, codinome, CNPJ, executivo, grupo, localidade, segmento..."
-              className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
             <button
               onClick={() => exportarPlanilha(filtrada)}
               disabled={!filtrada.length}
-              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60"
+              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                         hover:bg-red-700 disabled:opacity-60"
               title="Exportar para Excel"
             >
               ⬇️ Exportar Excel
             </button>
-            <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
+            <div className="text-slate-600 text-base">
+              {filtrada.length} registro(s)
+            </div>
           </div>
         </div>
 
@@ -789,7 +1203,10 @@ export default function Agencias() {
                       "Cadastro",
                       "Ações",
                     ].map(h => (
-                      <th key={h} className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide">
+                      <th
+                        key={h}
+                        className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wide"
+                      >
                         {h}
                       </th>
                     ))}
@@ -802,28 +1219,38 @@ export default function Agencias() {
                       className={[
                         "transition",
                         idx % 2 === 0 ? "bg-white" : "bg-red-50/40",
-                        "hover:bg-red-50"
+                        "hover:bg-red-50",
                       ].join(" ")}
                     >
                       <td className="px-6 py-4 text-slate-900 text-base font-medium">
                         <div className="flex flex-col">
                           <span className="truncate">{a.nome_agencia}</span>
                           {a.razao_social_agencia ? (
-                            <span className="text-sm text-slate-500 truncate">{a.razao_social_agencia}</span>
+                            <span className="text-sm text-slate-500 truncate">
+                              {a.razao_social_agencia}
+                            </span>
                           ) : null}
                         </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        {a.codinome ? <span className="font-mono">{a.codinome}</span> : <span className="text-slate-400">—</span>}
+                        {a.codinome ? (
+                          <span className="font-mono">{a.codinome}</span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        {a.grupo_empresarial || <span className="text-slate-400">—</span>}
+                        {a.grupo_empresarial || (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        <span className="font-mono">{formatCNPJDisplay(a.cnpj_agencia)}</span>
+                        <span className="font-mono">
+                          {formatCNPJDisplay(a.cnpj_agencia)}
+                        </span>
                       </td>
 
                       <td className="px-6 py-4">
@@ -835,15 +1262,22 @@ export default function Agencias() {
                       <td className="px-6 py-4 text-slate-800 text-base">
                         <div className="flex flex-col">
                           <span className="truncate">{a.segmento || "—"}</span>
-                          {a.subsegmento ? <span className="text-sm text-slate-500 truncate">{a.subsegmento}</span> : null}
+                          {a.subsegmento ? (
+                            <span className="text-sm text-slate-500 truncate">
+                              {a.subsegmento}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
                         <div className="flex flex-col">
-                          <span className="truncate">{a.logradouro || a.endereco || "—"}</span>
+                          <span className="truncate">
+                            {a.logradouro || a.endereco || "—"}
+                          </span>
                           <span className="text-sm text-slate-500 truncate">
-                            {a.bairro ? `${a.bairro} • ` : ""}{a.cep || ""}
+                            {a.bairro ? `${a.bairro} • ` : ""}
+                            {a.cep || ""}
                           </span>
                         </div>
                       </td>
@@ -857,9 +1291,19 @@ export default function Agencias() {
                             >
                               {a.email_agencia}
                             </a>
-                          ) : <span className="text-slate-400">—</span>}
-                          {a.telefone_socio1 ? <span className="text-sm text-slate-700">{a.telefone_socio1}</span> : null}
-                          {a.telefone_socio2 ? <span className="text-sm text-slate-700">{a.telefone_socio2}</span> : null}
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                          {a.telefone_socio1 ? (
+                            <span className="text-sm text-slate-700">
+                              {a.telefone_socio1}
+                            </span>
+                          ) : null}
+                          {a.telefone_socio2 ? (
+                            <span className="text-sm text-slate-700">
+                              {a.telefone_socio2}
+                            </span>
+                          ) : null}
                           {a.site ? (
                             <a
                               href={a.site}
@@ -909,7 +1353,9 @@ export default function Agencias() {
           <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b flex items-start justify-between">
               <div>
-                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar Agência</div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">
+                  Editar Agência
+                </div>
                 <div className="mt-1 text-2xl font-extrabold text-slate-900">
                   {editItem.nome_agencia}
                 </div>
@@ -931,7 +1377,9 @@ export default function Agencias() {
 
               <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Nome
+                  </label>
                   <input
                     value={editItem.nome_agencia || ""}
                     onChange={(e) => campoEdit("nome_agencia", e.target.value)}
@@ -940,7 +1388,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Razão Social
+                  </label>
                   <input
                     value={editItem.razao_social_agencia || ""}
                     onChange={(e) => campoEdit("razao_social_agencia", e.target.value)}
@@ -949,7 +1399,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Codinome</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Codinome
+                  </label>
                   <input
                     value={editItem.codinome || ""}
                     onChange={(e) => campoEdit("codinome", e.target.value)}
@@ -959,7 +1411,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Grupo Empresarial</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Grupo Empresarial
+                  </label>
                   <input
                     value={editItem.grupo_empresarial || ""}
                     onChange={(e) => campoEdit("grupo_empresarial", e.target.value)}
@@ -968,40 +1422,59 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">CNPJ</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    CNPJ
+                  </label>
                   <input
                     value={editItem.cnpj_agencia || ""}
-                    onChange={(e) => campoEdit("cnpj_agencia", formatCNPJPartial(e.target.value))}
-                    onBlur={() => campoEdit("cnpj_agencia", formatCNPJPartial(editItem.cnpj_agencia || ""))}
+                    onChange={(e) =>
+                      campoEdit("cnpj_agencia", formatCNPJPartial(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "cnpj_agencia",
+                        formatCNPJPartial(editItem.cnpj_agencia || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    UF
+                  </label>
                   <select
                     value={editItem.uf_agencia || "DF"}
                     onChange={(e) => campoEdit("uf_agencia", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
-                    {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+                    {UFS.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Executivo
+                  </label>
                   <select
                     value={editItem.executivo || ""}
                     onChange={(e) => campoEdit("executivo", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
                     <option value="">— Selecione —</option>
-                    {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                    {executivos.map(ex => (
+                      <option key={ex} value={ex}>{ex}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Email
+                  </label>
                   <input
                     value={editItem.email_agencia || ""}
                     onChange={(e) => campoEdit("email_agencia", e.target.value)}
@@ -1012,7 +1485,9 @@ export default function Agencias() {
 
                 {/* Redes / Sites */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Site</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Site
+                  </label>
                   <input
                     value={editItem.site || ""}
                     onChange={(e) => campoEdit("site", e.target.value)}
@@ -1022,7 +1497,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">LinkedIn</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    LinkedIn
+                  </label>
                   <input
                     value={editItem.linkedin || ""}
                     onChange={(e) => campoEdit("linkedin", e.target.value)}
@@ -1032,7 +1509,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Instagram</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Instagram
+                  </label>
                   <input
                     value={editItem.instagram || ""}
                     onChange={(e) => campoEdit("instagram", e.target.value)}
@@ -1043,7 +1522,9 @@ export default function Agencias() {
 
                 {/* 🧩 Novos campos */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Endereço (complemento/observações)</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Endereço (complemento/observações)
+                  </label>
                   <input
                     value={editItem.endereco || ""}
                     onChange={(e) => campoEdit("endereco", e.target.value)}
@@ -1052,7 +1533,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Logradouro</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Logradouro
+                  </label>
                   <input
                     value={editItem.logradouro || ""}
                     onChange={(e) => campoEdit("logradouro", e.target.value)}
@@ -1062,7 +1545,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Bairro</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Bairro
+                  </label>
                   <input
                     value={editItem.bairro || ""}
                     onChange={(e) => campoEdit("bairro", e.target.value)}
@@ -1071,11 +1556,17 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">CEP</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    CEP
+                  </label>
                   <input
                     value={editItem.cep || ""}
-                    onChange={(e) => campoEdit("cep", formatCepPartial(e.target.value))}
-                    onBlur={() => campoEdit("cep", formatCepPartial(editItem.cep || ""))}
+                    onChange={(e) =>
+                      campoEdit("cep", formatCepPartial(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit("cep", formatCepPartial(editItem.cep || ""))
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="00000-000"
                     inputMode="numeric"
@@ -1083,7 +1574,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Segmento</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Segmento
+                  </label>
                   <input
                     value={editItem.segmento || ""}
                     onChange={(e) => campoEdit("segmento", e.target.value)}
@@ -1093,7 +1586,9 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Subsegmento</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Subsegmento
+                  </label>
                   <input
                     value={editItem.subsegmento || ""}
                     onChange={(e) => campoEdit("subsegmento", e.target.value)}
@@ -1103,11 +1598,23 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 1</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Telefone Sócio 1
+                  </label>
                   <input
                     value={editItem.telefone_socio1 || ""}
-                    onChange={(e) => campoEdit("telefone_socio1", formatPhoneBR(e.target.value))}
-                    onBlur={() => campoEdit("telefone_socio1", formatPhoneBR(editItem.telefone_socio1 || ""))}
+                    onChange={(e) =>
+                      campoEdit(
+                        "telefone_socio1",
+                        formatPhoneBR(e.target.value),
+                      )
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "telefone_socio1",
+                        formatPhoneBR(editItem.telefone_socio1 || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"
@@ -1115,11 +1622,23 @@ export default function Agencias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 2</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Telefone Sócio 2
+                  </label>
                   <input
                     value={editItem.telefone_socio2 || ""}
-                    onChange={(e) => campoEdit("telefone_socio2", formatPhoneBR(e.target.value))}
-                    onBlur={() => campoEdit("telefone_socio2", formatPhoneBR(editItem.telefone_socio2 || ""))}
+                    onChange={(e) =>
+                      campoEdit(
+                        "telefone_socio2",
+                        formatPhoneBR(e.target.value),
+                      )
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "telefone_socio2",
+                        formatPhoneBR(editItem.telefone_socio2 || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"

@@ -39,6 +39,12 @@ type Anunciante = {
   telefone_socio2?: string | null
 }
 
+type ExecutivoResponsavel = {
+  executivo: string
+  pracaUf: string
+  observacao: string
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -52,7 +58,14 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
   })
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
-    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    try {
+      const t = await r.json()
+      if (t?.detail) {
+        msg += ` - ${
+          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
+        }`
+      }
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
@@ -65,7 +78,14 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   })
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`
-    try { const t = await r.json(); if (t?.detail) msg += ` - ${typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)}` } catch {}
+    try {
+      const t = await r.json()
+      if (t?.detail) {
+        msg += ` - ${
+          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
+        }`
+      }
+    } catch {}
     throw new Error(msg)
   }
   return r.json()
@@ -178,7 +198,6 @@ export default function Anunciantes() {
   const [doc, setDoc] = useState("")           // CPF ou CNPJ
   const [uf, setUf] = useState("DF")
   const [email, setEmail] = useState("")
-  const [executivo, setExecutivo] = useState("")
 
   // 🔥 campos já existentes no form
   const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
@@ -196,6 +215,11 @@ export default function Anunciantes() {
   const [cep, setCep] = useState("")
   const [telefoneSocio1, setTelefoneSocio1] = useState("")
   const [telefoneSocio2, setTelefoneSocio2] = useState("")
+
+  // 👇 Novos: lista de executivos responsáveis (dinâmica)
+  const [executivosResponsaveis, setExecutivosResponsaveis] = useState<ExecutivoResponsavel[]>([
+    { executivo: "", pracaUf: "DF", observacao: "" },
+  ])
 
   // dados
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
@@ -221,10 +245,10 @@ export default function Anunciantes() {
     try {
       const [exs, ans] = await Promise.all([
         getJSON<string[]>(`${API}/executivos`).catch(() => []),
-        getJSON<Anunciante[]>(`${API}/anunciantes`)
+        getJSON<Anunciante[]>(`${API}/anunciantes`),
       ])
       const mergedExecs = Array.from(
-        new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS])
+        new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS]),
       ).sort((a, b) => a.localeCompare(b, "pt-BR"))
       setExecutivos(mergedExecs)
       setLista(Array.isArray(ans) ? ans : [])
@@ -289,7 +313,12 @@ export default function Anunciantes() {
     if (!(d.length === 11 || d.length === 14)) {
       return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
     }
-    if (!executivo) return "Executivo é obrigatório."
+
+    const principalExec = executivosResponsaveis.find(
+      (e) => e.executivo && e.executivo.trim(),
+    )
+    if (!principalExec) return "Executivo é obrigatório."
+
     if (!emailOk(email)) return "Email inválido."
     return null
   }
@@ -297,6 +326,11 @@ export default function Anunciantes() {
   async function salvar() {
     const msg = validarCriacao()
     if (msg) { alert(msg); return }
+
+    const principalExec = executivosResponsaveis.find(
+      (e) => e.executivo && e.executivo.trim(),
+    )!
+
     setSalvando(true); setErro(null)
     try {
       const rawBody = {
@@ -304,7 +338,8 @@ export default function Anunciantes() {
         razao_social_anunciante: razao,
         cnpj_anunciante: normalizeDocForSave(doc), // aceita CPF ou CNPJ
         uf_cliente: uf,
-        executivo,
+        // 👇 Backend continua recebendo um único campo "executivo"
+        executivo: principalExec.executivo,
         email_anunciante: email,
 
         // existentes
@@ -323,15 +358,33 @@ export default function Anunciantes() {
         cep: formatCepPartial(cep),
         telefone_socio1: formatPhoneBR(telefoneSocio1),
         telefone_socio2: formatPhoneBR(telefoneSocio2),
+
+        // ⚠️ Lista completa de executivosResponsaveis ainda não está sendo salva em tabela própria
       }
       const body = deepClean(rawBody)
       await postJSON(`${API}/anunciantes`, body)
 
       // reset
-      setNome(""); setRazao(""); setDoc(""); setUf("DF"); setEmail(""); setExecutivo("")
-      setGrupoEmpresarial(""); setCodinome(""); setSite(""); setLinkedin(""); setInstagram("")
-      setEndereco(""); setSegmento(""); setSubsegmento(""); setLogradouro(""); setBairro(""); setCep("")
-      setTelefoneSocio1(""); setTelefoneSocio2("")
+      setNome("")
+      setRazao("")
+      setDoc("")
+      setUf("DF")
+      setEmail("")
+      setGrupoEmpresarial("")
+      setCodinome("")
+      setSite("")
+      setLinkedin("")
+      setInstagram("")
+      setEndereco("")
+      setSegmento("")
+      setSubsegmento("")
+      setLogradouro("")
+      setBairro("")
+      setCep("")
+      setTelefoneSocio1("")
+      setTelefoneSocio2("")
+      setExecutivosResponsaveis([{ executivo: "", pracaUf: "DF", observacao: "" }])
+
       await carregar()
       alert("Anunciante cadastrado com sucesso!")
     } catch (e: any) {
@@ -510,6 +563,23 @@ export default function Anunciantes() {
     )
   }
 
+  // Helpers para lista dinâmica de executivos no formulário
+  function addExecutivoResponsavel() {
+    setExecutivosResponsaveis(prev => [
+      ...prev,
+      { executivo: "", pracaUf: "DF", observacao: "" },
+    ])
+  }
+  function updateExecutivoResponsavel(
+    index: number,
+    field: keyof ExecutivoResponsavel,
+    value: string,
+  ) {
+    setExecutivosResponsaveis(prev =>
+      prev.map((e, i) => (i === index ? { ...e, [field]: value } : e)),
+    )
+  }
+
   return (
     <div className="space-y-8">
       {/* Título */}
@@ -525,45 +595,59 @@ export default function Anunciantes() {
         </div>
       </div>
 
-      {/* Formulário (3 por linha no xl) */}
+      {/* Formulário */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{erro}</div>}
+        {erro && (
+          <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+            {erro}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
           {/* Linha 1 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Nome do Anunciante</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Nome do Anunciante
+            </label>
             <input
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: ACME Ltda"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Razão Social</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Razão Social
+            </label>
             <input
               value={razao}
               onChange={(e) => setRazao(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: ACME Indústria e Comércio LTDA"
             />
           </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Documento (CPF ou CNPJ)</label>
-            <div className="flex items-end gap-3">
+          <div className="xl:col-span-2">
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Documento (CPF ou CNPJ)
+            </label>
+            <div className="flex flex-col xl:flex-row xl:items-end gap-3">
               <input
                 value={doc}
                 onChange={(e) => setDoc(formatDocPartial(e.target.value))}
                 onBlur={() => setDoc(formatDocPartial(doc))}
-                className="flex-1 h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                className="w-full xl:flex-1 h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 placeholder="CPF: 000.000.000-00 • CNPJ: 00.000.000/0000-00"
               />
               <button
                 type="button"
                 onClick={autoPreencherPorCNPJ}
                 disabled={buscandoCNPJ || digits(doc).length !== 14}
-                className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
+                className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold 
+                           hover:bg-red-700 disabled:opacity-60"
                 title="Buscar dados pelo CNPJ"
               >
                 {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
@@ -577,7 +661,8 @@ export default function Anunciantes() {
             <select
               value={uf}
               onChange={(e) => setUf(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
               {UFS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
@@ -587,106 +672,126 @@ export default function Anunciantes() {
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="contato@empresa.com.br"
             />
           </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Executivo Responsável</label>
-            <select
-              value={executivo}
-              onChange={(e) => setExecutivo(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            >
-              <option value="">Selecione o Executivo</option>
-              {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
-            </select>
-          </div>
+          {/* slots para manter grid alinhado */}
+          <div className="hidden xl:block" />
+          <div className="hidden xl:block" />
 
           {/* Linha 3 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Grupo Empresarial</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Grupo Empresarial
+            </label>
             <input
               value={grupoEmpresarial}
               onChange={(e) => setGrupoEmpresarial(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Grupo ACME"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Codinome</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Codinome
+            </label>
             <input
               value={codinome}
               onChange={(e) => setCodinome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Identificador curto (único)"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Site</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Site
+            </label>
             <input
               value={site}
               onChange={(e) => setSite(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: empresa.com.br"
             />
           </div>
 
           {/* Linha 4 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">LinkedIn</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              LinkedIn
+            </label>
             <input
               value={linkedin}
               onChange={(e) => setLinkedin(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: linkedin.com/company/empresa"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Instagram</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Instagram
+            </label>
             <input
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="ex.: instagram.com/empresa"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Endereço (complemento/observações)</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Endereço (complemento/observações)
+            </label>
             <input
               value={endereco}
               onChange={(e) => setEndereco(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Sala 402, Bloco B, Centro Empresarial..."
             />
           </div>
 
           {/* Linha 5 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Logradouro</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Logradouro
+            </label>
             <input
               value={logradouro}
               onChange={(e) => setLogradouro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Av. Paulista, 1000"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Bairro</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Bairro
+            </label>
             <input
               value={bairro}
               onChange={(e) => setBairro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Bela Vista"
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">CEP</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              CEP
+            </label>
             <input
               value={cep}
               onChange={(e) => setCep(formatCepPartial(e.target.value))}
               onBlur={() => setCep(formatCepPartial(cep))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="00000-000"
               inputMode="numeric"
             />
@@ -694,30 +799,39 @@ export default function Anunciantes() {
 
           {/* Linha 6 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Segmento</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Segmento
+            </label>
             <input
               value={segmento}
               onChange={(e) => setSegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Varejo, Tecnologia, Saúde..."
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Subsegmento</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Subsegmento
+            </label>
             <input
               value={subsegmento}
               onChange={(e) => setSubsegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="Ex.: Supermercado, SaaS, Hospital..."
             />
           </div>
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 1</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Telefone Sócio 1
+            </label>
             <input
               value={telefoneSocio1}
               onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
               onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="(11) 90000-0000"
               inputMode="tel"
             />
@@ -725,19 +839,97 @@ export default function Anunciantes() {
 
           {/* Linha 7 */}
           <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Telefone Sócio 2</label>
+            <label className="block text-xl font-semibold text-slate-800 mb-2">
+              Telefone Sócio 2
+            </label>
             <input
               value={telefoneSocio2}
               onChange={(e) => setTelefoneSocio2(formatPhoneBR(e.target.value))}
               onBlur={() => setTelefoneSocio2(formatPhoneBR(telefoneSocio2))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
               placeholder="(11) 90000-0000"
               inputMode="tel"
             />
           </div>
-          {/* slots vazios para completar a linha de 3 colunas */}
           <div className="hidden xl:block" />
           <div className="hidden xl:block" />
+        </div>
+
+        {/* Divisória */}
+        <hr className="border-t border-slate-200 mt-6 mb-4" />
+
+        {/* Bloco: Executivos responsáveis (dinâmico) */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-slate-900">
+              Executivo(s) responsável(eis) pelo atendimento
+            </h2>
+            <button
+              type="button"
+              onClick={addExecutivoResponsavel}
+              className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                         hover:bg-red-700"
+            >
+              + Adicionar executivo
+            </button>
+          </div>
+
+          {executivosResponsaveis.map((ex, idx) => (
+            <div
+              key={idx}
+              className="grid grid-cols-1 xl:grid-cols-3 gap-4 border border-slate-200 rounded-2xl p-4"
+            >
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-1">
+                  Executivo {idx + 1}
+                </label>
+                <select
+                  value={ex.executivo}
+                  onChange={(e) =>
+                    updateExecutivoResponsavel(idx, "executivo", e.target.value)
+                  }
+                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                >
+                  <option value="">Selecione o Executivo</option>
+                  {executivos.map((e) => (
+                    <option key={e} value={e}>
+                      {e}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-1">
+                  Praças (UF) de atuação
+                </label>
+                <input
+                  value={ex.pracaUf}
+                  onChange={(e) =>
+                    updateExecutivoResponsavel(idx, "pracaUf", e.target.value)
+                  }
+                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  placeholder="Ex.: DF, GO, RJ..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-1">
+                  Observação
+                </label>
+                <input
+                  value={ex.observacao}
+                  onChange={(e) =>
+                    updateExecutivoResponsavel(idx, "observacao", e.target.value)
+                  }
+                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  placeholder="Informações adicionais do executivo"
+                />
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="mt-6">
@@ -760,17 +952,21 @@ export default function Anunciantes() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome, codinome, documento, executivo, grupo, localidade, segmento..."
-              className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base 
+                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
             <button
               onClick={() => exportarPlanilha(filtrada)}
               disabled={!filtrada.length}
-              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60"
+              className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                         hover:bg-red-700 disabled:opacity-60"
               title="Exportar para Excel"
             >
               ⬇️ Exportar Excel
             </button>
-            <div className="text-slate-600 text-base">{filtrada.length} registro(s)</div>
+            <div className="text-slate-600 text-base">
+              {filtrada.length} registro(s)
+            </div>
           </div>
         </div>
 
@@ -815,28 +1011,38 @@ export default function Anunciantes() {
                       className={[
                         "transition",
                         idx % 2 === 0 ? "bg-white" : "bg-red-50/40",
-                        "hover:bg-red-50"
+                        "hover:bg-red-50",
                       ].join(" ")}
                     >
                       <td className="px-6 py-4 text-slate-900 text-base font-medium">
                         <div className="flex flex-col">
                           <span className="truncate">{a.nome_anunciante}</span>
                           {a.razao_social_anunciante ? (
-                            <span className="text-sm text-slate-500 truncate">{a.razao_social_anunciante}</span>
+                            <span className="text-sm text-slate-500 truncate">
+                              {a.razao_social_anunciante}
+                            </span>
                           ) : null}
                         </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        {a.codinome ? <span className="font-mono">{a.codinome}</span> : <span className="text-slate-400">—</span>}
+                        {a.codinome ? (
+                          <span className="font-mono">{a.codinome}</span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        {a.grupo_empresarial || <span className="text-slate-400">—</span>}
+                        {a.grupo_empresarial || (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
-                        <span className="font-mono">{maskDocDisplay(a.cnpj_anunciante)}</span>
+                        <span className="font-mono">
+                          {maskDocDisplay(a.cnpj_anunciante)}
+                        </span>
                       </td>
 
                       <td className="px-6 py-4">
@@ -848,15 +1054,22 @@ export default function Anunciantes() {
                       <td className="px-6 py-4 text-slate-800 text-base">
                         <div className="flex flex-col">
                           <span className="truncate">{a.segmento || "—"}</span>
-                          {a.subsegmento ? <span className="text-sm text-slate-500 truncate">{a.subsegmento}</span> : null}
+                          {a.subsegmento ? (
+                            <span className="text-sm text-slate-500 truncate">
+                              {a.subsegmento}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-800 text-base">
                         <div className="flex flex-col">
-                          <span className="truncate">{a.logradouro || a.endereco || "—"}</span>
+                          <span className="truncate">
+                            {a.logradouro || a.endereco || "—"}
+                          </span>
                           <span className="text-sm text-slate-500 truncate">
-                            {a.bairro ? `${a.bairro} • ` : ""}{a.cep || ""}
+                            {a.bairro ? `${a.bairro} • ` : ""}
+                            {a.cep || ""}
                           </span>
                         </div>
                       </td>
@@ -870,9 +1083,19 @@ export default function Anunciantes() {
                             >
                               {a.email_anunciante}
                             </a>
-                          ) : <span className="text-slate-400">—</span>}
-                          {a.telefone_socio1 ? <span className="text-sm text-slate-700">{a.telefone_socio1}</span> : null}
-                          {a.telefone_socio2 ? <span className="text-sm text-slate-700">{a.telefone_socio2}</span> : null}
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                          {a.telefone_socio1 ? (
+                            <span className="text-sm text-slate-700">
+                              {a.telefone_socio1}
+                            </span>
+                          ) : null}
+                          {a.telefone_socio2 ? (
+                            <span className="text-sm text-slate-700">
+                              {a.telefone_socio2}
+                            </span>
+                          ) : null}
                           {a.site ? (
                             <a
                               href={a.site}
@@ -922,7 +1145,9 @@ export default function Anunciantes() {
           <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
             <div className="p-6 border-b flex items-start justify-between">
               <div>
-                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Editar Anunciante</div>
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">
+                  Editar Anunciante
+                </div>
                 <div className="mt-1 text-2xl font-extrabold text-slate-900">
                   {editItem.nome_anunciante}
                 </div>
@@ -944,7 +1169,9 @@ export default function Anunciantes() {
 
               <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Nome
+                  </label>
                   <input
                     value={editItem.nome_anunciante || ""}
                     onChange={(e) => campoEdit("nome_anunciante", e.target.value)}
@@ -953,16 +1180,22 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Razão Social</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Razão Social
+                  </label>
                   <input
                     value={editItem.razao_social_anunciante || ""}
-                    onChange={(e) => campoEdit("razao_social_anunciante", e.target.value)}
+                    onChange={(e) =>
+                      campoEdit("razao_social_anunciante", e.target.value)
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Codinome</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Codinome
+                  </label>
                   <input
                     value={editItem.codinome || ""}
                     onChange={(e) => campoEdit("codinome", e.target.value)}
@@ -972,52 +1205,81 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Grupo Empresarial</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Grupo Empresarial
+                  </label>
                   <input
                     value={editItem.grupo_empresarial || ""}
-                    onChange={(e) => campoEdit("grupo_empresarial", e.target.value)}
+                    onChange={(e) =>
+                      campoEdit("grupo_empresarial", e.target.value)
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Documento (CPF/CNPJ)</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Documento (CPF/CNPJ)
+                  </label>
                   <input
                     value={editItem.cnpj_anunciante || ""}
-                    onChange={(e) => campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))}
-                    onBlur={() => campoEdit("cnpj_anunciante", formatDocPartial(editItem.cnpj_anunciante || ""))}
+                    onChange={(e) =>
+                      campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "cnpj_anunciante",
+                        formatDocPartial(editItem.cnpj_anunciante || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    UF
+                  </label>
                   <select
                     value={editItem.uf_cliente || "DF"}
                     onChange={(e) => campoEdit("uf_cliente", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
-                    {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+                    {UFS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Executivo
+                  </label>
                   <select
                     value={editItem.executivo || ""}
                     onChange={(e) => campoEdit("executivo", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
                     <option value="">— Selecione —</option>
-                    {executivos.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                    {executivos.map((ex) => (
+                      <option key={ex} value={ex}>
+                        {ex}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Email
+                  </label>
                   <input
                     value={editItem.email_anunciante || ""}
-                    onChange={(e) => campoEdit("email_anunciante", e.target.value)}
+                    onChange={(e) =>
+                      campoEdit("email_anunciante", e.target.value)
+                    }
                     placeholder="contato@empresa.com.br"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
@@ -1025,7 +1287,9 @@ export default function Anunciantes() {
 
                 {/* Redes / Sites */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Site</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Site
+                  </label>
                   <input
                     value={editItem.site || ""}
                     onChange={(e) => campoEdit("site", e.target.value)}
@@ -1035,7 +1299,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">LinkedIn</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    LinkedIn
+                  </label>
                   <input
                     value={editItem.linkedin || ""}
                     onChange={(e) => campoEdit("linkedin", e.target.value)}
@@ -1045,7 +1311,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Instagram</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Instagram
+                  </label>
                   <input
                     value={editItem.instagram || ""}
                     onChange={(e) => campoEdit("instagram", e.target.value)}
@@ -1056,7 +1324,9 @@ export default function Anunciantes() {
 
                 {/* 🧩 Novos campos */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Endereço (complemento/observações)</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Endereço (complemento/observações)
+                  </label>
                   <input
                     value={editItem.endereco || ""}
                     onChange={(e) => campoEdit("endereco", e.target.value)}
@@ -1065,7 +1335,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Logradouro</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Logradouro
+                  </label>
                   <input
                     value={editItem.logradouro || ""}
                     onChange={(e) => campoEdit("logradouro", e.target.value)}
@@ -1075,7 +1347,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Bairro</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Bairro
+                  </label>
                   <input
                     value={editItem.bairro || ""}
                     onChange={(e) => campoEdit("bairro", e.target.value)}
@@ -1084,11 +1358,17 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">CEP</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    CEP
+                  </label>
                   <input
                     value={editItem.cep || ""}
-                    onChange={(e) => campoEdit("cep", formatCepPartial(e.target.value))}
-                    onBlur={() => campoEdit("cep", formatCepPartial(editItem.cep || ""))}
+                    onChange={(e) =>
+                      campoEdit("cep", formatCepPartial(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit("cep", formatCepPartial(editItem.cep || ""))
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="00000-000"
                     inputMode="numeric"
@@ -1096,7 +1376,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Segmento</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Segmento
+                  </label>
                   <input
                     value={editItem.segmento || ""}
                     onChange={(e) => campoEdit("segmento", e.target.value)}
@@ -1106,7 +1388,9 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Subsegmento</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Subsegmento
+                  </label>
                   <input
                     value={editItem.subsegmento || ""}
                     onChange={(e) => campoEdit("subsegmento", e.target.value)}
@@ -1116,11 +1400,20 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 1</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Telefone Sócio 1
+                  </label>
                   <input
                     value={editItem.telefone_socio1 || ""}
-                    onChange={(e) => campoEdit("telefone_socio1", formatPhoneBR(e.target.value))}
-                    onBlur={() => campoEdit("telefone_socio1", formatPhoneBR(editItem.telefone_socio1 || ""))}
+                    onChange={(e) =>
+                      campoEdit("telefone_socio1", formatPhoneBR(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "telefone_socio1",
+                        formatPhoneBR(editItem.telefone_socio1 || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"
@@ -1128,11 +1421,20 @@ export default function Anunciantes() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone Sócio 2</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Telefone Sócio 2
+                  </label>
                   <input
                     value={editItem.telefone_socio2 || ""}
-                    onChange={(e) => campoEdit("telefone_socio2", formatPhoneBR(e.target.value))}
-                    onBlur={() => campoEdit("telefone_socio2", formatPhoneBR(editItem.telefone_socio2 || ""))}
+                    onChange={(e) =>
+                      campoEdit("telefone_socio2", formatPhoneBR(e.target.value))
+                    }
+                    onBlur={() =>
+                      campoEdit(
+                        "telefone_socio2",
+                        formatPhoneBR(editItem.telefone_socio2 || ""),
+                      )
+                    }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"
