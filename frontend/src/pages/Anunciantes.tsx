@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
-// ✅ Fallback local de executivos
+// ✅ Fallback local de executivos (sempre disponível)
 const DEFAULT_EXECUTIVOS = [
   "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
   "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
@@ -15,36 +15,34 @@ type Anunciante = {
   id: number
   nome_anunciante: string
   razao_social_anunciante?: string | null
-  cnpj_anunciante: string            // pode vir CPF/CNPJ (formatado)
-  uf_cliente?: string | null
+  cnpj_anunciante: string
+  uf_anunciante?: string | null
   executivo: string
   email_anunciante?: string | null
   data_cadastro?: string | null
 
-  // 🔥 Campos existentes
+  // extras
   grupo_empresarial?: string | null
   codinome?: string | null
   site?: string | null
   linkedin?: string | null
   instagram?: string | null
 
-  // 🧩 Novos campos
+  // novos campos comuns
   endereco?: string | null
-  segmento?: string | null
-  subsegmento?: string | null
   logradouro?: string | null
   bairro?: string | null
   cep?: string | null
+  segmento?: string | null
+  subsegmento?: string | null
   telefone_socio1?: string | null
   telefone_socio2?: string | null
+
+  // 🔥 Campo agregado com as agências vinculadas (string única, backend pode ignorar se não tiver)
+  agencias_relacionadas?: string | null
 }
 
-type ExecutivoResponsavel = {
-  executivo: string
-  pracaUf: string
-  observacao: string
-}
-
+// -------- Helpers HTTP --------
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url)
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -91,23 +89,16 @@ async function putJSON<T>(url: string, body: any): Promise<T> {
   return r.json()
 }
 
+// -------- Constantes / Utils --------
 const UFS = [
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
   "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"
 ]
-
 function digits(s: string) { return (s || "").replace(/\D+/g, "") }
 function emailOk(e: string) { return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
 
-// ---- Formatação progressiva CPF/CNPJ ----
-function formatCpfPartial(v: string) {
-  const d = digits(v).slice(0, 11)
-  if (d.length <= 3) return d
-  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
-  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
-  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`
-}
-function formatCnpjPartial(v: string) {
+// ---- CNPJ (parcial para input) ----
+function formatCNPJPartial(v: string) {
   const d = digits(v).slice(0, 14)
   if (d.length <= 2) return d
   if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`
@@ -115,38 +106,39 @@ function formatCnpjPartial(v: string) {
   if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
   return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
 }
-function formatDocPartial(v: string) {
-  const d = digits(v)
-  if (d.length <= 11) return formatCpfPartial(v)
-  return formatCnpjPartial(v)
-}
-function normalizeDocForSave(v: string) {
-  // Mantém formatação (como o backend aceita string). Para só dígitos, use: return digits(v)
-  return formatDocPartial(v)
-}
 
-// ---- CEP e Telefone (máscaras simples) ----
-function formatCepPartial(v: string) {
-  const d = digits(v).slice(0, 8)
-  if (d.length <= 5) return d
-  return `${d.slice(0,5)}-${d.slice(5)}`
-}
-function formatPhoneBR(v: string) {
-  const d = digits(v).slice(0, 11) // 10 ou 11 dígitos
+// ✅ CNPJ de exibição (tabela/export)
+function formatCNPJDisplay(v?: string | null) {
+  const d = digits(v || "")
+  if (d.length === 14) {
+    return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
+  }
   if (!d) return ""
-  if (d.length <= 2) return `(${d}`
-  if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`
-  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
-  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
+  return formatCNPJPartial(d)
 }
 
-// ---- Normalizador simples de URL (adiciona https:// se faltar) ----
+// ---- Normalizador simples de URL ----
 function normalizeUrl(u?: string | null): string | null {
   if (!u) return null
   const t = u.trim()
   if (!t) return null
   if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(t)) return t
   return `https://${t}`
+}
+
+// ---- CEP e Telefone ----
+function formatCepPartial(v: string) {
+  const d = digits(v).slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0,5)}-${d.slice(5)}`
+}
+function formatPhoneBR(v: string) {
+  const d = digits(v).slice(0, 11)
+  if (!d) return ""
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
+  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
 }
 
 // ---- Export helpers ----
@@ -170,10 +162,10 @@ function jsonToCSV(rows: Record<string, any>[]) {
   const headers = Object.keys(rows[0])
   const head = headers.map(csvEscape).join(";")
   const body = rows.map(r => headers.map(h => csvEscape(r[h])).join(";")).join("\n")
-  return "\uFEFF" + head + "\n" + body // BOM p/ Excel PT-BR
+  return "\uFEFF" + head + "\n" + body
 }
 
-// ---- transforma ""/espacos em null (recursivo) ----
+// ---- deep clean ----
 function deepClean<T = any>(obj: T): T {
   if (obj === null || obj === undefined) return obj
   if (typeof obj === "string") {
@@ -191,34 +183,80 @@ function deepClean<T = any>(obj: T): T {
   return obj
 }
 
+// Tipos locais para blocos dinâmicos
+type ContatoEmpresa = {
+  nome: string
+  cargo: string
+  email: string
+  telefone: string
+}
+type ExecutivoResponsavel = {
+  executivo: string
+  pracaUf: string
+  observacao: string
+}
+type AgenciaRelacionada = {
+  nome: string
+  observacao: string
+}
+
+// ===================== Componente =====================
 export default function Anunciantes() {
-  // form (criação)
-  const [nome, setNome] = useState("")
+  // ================= FORM PRINCIPAL =================
+
+  // 2ª fileira: Nome Empresarial / Título do Estabelecimento
   const [razao, setRazao] = useState("")
-  const [doc, setDoc] = useState("")           // CPF ou CNPJ
-  const [uf, setUf] = useState("DF")
-  const [email, setEmail] = useState("")
+  const [nome, setNome] = useState("")
 
-  // 🔥 campos já existentes no form
-  const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
+  // 1ª fileira: CNPJ
+  const [cnpj, setCnpj] = useState("")
+  const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
+
+  // 3ª fileira: Codinome / Grupo Empresarial
   const [codinome, setCodinome] = useState("")
-  const [site, setSite] = useState("")
-  const [linkedin, setLinkedin] = useState("")
-  const [instagram, setInstagram] = useState("")
+  const [grupoEmpresarial, setGrupoEmpresarial] = useState("")
 
-  // 🧩 novos campos no form
-  const [endereco, setEndereco] = useState("")
+  // 4ª fileira: Logradouro / Número / Complemento / CEP
+  const [logradouro, setLogradouro] = useState("")
+  const [numero, setNumero] = useState("")
+  const [endereco, setEndereco] = useState("") // complemento / observações
+  const [cep, setCep] = useState("")
+
+  // 5ª fileira: Bairro / Município / UF / Endereço completo oficial no site
+  const [bairro, setBairro] = useState("")
+  const [municipio, setMunicipio] = useState("")
+  const [uf, setUf] = useState("DF")
+  const [enderecoCompletoSite, setEnderecoCompletoSite] = useState("")
+
+  // 6ª fileira: E-mail (cartão CNPJ) / Telefone (cartão CNPJ) / Segmento / Subsegmento
+  const [email, setEmail] = useState("")
+  const [telefoneSocio1, setTelefoneSocio1] = useState("")
   const [segmento, setSegmento] = useState("")
   const [subsegmento, setSubsegmento] = useState("")
-  const [logradouro, setLogradouro] = useState("")
-  const [bairro, setBairro] = useState("")
-  const [cep, setCep] = useState("")
-  const [telefoneSocio1, setTelefoneSocio1] = useState("")
-  const [telefoneSocio2, setTelefoneSocio2] = useState("")
 
-  // 👇 Novos: lista de executivos responsáveis (dinâmica)
-  const [executivosResponsaveis, setExecutivosResponsaveis] = useState<ExecutivoResponsavel[]>([
+  // 7ª fileira: Site / Instagram / LinkedIn / Extensão de e-mail
+  const [site, setSite] = useState("")
+  const [instagram, setInstagram] = useState("")
+  const [linkedin, setLinkedin] = useState("")
+  const [extensaoEmail, setExtensaoEmail] = useState("")
+
+  // 8ª fileira: E-mail geral do site / Telefone geral do site
+  const [emailGeralSite, setEmailGeralSite] = useState("")
+  const [telefoneGeralSite, setTelefoneGeralSite] = useState("")
+
+  // 9ª fileira: Contatos da empresa (dinâmico)
+  const [contatos, setContatos] = useState<ContatoEmpresa[]>([
+    { nome: "", cargo: "", email: "", telefone: "" },
+  ])
+
+  // 10ª fileira: Executivos responsáveis (dinâmico)
+  const [executivosAtendimento, setExecutivosAtendimento] = useState<ExecutivoResponsavel[]>([
     { executivo: "", pracaUf: "DF", observacao: "" },
+  ])
+
+  // 11ª fileira: Agências envolvidas (dinâmico)
+  const [agenciasRelacionadas, setAgenciasRelacionadas] = useState<AgenciaRelacionada[]>([
+    { nome: "", observacao: "" },
   ])
 
   // dados
@@ -229,12 +267,11 @@ export default function Anunciantes() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
-  const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
 
   // filtros
   const [busca, setBusca] = useState("")
 
-  // editor inline
+  // editor
   const [editOpen, setEditOpen] = useState(false)
   const [editItem, setEditItem] = useState<Anunciante | null>(null)
   const [editErro, setEditErro] = useState<string | null>(null)
@@ -260,11 +297,10 @@ export default function Anunciantes() {
   }
   useEffect(() => { carregar() }, [])
 
-  // auto-preencher SÓ para CNPJ (14 dígitos)
   async function autoPreencherPorCNPJ() {
-    const num = digits(doc)
+    const num = digits(cnpj)
     if (num.length !== 14) {
-      alert("Para preencher automático, informe um CNPJ (14 dígitos).")
+      alert("Informe um CNPJ válido (14 dígitos).")
       return
     }
     setBuscandoCNPJ(true)
@@ -283,11 +319,12 @@ export default function Anunciantes() {
         const ufApi        = data.uf || data.estado || ""
         const logradouroApi =
           data.logradouro ||
-          ((data.descricao_tipo_logradouro && data.descricao_logradouro)
+          (data.descricao_tipo_logradouro && data.descricao_logradouro
             ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}`
             : "")
         const bairroApi    = data.bairro || ""
         const cepApi       = data.cep || ""
+        const municipioApi = data.municipio || data.municipio_descricao || data.cidade || ""
 
         if (nomeFantasia) setNome(nomeFantasia)
         if (razaoSocial) setRazao(razaoSocial)
@@ -295,6 +332,7 @@ export default function Anunciantes() {
         if (logradouroApi) setLogradouro(logradouroApi)
         if (bairroApi) setBairro(bairroApi)
         if (cepApi) setCep(formatCepPartial(cepApi))
+        if (municipioApi) setMunicipio(municipioApi)
 
         alert("Dados preenchidos automaticamente pelo CNPJ.")
       } else {
@@ -307,83 +345,109 @@ export default function Anunciantes() {
     }
   }
 
-  function validarCriacao(): string | null {
-    if (!nome.trim()) return "Nome é obrigatório."
-    const d = digits(doc)
-    if (!(d.length === 11 || d.length === 14)) {
-      return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
-    }
+  function validar(): string | null {
+    if (!cnpj.trim()) return "CNPJ é obrigatório."
+    const dig = digits(cnpj)
+    if (dig.length !== 14) return "O CNPJ deve conter 14 dígitos."
+    if (!razao.trim()) return "Nome empresarial é obrigatório."
+    if (!nome.trim()) return "Nome de fantasia é obrigatório."
 
-    const principalExec = executivosResponsaveis.find(
+    const principalExec = executivosAtendimento.find(
       (e) => e.executivo && e.executivo.trim(),
     )
-    if (!principalExec) return "Executivo é obrigatório."
+    if (!principalExec) return "Executivo responsável é obrigatório."
 
-    if (!emailOk(email)) return "Email inválido."
+    if (!emailOk(email)) return "Email do cartão CNPJ inválido."
     return null
   }
 
   async function salvar() {
-    const msg = validarCriacao()
+    const msg = validar()
     if (msg) { alert(msg); return }
 
-    const principalExec = executivosResponsaveis.find(
+    const principalExec = executivosAtendimento.find(
       (e) => e.executivo && e.executivo.trim(),
     )!
 
+    // 🔗 monta string com agências vinculadas
+    const agenciasStr = agenciasRelacionadas
+      .filter(a => a.nome && a.nome.trim())
+      .map(a => a.observacao?.trim()
+        ? `${a.nome.trim()} (${a.observacao.trim()})`
+        : a.nome.trim())
+      .join(" | ") || null
+
     setSalvando(true); setErro(null)
     try {
-      const rawBody = {
+      const raw = {
+        // Nome fantasia e razão social
         nome_anunciante: nome,
         razao_social_anunciante: razao,
-        cnpj_anunciante: normalizeDocForSave(doc), // aceita CPF ou CNPJ
-        uf_cliente: uf,
-        // 👇 Backend continua recebendo um único campo "executivo"
+
+        // CNPJ
+        cnpj_anunciante: formatCNPJPartial(cnpj),
+
+        // Localização básica
+        uf_anunciante: uf,
+
+        // Responsável principal
         executivo: principalExec.executivo,
         email_anunciante: email,
 
-        // existentes
+        // extras
         grupo_empresarial: grupoEmpresarial,
         codinome,
         site: normalizeUrl(site),
         linkedin: normalizeUrl(linkedin),
         instagram: normalizeUrl(instagram),
 
-        // novos
+        // novos (endereços/segmento/telefones)
         endereco,
-        segmento,
-        subsegmento,
         logradouro,
         bairro,
         cep: formatCepPartial(cep),
+        segmento,
+        subsegmento,
         telefone_socio1: formatPhoneBR(telefoneSocio1),
-        telefone_socio2: formatPhoneBR(telefoneSocio2),
+        telefone_socio2: formatPhoneBR(telefoneGeralSite),
 
-        // ⚠️ Lista completa de executivosResponsaveis ainda não está sendo salva em tabela própria
+        // 🧩 Campo agregado de agências (backend pode ignorar se não tiver)
+        agencias_relacionadas: agenciasStr,
+
+        // ⚠️ Campos VISUAIS novos que ainda NÃO estão mapeados no modelo:
+        // numero, municipio, enderecoCompletoSite, extensaoEmail, emailGeralSite,
+        // contatos, executivosAtendimento, agenciasRelacionadas
       }
-      const body = deepClean(rawBody)
+      const body = deepClean(raw)
       await postJSON(`${API}/anunciantes`, body)
 
       // reset
-      setNome("")
+      setCnpj("")
       setRazao("")
-      setDoc("")
-      setUf("DF")
-      setEmail("")
-      setGrupoEmpresarial("")
+      setNome("")
       setCodinome("")
-      setSite("")
-      setLinkedin("")
-      setInstagram("")
+      setGrupoEmpresarial("")
+      setLogradouro("")
+      setNumero("")
       setEndereco("")
+      setCep("")
+      setBairro("")
+      setMunicipio("")
+      setUf("DF")
+      setEnderecoCompletoSite("")
+      setEmail("")
+      setTelefoneSocio1("")
       setSegmento("")
       setSubsegmento("")
-      setLogradouro("")
-      setBairro("")
-      setCep("")
-      setTelefoneSocio1("")
-      setTelefoneSocio2("")
-      setExecutivosResponsaveis([{ executivo: "", pracaUf: "DF", observacao: "" }])
+      setSite("")
+      setInstagram("")
+      setLinkedin("")
+      setExtensaoEmail("")
+      setEmailGeralSite("")
+      setTelefoneGeralSite("")
+      setContatos([{ nome: "", cargo: "", email: "", telefone: "" }])
+      setExecutivosAtendimento([{ executivo: "", pracaUf: "DF", observacao: "" }])
+      setAgenciasRelacionadas([{ nome: "", observacao: "" }])
 
       await carregar()
       alert("Anunciante cadastrado com sucesso!")
@@ -394,14 +458,14 @@ export default function Anunciantes() {
     }
   }
 
-  // ---- Exportar Excel / CSV ----
+  // Exportar
   async function exportarPlanilha(rows: Anunciante[]) {
     if (!rows?.length) { alert("Nada para exportar."); return }
     const data = rows.map(a => ({
       Nome: a.nome_anunciante,
       "Razão Social": a.razao_social_anunciante || "",
-      Documento: a.cnpj_anunciante,
-      UF: a.uf_cliente || "",
+      CNPJ: formatCNPJDisplay(a.cnpj_anunciante),
+      UF: a.uf_anunciante || "",
       Executivo: a.executivo || "",
       Email: a.email_anunciante || "",
       "Grupo Empresarial": a.grupo_empresarial || "",
@@ -417,10 +481,10 @@ export default function Anunciantes() {
       "Subsegmento": a.subsegmento || "",
       "Telefone Sócio 1": a.telefone_socio1 || "",
       "Telefone Sócio 2": a.telefone_socio2 || "",
+      "Agências Relacionadas": a.agencias_relacionadas || "",
       "Data de Cadastro": a.data_cadastro || "",
     }))
     const nomeArq = `anunciantes_${new Date().toISOString().slice(0,10)}.xlsx`
-
     try {
       const XLSX = await import("xlsx")
       const ws = XLSX.utils.json_to_sheet(data)
@@ -434,13 +498,15 @@ export default function Anunciantes() {
     }
   }
 
+  // Filtro
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    const d = digits(q)
+    const qDigits = digits(q)
     if (!q) return lista
     return lista.filter(a => {
-      const inUrl = (u?: string | null) => (u || "").toLowerCase().includes(q)
+      const cnpjDigits = digits(a.cnpj_anunciante || "")
       const inText = (s?: string | null) => (s || "").toLowerCase().includes(q)
+      const inUrl = (u?: string | null) => (u || "").toLowerCase().includes(q)
       return (
         a.nome_anunciante.toLowerCase().includes(q) ||
         inText(a.razao_social_anunciante) ||
@@ -449,13 +515,14 @@ export default function Anunciantes() {
         inText(a.endereco) ||
         inText(a.logradouro) ||
         inText(a.bairro) ||
+        inText(a.cep) ||
         inText(a.segmento) ||
         inText(a.subsegmento) ||
-        inText(a.cep) ||
         inText(a.telefone_socio1) ||
         inText(a.telefone_socio2) ||
+        inText(a.agencias_relacionadas) ||
         (a.cnpj_anunciante || "").toLowerCase().includes(q) ||
-        (d && digits(a.cnpj_anunciante || "").includes(d)) ||
+        (qDigits && cnpjDigits.includes(qDigits)) ||
         (a.executivo || "").toLowerCase().includes(q) ||
         (a.email_anunciante || "").toLowerCase().includes(q) ||
         inUrl(a.site) || inUrl(a.linkedin) || inUrl(a.instagram)
@@ -463,18 +530,15 @@ export default function Anunciantes() {
     })
   }, [lista, busca])
 
-  // máscara de exibição na tabela (garante pontuação correta)
-  function maskDocDisplay(v: string) { return formatDocPartial(v) }
-
   // ------- Editor -------
   function abrirEditor(a: Anunciante) {
     setEditErro(null)
     setEditItem({
       ...a,
-      cnpj_anunciante: formatDocPartial(a.cnpj_anunciante || ""),
-      email_anunciante: a.email_anunciante || "",
       razao_social_anunciante: a.razao_social_anunciante || "",
-      uf_cliente: a.uf_cliente || "DF",
+      email_anunciante: a.email_anunciante || "",
+      uf_anunciante: a.uf_anunciante || "DF",
+      cnpj_anunciante: formatCNPJPartial(a.cnpj_anunciante || ""),
       executivo: a.executivo || "",
 
       grupo_empresarial: a.grupo_empresarial || "",
@@ -483,15 +547,15 @@ export default function Anunciantes() {
       linkedin: a.linkedin || "",
       instagram: a.instagram || "",
 
-      // novos
       endereco: a.endereco || "",
-      segmento: a.segmento || "",
-      subsegmento: a.subsegmento || "",
       logradouro: a.logradouro || "",
       bairro: a.bairro || "",
       cep: a.cep || "",
+      segmento: a.segmento || "",
+      subsegmento: a.subsegmento || "",
       telefone_socio1: a.telefone_socio1 || "",
       telefone_socio2: a.telefone_socio2 || "",
+      agencias_relacionadas: a.agencias_relacionadas || "",
     })
     setEditOpen(true)
   }
@@ -506,8 +570,9 @@ export default function Anunciantes() {
   }
   async function salvarEdicao() {
     if (!editItem) return
-    // validações mínimas
     if (!editItem.nome_anunciante?.trim()) { setEditErro("Nome é obrigatório."); return }
+    const dig = digits(editItem.cnpj_anunciante || "")
+    if (dig.length !== 14) { setEditErro("O CNPJ deve conter 14 dígitos."); return }
     if (!editItem.executivo?.trim()) { setEditErro("Executivo é obrigatório."); return }
     if (!emailOk(editItem.email_anunciante || "")) { setEditErro("Email inválido."); return }
 
@@ -516,8 +581,8 @@ export default function Anunciantes() {
       const raw = {
         nome_anunciante: editItem.nome_anunciante,
         razao_social_anunciante: editItem.razao_social_anunciante ?? "",
-        cnpj_anunciante: normalizeDocForSave(editItem.cnpj_anunciante || ""),
-        uf_cliente: editItem.uf_cliente || "",
+        cnpj_anunciante: editItem.cnpj_anunciante,
+        uf_anunciante: editItem.uf_anunciante || "",
         executivo: editItem.executivo,
         email_anunciante: editItem.email_anunciante ?? "",
 
@@ -527,15 +592,16 @@ export default function Anunciantes() {
         linkedin: normalizeUrl(editItem.linkedin || ""),
         instagram: normalizeUrl(editItem.instagram || ""),
 
-        // novos
         endereco: editItem.endereco ?? "",
-        segmento: editItem.segmento ?? "",
-        subsegmento: editItem.subsegmento ?? "",
         logradouro: editItem.logradouro ?? "",
         bairro: editItem.bairro ?? "",
         cep: formatCepPartial(editItem.cep || ""),
+        segmento: editItem.segmento ?? "",
+        subsegmento: editItem.subsegmento ?? "",
         telefone_socio1: formatPhoneBR(editItem.telefone_socio1 || ""),
         telefone_socio2: formatPhoneBR(editItem.telefone_socio2 || ""),
+
+        agencias_relacionadas: editItem.agencias_relacionadas ?? "",
       }
       const body = deepClean(raw)
       await putJSON(`${API}/anunciantes/${editItem.id}`, body)
@@ -548,6 +614,7 @@ export default function Anunciantes() {
     }
   }
 
+  // Badge de link
   const LinkPill = ({ href, label }: { href?: string | null, label: string }) => {
     if (!href) return null
     return (
@@ -563,23 +630,44 @@ export default function Anunciantes() {
     )
   }
 
-  // Helpers para lista dinâmica de executivos no formulário
-  function addExecutivoResponsavel() {
-    setExecutivosResponsaveis(prev => [
+  // Helpers para linhas dinâmicas
+  function addContato() {
+    setContatos(prev => [...prev, { nome: "", cargo: "", email: "", telefone: "" }])
+  }
+  function updateContato(index: number, field: keyof ContatoEmpresa, value: string) {
+    setContatos(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c))
+  }
+
+  function addExecutivoAtendimento() {
+    setExecutivosAtendimento(prev => [
       ...prev,
       { executivo: "", pracaUf: "DF", observacao: "" },
     ])
   }
-  function updateExecutivoResponsavel(
+  function updateExecutivoAtendimento(
     index: number,
     field: keyof ExecutivoResponsavel,
     value: string,
   ) {
-    setExecutivosResponsaveis(prev =>
-      prev.map((e, i) => (i === index ? { ...e, [field]: value } : e)),
+    setExecutivosAtendimento(prev =>
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)),
     )
   }
 
+  function addAgenciaRelacionada() {
+    setAgenciasRelacionadas(prev => [...prev, { nome: "", observacao: "" }])
+  }
+  function updateAgenciaRelacionada(
+    index: number,
+    field: keyof AgenciaRelacionada,
+    value: string,
+  ) {
+    setAgenciasRelacionadas(prev =>
+      prev.map((a, i) => (i === index ? { ...a, [field]: value } : a)),
+    )
+  }
+
+  // ===================== UI =====================
   return (
     <div className="space-y-8">
       {/* Título */}
@@ -603,343 +691,559 @@ export default function Anunciantes() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
-          {/* Linha 1 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Nome do Anunciante
-            </label>
-            <input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: ACME Ltda"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Razão Social
-            </label>
-            <input
-              value={razao}
-              onChange={(e) => setRazao(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: ACME Indústria e Comércio LTDA"
-            />
-          </div>
-          <div className="xl:col-span-2">
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Documento (CPF ou CNPJ)
-            </label>
-            <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+        <div className="space-y-6">
+          {/* GRID PRINCIPAL */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 1ª fileira: CNPJ */}
+            <div className="xl:col-span-4">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                CNPJ
+              </label>
+              <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+                <input
+                  value={cnpj}
+                  onChange={(e) => setCnpj(formatCNPJPartial(e.target.value))}
+                  onBlur={() => setCnpj(formatCNPJPartial(cnpj))}
+                  className="w-full xl:w-[320px] h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                             focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  placeholder="12.345.678/0001-90"
+                />
+                <button
+                  type="button"
+                  onClick={autoPreencherPorCNPJ}
+                  disabled={buscandoCNPJ || digits(cnpj).length !== 14}
+                  className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold 
+                             hover:bg-red-700 disabled:opacity-60"
+                  title="Buscar dados pelo CNPJ"
+                >
+                  {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
+                </button>
+              </div>
+            </div>
+
+            {/* 2ª fileira: Nome Empresarial / Nome Fantasia */}
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Nome Empresarial
+              </label>
               <input
-                value={doc}
-                onChange={(e) => setDoc(formatDocPartial(e.target.value))}
-                onBlur={() => setDoc(formatDocPartial(doc))}
-                className="w-full xl:flex-1 h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                value={razao}
+                onChange={(e) => setRazao(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="CPF: 000.000.000-00 • CNPJ: 00.000.000/0000-00"
+                placeholder="Razão social no CNPJ"
               />
+            </div>
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Título do Estabelecimento (Nome de Fantasia)
+              </label>
+              <input
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Nome fantasia / como aparece no mercado"
+              />
+            </div>
+
+            {/* 3ª fileira: Codinome / Grupo Empresarial */}
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Codinome
+              </label>
+              <input
+                value={codinome}
+                onChange={(e) => setCodinome(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Identificador curto (interno)"
+              />
+            </div>
+            <div className="xl:col-span-2">
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Grupo Empresarial
+              </label>
+              <input
+                value={grupoEmpresarial}
+                onChange={(e) => setGrupoEmpresarial(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Grupo ACME"
+              />
+            </div>
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 4ª e 5ª fileiras - Endereço */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 4ª fileira */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Logradouro
+              </label>
+              <input
+                value={logradouro}
+                onChange={(e) => setLogradouro(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Rua / Avenida"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Número
+              </label>
+              <input
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: 123"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Complemento
+              </label>
+              <input
+                value={endereco}
+                onChange={(e) => setEndereco(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Sala, bloco, torre, etc."
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                CEP
+              </label>
+              <input
+                value={cep}
+                onChange={(e) => setCep(formatCepPartial(e.target.value))}
+                onBlur={() => setCep(formatCepPartial(cep))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="00000-000"
+                inputMode="numeric"
+              />
+            </div>
+
+            {/* 5ª fileira */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Bairro / Distrito
+              </label>
+              <input
+                value={bairro}
+                onChange={(e) => setBairro(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Centro"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Município
+              </label>
+              <input
+                value={municipio}
+                onChange={(e) => setMunicipio(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Cidade"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                UF
+              </label>
+              <select
+                value={uf}
+                onChange={(e) => setUf(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+              >
+                {UFS.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Endereço completo oficial no site
+              </label>
+              <input
+                value={enderecoCompletoSite}
+                onChange={(e) => setEnderecoCompletoSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Como aparece no site oficial"
+              />
+            </div>
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 6ª, 7ª e 8ª fileiras */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+            {/* 6ª fileira */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                E-mail (cartão CNPJ)
+              </label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="E-mail fiscal / oficial"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Telefone (cartão CNPJ)
+              </label>
+              <input
+                value={telefoneSocio1}
+                onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
+                onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="(11) 90000-0000"
+                inputMode="tel"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Segmento de atuação
+              </label>
+              <input
+                value={segmento}
+                onChange={(e) => setSegmento(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Varejo, Tecnologia, Saúde..."
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Subsegmento de atuação
+              </label>
+              <input
+                value={subsegmento}
+                onChange={(e) => setSubsegmento(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="Ex.: Supermercado, SaaS, Hospital..."
+              />
+            </div>
+
+            {/* 7ª fileira */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Site
+              </label>
+              <input
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: empresa.com.br"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Instagram
+              </label>
+              <input
+                value={instagram}
+                onChange={(e) => setInstagram(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: instagram.com/marca"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                LinkedIn
+              </label>
+              <input
+                value={linkedin}
+                onChange={(e) => setLinkedin(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: linkedin.com/company/marca"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Extensão de e-mail
+              </label>
+              <input
+                value={extensaoEmail}
+                onChange={(e) => setExtensaoEmail(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="ex.: @empresa.com.br"
+              />
+            </div>
+
+            {/* 8ª fileira */}
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                E-mail de contato geral no site
+              </label>
+              <input
+                value={emailGeralSite}
+                onChange={(e) => setEmailGeralSite(e.target.value)}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="contato@empresa.com.br"
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-semibold text-slate-800 mb-2">
+                Telefone de contato geral no site
+              </label>
+              <input
+                value={telefoneGeralSite}
+                onChange={(e) => setTelefoneGeralSite(formatPhoneBR(e.target.value))}
+                onBlur={() => setTelefoneGeralSite(formatPhoneBR(telefoneGeralSite))}
+                className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
+                           focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                placeholder="(11) 90000-0000"
+                inputMode="tel"
+              />
+            </div>
+          </div>
+
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 9ª fileira: Contatos */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Contatos da empresa
+              </h2>
               <button
                 type="button"
-                onClick={autoPreencherPorCNPJ}
-                disabled={buscandoCNPJ || digits(doc).length !== 14}
-                className="h-[52px] px-5 rounded-2xl bg-red-600 text-white text-lg font-semibold 
-                           hover:bg-red-700 disabled:opacity-60"
-                title="Buscar dados pelo CNPJ"
+                onClick={addContato}
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                           hover:bg-red-700"
               >
-                {buscandoCNPJ ? "Buscando..." : "🔍 CNPJ"}
+                + Adicionar contato
               </button>
             </div>
+
+            {contatos.map((cont, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 xl:grid-cols-4 gap-4 border border-slate-200 rounded-2xl p-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Contato {idx + 1} - Nome
+                  </label>
+                  <input
+                    value={cont.nome}
+                    onChange={(e) => updateContato(idx, "nome", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Nome completo"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Cargo
+                  </label>
+                  <input
+                    value={cont.cargo}
+                    onChange={(e) => updateContato(idx, "cargo", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Cargo na empresa"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    value={cont.email}
+                    onChange={(e) => updateContato(idx, "email", e.target.value)}
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="email@empresa.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Telefone
+                  </label>
+                  <input
+                    value={cont.telefone}
+                    onChange={(e) =>
+                      updateContato(idx, "telefone", formatPhoneBR(e.target.value))
+                    }
+                    onBlur={(e) =>
+                      updateContato(idx, "telefone", formatPhoneBR(e.target.value))
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="(11) 90000-0000"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Linha 2 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">UF</label>
-            <select
-              value={uf}
-              onChange={(e) => setUf(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-            >
-              {UFS.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">Email</label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="contato@empresa.com.br"
-            />
-          </div>
-          {/* slots para manter grid alinhado */}
-          <div className="hidden xl:block" />
-          <div className="hidden xl:block" />
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
 
-          {/* Linha 3 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Grupo Empresarial
-            </label>
-            <input
-              value={grupoEmpresarial}
-              onChange={(e) => setGrupoEmpresarial(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Grupo ACME"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Codinome
-            </label>
-            <input
-              value={codinome}
-              onChange={(e) => setCodinome(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Identificador curto (único)"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Site
-            </label>
-            <input
-              value={site}
-              onChange={(e) => setSite(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: empresa.com.br"
-            />
-          </div>
+          {/* 10ª fileira: Executivos responsáveis */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Executivo(s) responsável(eis) pelo atendimento
+              </h2>
+              <button
+                type="button"
+                onClick={addExecutivoAtendimento}
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                           hover:bg-red-700"
+              >
+                + Adicionar executivo
+              </button>
+            </div>
 
-          {/* Linha 4 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              LinkedIn
-            </label>
-            <input
-              value={linkedin}
-              onChange={(e) => setLinkedin(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: linkedin.com/company/empresa"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Instagram
-            </label>
-            <input
-              value={instagram}
-              onChange={(e) => setInstagram(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="ex.: instagram.com/empresa"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Endereço (complemento/observações)
-            </label>
-            <input
-              value={endereco}
-              onChange={(e) => setEndereco(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Sala 402, Bloco B, Centro Empresarial..."
-            />
+            {executivosAtendimento.map((exResp, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 xl:grid-cols-3 gap-4 border border-slate-200 rounded-2xl p-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Executivo {idx + 1}
+                  </label>
+                  <select
+                    value={exResp.executivo}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "executivo", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  >
+                    <option value="">Selecione o Executivo</option>
+                    {executivos.map(ex => (
+                      <option key={ex} value={ex}>{ex}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Praças (UF) de atuação
+                  </label>
+                  <input
+                    value={exResp.pracaUf}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "pracaUf", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Ex.: DF, GO, RJ..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Observação
+                  </label>
+                  <input
+                    value={exResp.observacao}
+                    onChange={(e) =>
+                      updateExecutivoAtendimento(idx, "observacao", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Informações adicionais do executivo"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Linha 5 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Logradouro
-            </label>
-            <input
-              value={logradouro}
-              onChange={(e) => setLogradouro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Av. Paulista, 1000"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Bairro
-            </label>
-            <input
-              value={bairro}
-              onChange={(e) => setBairro(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Bela Vista"
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              CEP
-            </label>
-            <input
-              value={cep}
-              onChange={(e) => setCep(formatCepPartial(e.target.value))}
-              onBlur={() => setCep(formatCepPartial(cep))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="00000-000"
-              inputMode="numeric"
-            />
+          {/* Divisória */}
+          <hr className="border-t border-slate-200" />
+
+          {/* 11ª fileira: Agências envolvidas */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-slate-900">
+                Agências envolvidas (para este anunciante)
+              </h2>
+              <button
+                type="button"
+                onClick={addAgenciaRelacionada}
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
+                           hover:bg-red-700"
+              >
+                + Adicionar agência
+              </button>
+            </div>
+
+            {agenciasRelacionadas.map((ag, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 xl:grid-cols-2 gap-4 border border-slate-200 rounded-2xl p-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Agência {idx + 1} - Nome
+                  </label>
+                  <input
+                    value={ag.nome}
+                    onChange={(e) =>
+                      updateAgenciaRelacionada(idx, "nome", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Nome da agência"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Observação
+                  </label>
+                  <input
+                    value={ag.observacao}
+                    onChange={(e) =>
+                      updateAgenciaRelacionada(idx, "observacao", e.target.value)
+                    }
+                    className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
+                               focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                    placeholder="Ex.: agência líder, digital, off etc."
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Linha 6 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Segmento
-            </label>
-            <input
-              value={segmento}
-              onChange={(e) => setSegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Varejo, Tecnologia, Saúde..."
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Subsegmento
-            </label>
-            <input
-              value={subsegmento}
-              onChange={(e) => setSubsegmento(e.target.value)}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="Ex.: Supermercado, SaaS, Hospital..."
-            />
-          </div>
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Telefone Sócio 1
-            </label>
-            <input
-              value={telefoneSocio1}
-              onChange={(e) => setTelefoneSocio1(formatPhoneBR(e.target.value))}
-              onBlur={() => setTelefoneSocio1(formatPhoneBR(telefoneSocio1))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="(11) 90000-0000"
-              inputMode="tel"
-            />
-          </div>
-
-          {/* Linha 7 */}
-          <div>
-            <label className="block text-xl font-semibold text-slate-800 mb-2">
-              Telefone Sócio 2
-            </label>
-            <input
-              value={telefoneSocio2}
-              onChange={(e) => setTelefoneSocio2(formatPhoneBR(e.target.value))}
-              onBlur={() => setTelefoneSocio2(formatPhoneBR(telefoneSocio2))}
-              className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
-                         focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-              placeholder="(11) 90000-0000"
-              inputMode="tel"
-            />
-          </div>
-          <div className="hidden xl:block" />
-          <div className="hidden xl:block" />
-        </div>
-
-        {/* Divisória */}
-        <hr className="border-t border-slate-200 mt-6 mb-4" />
-
-        {/* Bloco: Executivos responsáveis (dinâmico) */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Executivo(s) responsável(eis) pelo atendimento
-            </h2>
+          {/* Botão salvar */}
+          <div className="pt-2">
             <button
-              type="button"
-              onClick={addExecutivoResponsavel}
-              className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold 
-                         hover:bg-red-700"
+              onClick={salvar}
+              disabled={salvando}
+              className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold 
+                         hover:bg-red-700 disabled:opacity-60"
             >
-              + Adicionar executivo
+              {salvando ? "Salvando..." : "Cadastrar Anunciante"}
             </button>
           </div>
-
-          {executivosResponsaveis.map((ex, idx) => (
-            <div
-              key={idx}
-              className="grid grid-cols-1 xl:grid-cols-3 gap-4 border border-slate-200 rounded-2xl p-4"
-            >
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">
-                  Executivo {idx + 1}
-                </label>
-                <select
-                  value={ex.executivo}
-                  onChange={(e) =>
-                    updateExecutivoResponsavel(idx, "executivo", e.target.value)
-                  }
-                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
-                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
-                >
-                  <option value="">Selecione o Executivo</option>
-                  {executivos.map((e) => (
-                    <option key={e} value={e}>
-                      {e}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">
-                  Praças (UF) de atuação
-                </label>
-                <input
-                  value={ex.pracaUf}
-                  onChange={(e) =>
-                    updateExecutivoResponsavel(idx, "pracaUf", e.target.value)
-                  }
-                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
-                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
-                  placeholder="Ex.: DF, GO, RJ..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">
-                  Observação
-                </label>
-                <input
-                  value={ex.observacao}
-                  onChange={(e) =>
-                    updateExecutivoResponsavel(idx, "observacao", e.target.value)
-                  }
-                  className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
-                             focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
-                  placeholder="Informações adicionais do executivo"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-6">
-          <button
-            onClick={salvar}
-            disabled={salvando}
-            className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
-          >
-            {salvando ? "Salvando..." : "Cadastrar Anunciante"}
-          </button>
         </div>
       </section>
 
@@ -951,7 +1255,7 @@ export default function Anunciantes() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, codinome, documento, executivo, grupo, localidade, segmento..."
+              placeholder="Buscar por nome, codinome, CNPJ, executivo, grupo, localidade, segmento..."
               className="w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-base 
                          focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
@@ -986,12 +1290,13 @@ export default function Anunciantes() {
                       "Nome / Razão",
                       "Codinome",
                       "Grupo",
-                      "Documento",
+                      "CNPJ",
                       "UF",
                       "Segmento",
                       "Localidade",
-                      "Contato",
+                      "Contato / Site",
                       "Redes",
+                      "Agências",
                       "Cadastro",
                       "Ações",
                     ].map(h => (
@@ -1041,13 +1346,13 @@ export default function Anunciantes() {
 
                       <td className="px-6 py-4 text-slate-800 text-base">
                         <span className="font-mono">
-                          {maskDocDisplay(a.cnpj_anunciante)}
+                          {formatCNPJDisplay(a.cnpj_anunciante)}
                         </span>
                       </td>
 
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-xs font-semibold">
-                          {a.uf_cliente || "—"}
+                          {a.uf_anunciante || "—"}
                         </span>
                       </td>
 
@@ -1114,6 +1419,10 @@ export default function Anunciantes() {
                           <LinkPill href={a.linkedin} label="LinkedIn" />
                           <LinkPill href={a.instagram} label="Instagram" />
                         </div>
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-800 text-sm">
+                        {a.agencias_relacionadas || <span className="text-slate-400">—</span>}
                       </td>
 
                       <td className="px-6 py-4 text-slate-700 text-sm">
@@ -1185,9 +1494,7 @@ export default function Anunciantes() {
                   </label>
                   <input
                     value={editItem.razao_social_anunciante || ""}
-                    onChange={(e) =>
-                      campoEdit("razao_social_anunciante", e.target.value)
-                    }
+                    onChange={(e) => campoEdit("razao_social_anunciante", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -1210,26 +1517,24 @@ export default function Anunciantes() {
                   </label>
                   <input
                     value={editItem.grupo_empresarial || ""}
-                    onChange={(e) =>
-                      campoEdit("grupo_empresarial", e.target.value)
-                    }
+                    onChange={(e) => campoEdit("grupo_empresarial", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Documento (CPF/CNPJ)
+                    CNPJ
                   </label>
                   <input
                     value={editItem.cnpj_anunciante || ""}
                     onChange={(e) =>
-                      campoEdit("cnpj_anunciante", formatDocPartial(e.target.value))
+                      campoEdit("cnpj_anunciante", formatCNPJPartial(e.target.value))
                     }
                     onBlur={() =>
                       campoEdit(
                         "cnpj_anunciante",
-                        formatDocPartial(editItem.cnpj_anunciante || ""),
+                        formatCNPJPartial(editItem.cnpj_anunciante || ""),
                       )
                     }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
@@ -1241,14 +1546,12 @@ export default function Anunciantes() {
                     UF
                   </label>
                   <select
-                    value={editItem.uf_cliente || "DF"}
-                    onChange={(e) => campoEdit("uf_cliente", e.target.value)}
+                    value={editItem.uf_anunciante || "DF"}
+                    onChange={(e) => campoEdit("uf_anunciante", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
-                    {UFS.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
+                    {UFS.map(u => (
+                      <option key={u} value={u}>{u}</option>
                     ))}
                   </select>
                 </div>
@@ -1263,10 +1566,8 @@ export default function Anunciantes() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
                     <option value="">— Selecione —</option>
-                    {executivos.map((ex) => (
-                      <option key={ex} value={ex}>
-                        {ex}
-                      </option>
+                    {executivos.map(ex => (
+                      <option key={ex} value={ex}>{ex}</option>
                     ))}
                   </select>
                 </div>
@@ -1277,9 +1578,7 @@ export default function Anunciantes() {
                   </label>
                   <input
                     value={editItem.email_anunciante || ""}
-                    onChange={(e) =>
-                      campoEdit("email_anunciante", e.target.value)
-                    }
+                    onChange={(e) => campoEdit("email_anunciante", e.target.value)}
                     placeholder="contato@empresa.com.br"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
@@ -1305,7 +1604,7 @@ export default function Anunciantes() {
                   <input
                     value={editItem.linkedin || ""}
                     onChange={(e) => campoEdit("linkedin", e.target.value)}
-                    placeholder="ex.: linkedin.com/company/empresa"
+                    placeholder="ex.: linkedin.com/company/marca"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -1317,12 +1616,12 @@ export default function Anunciantes() {
                   <input
                     value={editItem.instagram || ""}
                     onChange={(e) => campoEdit("instagram", e.target.value)}
-                    placeholder="ex.: instagram.com/empresa"
+                    placeholder="ex.: instagram.com/marca"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
-                {/* 🧩 Novos campos */}
+                {/* Endereço / Segmento / Telefones */}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">
                     Endereço (complemento/observações)
@@ -1406,7 +1705,10 @@ export default function Anunciantes() {
                   <input
                     value={editItem.telefone_socio1 || ""}
                     onChange={(e) =>
-                      campoEdit("telefone_socio1", formatPhoneBR(e.target.value))
+                      campoEdit(
+                        "telefone_socio1",
+                        formatPhoneBR(e.target.value),
+                      )
                     }
                     onBlur={() =>
                       campoEdit(
@@ -1427,7 +1729,10 @@ export default function Anunciantes() {
                   <input
                     value={editItem.telefone_socio2 || ""}
                     onChange={(e) =>
-                      campoEdit("telefone_socio2", formatPhoneBR(e.target.value))
+                      campoEdit(
+                        "telefone_socio2",
+                        formatPhoneBR(e.target.value),
+                      )
                     }
                     onBlur={() =>
                       campoEdit(
@@ -1438,6 +1743,21 @@ export default function Anunciantes() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"
+                  />
+                </div>
+
+                {/* Agências Relacionadas (texto único no editor) */}
+                <div className="xl:col-span-1">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Agências relacionadas (texto)
+                  </label>
+                  <input
+                    value={editItem.agencias_relacionadas || ""}
+                    onChange={(e) =>
+                      campoEdit("agencias_relacionadas", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Ex.: Agência X (principal) | Agência Y (digital)"
                   />
                 </div>
               </div>
