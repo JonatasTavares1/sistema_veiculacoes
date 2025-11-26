@@ -12,6 +12,7 @@ from app.utils.cnpj import only_digits, is_cnpj_like
 
 router = APIRouter(prefix="/agencias", tags=["agencias"])
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -19,18 +20,20 @@ def get_db():
     finally:
         db.close()
 
+
 # -------- CRUD --------
 
 @router.get("", response_model=List[AgenciaOut])
 def listar(
     nome: Optional[str] = Query(
         None,
-        description="Filtro (ilike) por nome_agencia OU codinome"
+        description="Filtro (ilike) por nome_agencia, codinome, razão social ou grupo empresarial",
     ),
     db: Session = Depends(get_db),
 ):
     regs = agencia_crud.list_by_name(db, nome) if nome else agencia_crud.list_all(db)
     return [AgenciaOut.model_validate(r) for r in regs]
+
 
 @router.get("/codinome/{codinome}", response_model=AgenciaOut)
 def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
@@ -39,6 +42,7 @@ def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Agência não encontrada.")
     return AgenciaOut.model_validate(reg)
 
+
 @router.get("/cnpj/{cnpj}", response_model=AgenciaOut)
 def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
     reg = agencia_crud.get_by_cnpj(db, only_digits(cnpj))
@@ -46,12 +50,14 @@ def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Agência não encontrada.")
     return AgenciaOut.model_validate(reg)
 
+
 @router.get("/{agencia_id:int}", response_model=AgenciaOut)
 def obter(agencia_id: int, db: Session = Depends(get_db)):
     reg = agencia_crud.get_by_id(db, agencia_id)
     if not reg:
         raise HTTPException(status_code=404, detail="Agência não encontrada.")
     return AgenciaOut.model_validate(reg)
+
 
 @router.post("", response_model=AgenciaOut, status_code=status.HTTP_201_CREATED)
 def criar(body: AgenciaCreate, db: Session = Depends(get_db)):
@@ -62,6 +68,7 @@ def criar(body: AgenciaCreate, db: Session = Depends(get_db)):
         return AgenciaOut.model_validate(novo)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.put("/{agencia_id:int}", response_model=AgenciaOut)
 def atualizar(agencia_id: int, body: AgenciaUpdate, db: Session = Depends(get_db)):
@@ -74,6 +81,7 @@ def atualizar(agencia_id: int, body: AgenciaUpdate, db: Session = Depends(get_db
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.delete("/{agencia_id:int}")
 def deletar(agencia_id: int, db: Session = Depends(get_db)):
     try:
@@ -81,6 +89,7 @@ def deletar(agencia_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"ok": True, "deleted_id": agencia_id})
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.delete("/cnpj/{cnpj}")
 def deletar_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
@@ -91,6 +100,7 @@ def deletar_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
         return JSONResponse({"ok": True, "deleted_cnpj": only_digits(cnpj)})
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 # -------- Consulta BrasilAPI --------
 

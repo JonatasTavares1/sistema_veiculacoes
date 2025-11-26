@@ -12,6 +12,7 @@ from app.utils.cnpj import only_digits, is_cnpj_like
 
 router = APIRouter(prefix="/anunciantes", tags=["anunciantes"])
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -19,18 +20,25 @@ def get_db():
     finally:
         db.close()
 
+
 # -------- CRUD --------
+
 
 @router.get("", response_model=List[AnuncianteOut])
 def listar(
     nome: Optional[str] = Query(
         None,
-        description="Filtro (ilike) por nome_anunciante OU codinome"
+        description="Filtro (ilike) por nome, codinome, razão social ou grupo empresarial",
     ),
     db: Session = Depends(get_db),
 ):
-    regs = anunciante_crud.list_by_name(db, nome) if nome else anunciante_crud.list_all(db)
+    regs = (
+        anunciante_crud.list_by_name(db, nome)
+        if nome
+        else anunciante_crud.list_all(db)
+    )
     return [AnuncianteOut.model_validate(r) for r in regs]
+
 
 @router.get("/codinome/{codinome}", response_model=AnuncianteOut)
 def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
@@ -39,6 +47,7 @@ def obter_por_codinome(codinome: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
     return AnuncianteOut.model_validate(reg)
 
+
 @router.get("/cnpj/{cnpj}", response_model=AnuncianteOut)
 def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
     reg = anunciante_crud.get_by_cnpj(db, only_digits(cnpj))
@@ -46,12 +55,14 @@ def obter_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
     return AnuncianteOut.model_validate(reg)
 
+
 @router.get("/{anunciante_id:int}", response_model=AnuncianteOut)
 def obter(anunciante_id: int, db: Session = Depends(get_db)):
     reg = anunciante_crud.get_by_id(db, anunciante_id)
     if not reg:
         raise HTTPException(status_code=404, detail="Anunciante não encontrado.")
     return AnuncianteOut.model_validate(reg)
+
 
 @router.post("", response_model=AnuncianteOut, status_code=status.HTTP_201_CREATED)
 def criar(body: AnuncianteCreate, db: Session = Depends(get_db)):
@@ -63,8 +74,13 @@ def criar(body: AnuncianteCreate, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.put("/{anunciante_id:int}", response_model=AnuncianteOut)
-def atualizar(anunciante_id: int, body: AnuncianteUpdate, db: Session = Depends(get_db)):
+def atualizar(
+    anunciante_id: int,
+    body: AnuncianteUpdate,
+    db: Session = Depends(get_db),
+):
     try:
         dados = body.model_dump(exclude_unset=True)  # pydantic v2
         if "cnpj_anunciante" in dados and dados["cnpj_anunciante"]:
@@ -74,6 +90,7 @@ def atualizar(anunciante_id: int, body: AnuncianteUpdate, db: Session = Depends(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.delete("/{anunciante_id:int}")
 def deletar(anunciante_id: int, db: Session = Depends(get_db)):
     try:
@@ -81,6 +98,7 @@ def deletar(anunciante_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"ok": True, "deleted_id": anunciante_id})
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.delete("/cnpj/{cnpj}")
 def deletar_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
@@ -92,7 +110,9 @@ def deletar_por_cnpj(cnpj: str, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 # -------- Consulta BrasilAPI --------
+
 
 @router.get("/cnpj/{cnpj}/consulta")
 def consultar_cnpj_brasilapi(cnpj: str):
@@ -105,8 +125,14 @@ def consultar_cnpj_brasilapi(cnpj: str):
         if r.status_code == 200:
             return r.json()
         elif r.status_code == 404:
-            raise HTTPException(status_code=404, detail="CNPJ não encontrado na BrasilAPI.")
+            raise HTTPException(
+                status_code=404, detail="CNPJ não encontrado na BrasilAPI."
+            )
         else:
-            raise HTTPException(status_code=502, detail=f"BrasilAPI respondeu {r.status_code}.")
+            raise HTTPException(
+                status_code=502, detail=f"BrasilAPI respondeu {r.status_code}."
+            )
     except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Erro ao consultar BrasilAPI: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Erro ao consultar BrasilAPI: {e}"
+        )

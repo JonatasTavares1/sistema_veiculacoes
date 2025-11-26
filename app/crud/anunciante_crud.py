@@ -9,6 +9,8 @@ from app.models import Anunciante
 
 
 # ========== helpers ==========
+
+
 def _normalize_url(u: Optional[str]) -> Optional[str]:
     """
     Normaliza URLs: adiciona https:// se vier sem esquema.
@@ -25,8 +27,10 @@ def _normalize_url(u: Optional[str]) -> Optional[str]:
 
 
 # ========== reads ==========
+
+
 def get_by_id(db: Session, anunciante_id: int) -> Optional[Anunciante]:
-    # mantém padrão do projeto
+    # mantém padrão do projeto (get está deprecado em versões novas, mas ok aqui)
     return db.query(Anunciante).get(anunciante_id)
 
 
@@ -44,7 +48,8 @@ def list_all(db: Session) -> List[Anunciante]:
 
 def list_by_name(db: Session, nome: str) -> List[Anunciante]:
     """
-    Busca por nome_anunciante OU codinome contendo o termo.
+    Busca por nome_anunciante, codinome, razão social OU grupo empresarial
+    contendo o termo (ilike).
     """
     termo = f"%{nome}%"
     return (
@@ -53,6 +58,8 @@ def list_by_name(db: Session, nome: str) -> List[Anunciante]:
             or_(
                 Anunciante.nome_anunciante.ilike(termo),
                 Anunciante.codinome.ilike(termo),
+                Anunciante.razao_social_anunciante.ilike(termo),
+                Anunciante.grupo_empresarial.ilike(termo),
             )
         )
         .order_by(Anunciante.nome_anunciante.asc())
@@ -61,6 +68,8 @@ def list_by_name(db: Session, nome: str) -> List[Anunciante]:
 
 
 # ========== writes ==========
+
+
 def create(db: Session, dados: Dict[str, Any]) -> Anunciante:
     # unicidade por CNPJ
     if get_by_cnpj(db, dados["cnpj_anunciante"]):
@@ -73,21 +82,42 @@ def create(db: Session, dados: Dict[str, Any]) -> Anunciante:
             raise ValueError("Codinome já está em uso por outro anunciante.")
 
     novo = Anunciante(
-        # existentes
+        # --- campos básicos obrigatórios ---
         nome_anunciante=dados["nome_anunciante"],
-        razao_social_anunciante=dados.get("razao_social_anunciante"),
         cnpj_anunciante=dados["cnpj_anunciante"],
-        uf_cliente=dados.get("uf_cliente"),
         executivo=dados["executivo"],
+
+        # --- existentes ---
+        razao_social_anunciante=dados.get("razao_social_anunciante"),
+        uf_cliente=dados.get("uf_cliente"),
         email_anunciante=dados.get("email_anunciante"),
         data_cadastro=dados.get("data_cadastro"),
-        # novos
+
+        # --- endereço (cartão CNPJ / site) ---
+        logradouro=dados.get("logradouro"),
+        numero=dados.get("numero"),
+        complemento=dados.get("complemento"),
+        bairro=dados.get("bairro"),
+        municipio=dados.get("municipio"),
+        cep=dados.get("cep"),
+        endereco=dados.get("endereco"),
+
+        # --- telefones principais ---
+        telefone_socio1=dados.get("telefone_socio1"),
+        telefone_socio2=dados.get("telefone_socio2"),
+
+        # --- segmentação ---
+        segmento=dados.get("segmento"),
+        subsegmento=dados.get("subsegmento"),
+
+        # --- negócio / digitais ---
         grupo_empresarial=dados.get("grupo_empresarial"),
         codinome=codinome,
         site=_normalize_url(dados.get("site")),
         linkedin=_normalize_url(dados.get("linkedin")),
         instagram=_normalize_url(dados.get("instagram")),
     )
+
     db.add(novo)
     db.commit()
     db.refresh(novo)
@@ -139,9 +169,11 @@ def delete(db: Session, anunciante_id: int) -> None:
     an = get_by_id(db, anunciante_id)
     if not an:
         raise ValueError("Anunciante não encontrado.")
+
     # integridade: impedir exclusão com PIs vinculados
     if an.pis and len(an.pis) > 0:
         raise ValueError("Não é possível excluir: existem PIs vinculados ao anunciante.")
+
     db.delete(an)
     db.commit()
 
@@ -150,8 +182,10 @@ def delete_by_cnpj(db: Session, cnpj: str) -> bool:
     an = get_by_cnpj(db, cnpj)
     if not an:
         return False
+
     if an.pis and len(an.pis) > 0:
         raise ValueError("Não é possível excluir: existem PIs vinculados ao anunciante.")
+
     db.delete(an)
     db.commit()
     return True

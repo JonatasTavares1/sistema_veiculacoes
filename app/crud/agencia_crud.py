@@ -44,7 +44,7 @@ def list_all(db: Session) -> List[Agencia]:
 
 def list_by_name(db: Session, nome: str) -> List[Agencia]:
     """
-    Busca por nome_agencia OU codinome contendo o termo.
+    Busca por nome_agencia, codinome, razão social ou grupo empresarial contendo o termo.
     """
     termo = f"%{nome}%"
     return (
@@ -53,6 +53,8 @@ def list_by_name(db: Session, nome: str) -> List[Agencia]:
             or_(
                 Agencia.nome_agencia.ilike(termo),
                 Agencia.codinome.ilike(termo),
+                Agencia.razao_social_agencia.ilike(termo),
+                Agencia.grupo_empresarial.ilike(termo),
             )
         )
         .order_by(Agencia.nome_agencia.asc())
@@ -74,21 +76,35 @@ def create(db: Session, dados: Dict[str, Any]) -> Agencia:
             raise ValueError("Codinome já está em uso por outra agência.")
 
     novo = Agencia(
-        # campos existentes
+        # campos obrigatórios
         nome_agencia=dados["nome_agencia"],
-        razao_social_agencia=dados.get("razao_social_agencia"),
         cnpj_agencia=dados["cnpj_agencia"],
-        uf_agencia=dados.get("uf_agencia"),
         executivo=dados["executivo"],
+
+        # campos existentes
+        razao_social_agencia=dados.get("razao_social_agencia"),
+        uf_agencia=dados.get("uf_agencia"),
         email_agencia=dados.get("email_agencia"),
         data_cadastro=dados.get("data_cadastro"),
-        # novos campos
+
+        # novos campos básicos
         grupo_empresarial=dados.get("grupo_empresarial"),
         codinome=codinome,
         site=_normalize_url(dados.get("site")),
         linkedin=_normalize_url(dados.get("linkedin")),
         instagram=_normalize_url(dados.get("instagram")),
+
+        # novos: endereço / negócio / telefones
+        endereco=dados.get("endereco"),
+        logradouro=dados.get("logradouro"),
+        bairro=dados.get("bairro"),
+        cep=dados.get("cep"),
+        segmento=dados.get("segmento"),
+        subsegmento=dados.get("subsegmento"),
+        telefone_socio1=dados.get("telefone_socio1"),
+        telefone_socio2=dados.get("telefone_socio2"),
     )
+
     db.add(novo)
     db.commit()
     db.refresh(novo)

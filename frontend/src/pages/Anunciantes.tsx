@@ -11,24 +11,25 @@ const DEFAULT_EXECUTIVOS = [
   "Paula Campos",
 ]
 
+// Tipos de dados
 type Anunciante = {
   id: number
   nome_anunciante: string
   razao_social_anunciante?: string | null
   cnpj_anunciante: string
-  uf_anunciante?: string | null
+  uf_cliente?: string | null
   executivo: string
   email_anunciante?: string | null
   data_cadastro?: string | null
 
-  // extras
+  // extras já existentes
   grupo_empresarial?: string | null
   codinome?: string | null
   site?: string | null
   linkedin?: string | null
   instagram?: string | null
 
-  // novos campos comuns
+  // 🧩 Novos campos visuais (podem ser mapeados depois no backend)
   endereco?: string | null
   logradouro?: string | null
   bairro?: string | null
@@ -37,9 +38,13 @@ type Anunciante = {
   subsegmento?: string | null
   telefone_socio1?: string | null
   telefone_socio2?: string | null
+}
 
-  // 🔥 Campo agregado com as agências vinculadas (string única, backend pode ignorar se não tiver)
-  agencias_relacionadas?: string | null
+type AgenciaOption = {
+  id: number
+  nome_agencia: string
+  razao_social_agencia?: string | null
+  codinome?: string | null
 }
 
 // -------- Helpers HTTP --------
@@ -126,7 +131,7 @@ function normalizeUrl(u?: string | null): string | null {
   return `https://${t}`
 }
 
-// ---- CEP e Telefone ----
+// ---- CEP e Telefone (mesmos de Agências) ----
 function formatCepPartial(v: string) {
   const d = digits(v).slice(0, 8)
   if (d.length <= 5) return d
@@ -183,7 +188,7 @@ function deepClean<T = any>(obj: T): T {
   return obj
 }
 
-// Tipos locais para blocos dinâmicos
+// Tipos locais para os blocos dinâmicos
 type ContatoEmpresa = {
   nome: string
   cargo: string
@@ -196,7 +201,7 @@ type ExecutivoResponsavel = {
   observacao: string
 }
 type AgenciaRelacionada = {
-  nome: string
+  agencia_id: number | null
   observacao: string
 }
 
@@ -204,7 +209,7 @@ type AgenciaRelacionada = {
 export default function Anunciantes() {
   // ================= FORM PRINCIPAL =================
 
-  // 2ª fileira: Nome Empresarial / Título do Estabelecimento
+  // 2ª fileira: Nome Empresarial / Nome Fantasia
   const [razao, setRazao] = useState("")
   const [nome, setNome] = useState("")
 
@@ -222,25 +227,25 @@ export default function Anunciantes() {
   const [endereco, setEndereco] = useState("") // complemento / observações
   const [cep, setCep] = useState("")
 
-  // 5ª fileira: Bairro / Município / UF / Endereço completo oficial no site
+  // 5ª fileira: Bairro / Município / UF / Endereço completo oficial no site (visual)
   const [bairro, setBairro] = useState("")
   const [municipio, setMunicipio] = useState("")
   const [uf, setUf] = useState("DF")
   const [enderecoCompletoSite, setEnderecoCompletoSite] = useState("")
 
   // 6ª fileira: E-mail (cartão CNPJ) / Telefone (cartão CNPJ) / Segmento / Subsegmento
-  const [email, setEmail] = useState("")
-  const [telefoneSocio1, setTelefoneSocio1] = useState("")
+  const [email, setEmail] = useState("")                 // email_anunciante (cartão CNPJ)
+  const [telefoneSocio1, setTelefoneSocio1] = useState("") // telefone principal
   const [segmento, setSegmento] = useState("")
   const [subsegmento, setSubsegmento] = useState("")
 
-  // 7ª fileira: Site / Instagram / LinkedIn / Extensão de e-mail
+  // 7ª fileira: Site / Instagram / LinkedIn / Extensão de e-mail (visual)
   const [site, setSite] = useState("")
   const [instagram, setInstagram] = useState("")
   const [linkedin, setLinkedin] = useState("")
   const [extensaoEmail, setExtensaoEmail] = useState("")
 
-  // 8ª fileira: E-mail geral do site / Telefone geral do site
+  // 8ª fileira (visuais): E-mail geral do site / Telefone geral do site
   const [emailGeralSite, setEmailGeralSite] = useState("")
   const [telefoneGeralSite, setTelefoneGeralSite] = useState("")
 
@@ -254,13 +259,14 @@ export default function Anunciantes() {
     { executivo: "", pracaUf: "DF", observacao: "" },
   ])
 
-  // 11ª fileira: Agências envolvidas (dinâmico)
+  // 11ª: Agências relacionadas (dinâmico)
   const [agenciasRelacionadas, setAgenciasRelacionadas] = useState<AgenciaRelacionada[]>([
-    { nome: "", observacao: "" },
+    { agencia_id: null, observacao: "" },
   ])
 
-  // dados
+  // dados globais
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
+  const [agenciasOptions, setAgenciasOptions] = useState<AgenciaOption[]>([])
   const [lista, setLista] = useState<Anunciante[]>([])
 
   // ui
@@ -280,14 +286,18 @@ export default function Anunciantes() {
   async function carregar() {
     setLoading(true); setErro(null)
     try {
-      const [exs, ans] = await Promise.all([
+      const [exs, ags, ans] = await Promise.all([
         getJSON<string[]>(`${API}/executivos`).catch(() => []),
+        getJSON<AgenciaOption[]>(`${API}/agencias`).catch(() => []),
         getJSON<Anunciante[]>(`${API}/anunciantes`),
       ])
+
       const mergedExecs = Array.from(
         new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS]),
       ).sort((a, b) => a.localeCompare(b, "pt-BR"))
+
       setExecutivos(mergedExecs)
+      setAgenciasOptions(Array.isArray(ags) ? ags : [])
       setLista(Array.isArray(ans) ? ans : [])
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar dados.")
@@ -297,60 +307,125 @@ export default function Anunciantes() {
   }
   useEffect(() => { carregar() }, [])
 
+  // ================== Auto-preenchimento CNPJ ==================
   async function autoPreencherPorCNPJ() {
     const num = digits(cnpj)
     if (num.length !== 14) {
       alert("Informe um CNPJ válido (14 dígitos).")
       return
     }
+
     setBuscandoCNPJ(true)
     setErro(null)
+
     try {
       let data: any | null = null
+
+      // 1) tenta buscar NO BANCO de Anunciantes
       try {
         data = await getJSON<any>(`${API}/anunciantes/cnpj/${num}`)
       } catch {
-        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${num}`)
-        if (r.ok) data = await r.json()
+        data = null
       }
-      if (data) {
-        const nomeFantasia = data.nome_fantasia || data.fantasia || ""
-        const razaoSocial  = data.razao_social || data.nome || ""
-        const ufApi        = data.uf || data.estado || ""
-        const logradouroApi =
-          data.logradouro ||
-          (data.descricao_tipo_logradouro && data.descricao_logradouro
-            ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}`
-            : "")
-        const bairroApi    = data.bairro || ""
-        const cepApi       = data.cep || ""
-        const municipioApi = data.municipio || data.municipio_descricao || data.cidade || ""
 
-        if (nomeFantasia) setNome(nomeFantasia)
-        if (razaoSocial) setRazao(razaoSocial)
-        if (ufApi && UFS.includes(ufApi)) setUf(ufApi)
-        if (logradouroApi) setLogradouro(logradouroApi)
-        if (bairroApi) setBairro(bairroApi)
-        if (cepApi) setCep(formatCepPartial(cepApi))
-        if (municipioApi) setMunicipio(municipioApi)
+      // 2) se não achou, consulta BrasilAPI via backend
+      if (!data) {
+        try {
+          data = await getJSON<any>(`${API}/anunciantes/cnpj/${num}/consulta`)
+        } catch {
+          data = null
+        }
+      }
 
-        alert("Dados preenchidos automaticamente pelo CNPJ.")
-      } else {
+      if (!data) {
         alert("CNPJ não encontrado.")
+        return
       }
-    } catch {
+
+      // ----- mapeamento: tenta campos do seu modelo e da BrasilAPI -----
+      const razaoSocial =
+        data.razao_social_anunciante ||
+        data.razao_social ||
+        data.nome ||
+        ""
+
+      const nomeFantasia =
+        data.nome_anunciante ||
+        data.nome_fantasia ||
+        data.fantasia ||
+        ""
+
+      const ufApi =
+        data.uf_cliente ||
+        data.uf ||
+        data.estado ||
+        ""
+
+      const logradouroApi =
+        data.logradouro ||
+        (data.descricao_tipo_logradouro && data.descricao_logradouro
+          ? `${data.descricao_tipo_logradouro} ${data.descricao_logradouro}`
+          : "")
+
+      const numeroApi = data.numero || ""
+      const complApi = data.complemento || ""
+      const bairroApi = data.bairro || ""
+      const municipioApi =
+        data.municipio ||
+        data.municipio_descricao ||
+        data.cidade ||
+        ""
+
+      const cepApi = data.cep || ""
+
+      const emailApi =
+        data.email_anunciante ||
+        data.email ||
+        data.email_cobranca ||
+        data.email_socio ||
+        ""
+
+      const telefoneApi =
+        data.telefone_socio1 ||
+        data.telefone ||
+        (data.ddd_telefone_1
+          ? `${data.ddd_telefone_1}${data.telefone_1 || ""}`
+          : "") ||
+        (data.ddd_telefone_2
+          ? `${data.ddd_telefone_2}${data.telefone_2 || ""}`
+          : "")
+
+      // ----- aplica nos campos de formulário -----
+      if (razaoSocial) setRazao(razaoSocial)
+      if (nomeFantasia) setNome(nomeFantasia)
+
+      if (ufApi && UFS.includes(ufApi)) setUf(ufApi)
+      if (logradouroApi) setLogradouro(logradouroApi)
+      if (numeroApi) setNumero(numeroApi)
+      if (complApi) setEndereco(complApi)
+      if (bairroApi) setBairro(bairroApi)
+      if (municipioApi) setMunicipio(municipioApi)
+      if (cepApi) setCep(formatCepPartial(cepApi))
+
+      if (emailApi) setEmail(emailApi)
+      if (telefoneApi) setTelefoneSocio1(formatPhoneBR(telefoneApi))
+
+      alert("Dados preenchidos automaticamente pelo CNPJ.")
+    } catch (e) {
+      console.error(e)
       alert("Erro ao consultar CNPJ.")
     } finally {
       setBuscandoCNPJ(false)
     }
   }
 
+  // ================== Validação / salvar ==================
   function validar(): string | null {
     if (!cnpj.trim()) return "CNPJ é obrigatório."
     const dig = digits(cnpj)
     if (dig.length !== 14) return "O CNPJ deve conter 14 dígitos."
     if (!razao.trim()) return "Nome empresarial é obrigatório."
-    if (!nome.trim()) return "Nome de fantasia é obrigatório."
+    if (!nome.trim()) return "Nome fantasia é obrigatório."
 
     const principalExec = executivosAtendimento.find(
       (e) => e.executivo && e.executivo.trim(),
@@ -369,59 +444,36 @@ export default function Anunciantes() {
       (e) => e.executivo && e.executivo.trim(),
     )!
 
-    // 🔗 monta string com agências vinculadas
-    const agenciasStr = agenciasRelacionadas
-      .filter(a => a.nome && a.nome.trim())
-      .map(a => a.observacao?.trim()
-        ? `${a.nome.trim()} (${a.observacao.trim()})`
-        : a.nome.trim())
-      .join(" | ") || null
-
     setSalvando(true); setErro(null)
     try {
       const raw = {
-        // Nome fantasia e razão social
+        // básicos
         nome_anunciante: nome,
         razao_social_anunciante: razao,
 
-        // CNPJ
         cnpj_anunciante: formatCNPJPartial(cnpj),
+        uf_cliente: uf,
 
-        // Localização básica
-        uf_anunciante: uf,
-
-        // Responsável principal
         executivo: principalExec.executivo,
         email_anunciante: email,
 
-        // extras
+        // extras já mapeados no schema
         grupo_empresarial: grupoEmpresarial,
         codinome,
         site: normalizeUrl(site),
         linkedin: normalizeUrl(linkedin),
         instagram: normalizeUrl(instagram),
 
-        // novos (endereços/segmento/telefones)
-        endereco,
-        logradouro,
-        bairro,
-        cep: formatCepPartial(cep),
-        segmento,
-        subsegmento,
-        telefone_socio1: formatPhoneBR(telefoneSocio1),
-        telefone_socio2: formatPhoneBR(telefoneGeralSite),
-
-        // 🧩 Campo agregado de agências (backend pode ignorar se não tiver)
-        agencias_relacionadas: agenciasStr,
-
-        // ⚠️ Campos VISUAIS novos que ainda NÃO estão mapeados no modelo:
-        // numero, municipio, enderecoCompletoSite, extensaoEmail, emailGeralSite,
+        // ⚠️ Campos VISUAIS novos que AINDA NÃO estão mapeados no modelo:
+        // logradouro, numero, endereco (complemento), bairro, cep, municipio,
+        // enderecoCompletoSite, extensaoEmail, emailGeralSite, telefoneGeralSite,
+        // segmento, subsegmento, telefone_socio1, telefone_socio2,
         // contatos, executivosAtendimento, agenciasRelacionadas
       }
       const body = deepClean(raw)
       await postJSON(`${API}/anunciantes`, body)
 
-      // reset
+      // reset form
       setCnpj("")
       setRazao("")
       setNome("")
@@ -447,7 +499,7 @@ export default function Anunciantes() {
       setTelefoneGeralSite("")
       setContatos([{ nome: "", cargo: "", email: "", telefone: "" }])
       setExecutivosAtendimento([{ executivo: "", pracaUf: "DF", observacao: "" }])
-      setAgenciasRelacionadas([{ nome: "", observacao: "" }])
+      setAgenciasRelacionadas([{ agencia_id: null, observacao: "" }])
 
       await carregar()
       alert("Anunciante cadastrado com sucesso!")
@@ -465,7 +517,7 @@ export default function Anunciantes() {
       Nome: a.nome_anunciante,
       "Razão Social": a.razao_social_anunciante || "",
       CNPJ: formatCNPJDisplay(a.cnpj_anunciante),
-      UF: a.uf_anunciante || "",
+      UF: a.uf_cliente || "",
       Executivo: a.executivo || "",
       Email: a.email_anunciante || "",
       "Grupo Empresarial": a.grupo_empresarial || "",
@@ -481,7 +533,6 @@ export default function Anunciantes() {
       "Subsegmento": a.subsegmento || "",
       "Telefone Sócio 1": a.telefone_socio1 || "",
       "Telefone Sócio 2": a.telefone_socio2 || "",
-      "Agências Relacionadas": a.agencias_relacionadas || "",
       "Data de Cadastro": a.data_cadastro || "",
     }))
     const nomeArq = `anunciantes_${new Date().toISOString().slice(0,10)}.xlsx`
@@ -520,7 +571,6 @@ export default function Anunciantes() {
         inText(a.subsegmento) ||
         inText(a.telefone_socio1) ||
         inText(a.telefone_socio2) ||
-        inText(a.agencias_relacionadas) ||
         (a.cnpj_anunciante || "").toLowerCase().includes(q) ||
         (qDigits && cnpjDigits.includes(qDigits)) ||
         (a.executivo || "").toLowerCase().includes(q) ||
@@ -537,7 +587,7 @@ export default function Anunciantes() {
       ...a,
       razao_social_anunciante: a.razao_social_anunciante || "",
       email_anunciante: a.email_anunciante || "",
-      uf_anunciante: a.uf_anunciante || "DF",
+      uf_cliente: a.uf_cliente || "DF",
       cnpj_anunciante: formatCNPJPartial(a.cnpj_anunciante || ""),
       executivo: a.executivo || "",
 
@@ -547,6 +597,7 @@ export default function Anunciantes() {
       linkedin: a.linkedin || "",
       instagram: a.instagram || "",
 
+      // novos visuais
       endereco: a.endereco || "",
       logradouro: a.logradouro || "",
       bairro: a.bairro || "",
@@ -555,7 +606,6 @@ export default function Anunciantes() {
       subsegmento: a.subsegmento || "",
       telefone_socio1: a.telefone_socio1 || "",
       telefone_socio2: a.telefone_socio2 || "",
-      agencias_relacionadas: a.agencias_relacionadas || "",
     })
     setEditOpen(true)
   }
@@ -582,7 +632,7 @@ export default function Anunciantes() {
         nome_anunciante: editItem.nome_anunciante,
         razao_social_anunciante: editItem.razao_social_anunciante ?? "",
         cnpj_anunciante: editItem.cnpj_anunciante,
-        uf_anunciante: editItem.uf_anunciante || "",
+        uf_cliente: editItem.uf_cliente || "",
         executivo: editItem.executivo,
         email_anunciante: editItem.email_anunciante ?? "",
 
@@ -592,16 +642,9 @@ export default function Anunciantes() {
         linkedin: normalizeUrl(editItem.linkedin || ""),
         instagram: normalizeUrl(editItem.instagram || ""),
 
-        endereco: editItem.endereco ?? "",
-        logradouro: editItem.logradouro ?? "",
-        bairro: editItem.bairro ?? "",
-        cep: formatCepPartial(editItem.cep || ""),
-        segmento: editItem.segmento ?? "",
-        subsegmento: editItem.subsegmento ?? "",
-        telefone_socio1: formatPhoneBR(editItem.telefone_socio1 || ""),
-        telefone_socio2: formatPhoneBR(editItem.telefone_socio2 || ""),
-
-        agencias_relacionadas: editItem.agencias_relacionadas ?? "",
+        // novos visuais — ainda não salvos no backend:
+        // endereco, logradouro, bairro, cep, segmento, subsegmento,
+        // telefone_socio1, telefone_socio2, etc.
       }
       const body = deepClean(raw)
       await putJSON(`${API}/anunciantes/${editItem.id}`, body)
@@ -630,7 +673,7 @@ export default function Anunciantes() {
     )
   }
 
-  // Helpers para linhas dinâmicas
+  // Helpers para listas dinâmicas
   function addContato() {
     setContatos(prev => [...prev, { nome: "", cargo: "", email: "", telefone: "" }])
   }
@@ -655,16 +698,22 @@ export default function Anunciantes() {
   }
 
   function addAgenciaRelacionada() {
-    setAgenciasRelacionadas(prev => [...prev, { nome: "", observacao: "" }])
+    setAgenciasRelacionadas(prev => [...prev, { agencia_id: null, observacao: "" }])
   }
   function updateAgenciaRelacionada(
     index: number,
     field: keyof AgenciaRelacionada,
-    value: string,
+    value: any,
   ) {
     setAgenciasRelacionadas(prev =>
       prev.map((a, i) => (i === index ? { ...a, [field]: value } : a)),
     )
+  }
+
+  function labelAgencia(a: AgenciaOption) {
+    if (a.codinome) return `${a.codinome} – ${a.nome_agencia}`
+    if (a.razao_social_agencia) return `${a.nome_agencia} (${a.razao_social_agencia})`
+    return a.nome_agencia
   }
 
   // ===================== UI =====================
@@ -683,7 +732,7 @@ export default function Anunciantes() {
         </div>
       </div>
 
-      {/* Formulário */}
+      {/* Formulário principal */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         {erro && (
           <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
@@ -721,7 +770,7 @@ export default function Anunciantes() {
               </div>
             </div>
 
-            {/* 2ª fileira: Nome Empresarial / Nome Fantasia */}
+            {/* 2ª fileira: Razão Social / Nome Fantasia */}
             <div className="xl:col-span-2">
               <label className="block text-xl font-semibold text-slate-800 mb-2">
                 Nome Empresarial
@@ -736,14 +785,14 @@ export default function Anunciantes() {
             </div>
             <div className="xl:col-span-2">
               <label className="block text-xl font-semibold text-slate-800 mb-2">
-                Título do Estabelecimento (Nome de Fantasia)
+                Nome Fantasia
               </label>
               <input
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="Nome fantasia / como aparece no mercado"
+                placeholder="Como o anunciante é conhecido"
               />
             </div>
 
@@ -890,7 +939,7 @@ export default function Anunciantes() {
 
           {/* 6ª, 7ª e 8ª fileiras */}
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
-            {/* 6ª fileira */}
+            {/* 6ª */}
             <div>
               <label className="block text-xl font-semibold text-slate-800 mb-2">
                 E-mail (cartão CNPJ)
@@ -942,7 +991,7 @@ export default function Anunciantes() {
               />
             </div>
 
-            {/* 7ª fileira */}
+            {/* 7ª */}
             <div>
               <label className="block text-xl font-semibold text-slate-800 mb-2">
                 Site
@@ -952,7 +1001,7 @@ export default function Anunciantes() {
                 onChange={(e) => setSite(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="ex.: empresa.com.br"
+                placeholder="ex.: anunciante.com.br"
               />
             </div>
             <div>
@@ -964,7 +1013,7 @@ export default function Anunciantes() {
                 onChange={(e) => setInstagram(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="ex.: instagram.com/marca"
+                placeholder="ex.: instagram.com/anunciante"
               />
             </div>
             <div>
@@ -976,7 +1025,7 @@ export default function Anunciantes() {
                 onChange={(e) => setLinkedin(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="ex.: linkedin.com/company/marca"
+                placeholder="ex.: linkedin.com/company/anunciante"
               />
             </div>
             <div>
@@ -988,11 +1037,11 @@ export default function Anunciantes() {
                 onChange={(e) => setExtensaoEmail(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="ex.: @empresa.com.br"
+                placeholder="ex.: @anunciante.com.br"
               />
             </div>
 
-            {/* 8ª fileira */}
+            {/* 8ª */}
             <div>
               <label className="block text-xl font-semibold text-slate-800 mb-2">
                 E-mail de contato geral no site
@@ -1002,7 +1051,7 @@ export default function Anunciantes() {
                 onChange={(e) => setEmailGeralSite(e.target.value)}
                 className="w-full h-[52px] rounded-xl border border-slate-300 px-4 text-lg 
                            focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                placeholder="contato@empresa.com.br"
+                placeholder="contato@anunciante.com.br"
               />
             </div>
             <div>
@@ -1024,7 +1073,7 @@ export default function Anunciantes() {
           {/* Divisória */}
           <hr className="border-t border-slate-200" />
 
-          {/* 9ª fileira: Contatos */}
+          {/* 9ª: Contatos empresa */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-slate-900">
@@ -1106,7 +1155,7 @@ export default function Anunciantes() {
           {/* Divisória */}
           <hr className="border-t border-slate-200" />
 
-          {/* 10ª fileira: Executivos responsáveis */}
+          {/* 10ª: Executivos responsáveis */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-slate-900">
@@ -1180,11 +1229,11 @@ export default function Anunciantes() {
           {/* Divisória */}
           <hr className="border-t border-slate-200" />
 
-          {/* 11ª fileira: Agências envolvidas */}
+          {/* 11ª: Agências relacionadas */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-slate-900">
-                Agências envolvidas (para este anunciante)
+                Agências relacionadas ao anunciante
               </h2>
               <button
                 type="button"
@@ -1203,21 +1252,31 @@ export default function Anunciantes() {
               >
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Agência {idx + 1} - Nome
+                    Agência {idx + 1}
                   </label>
-                  <input
-                    value={ag.nome}
+                  <select
+                    value={ag.agencia_id ?? ""}
                     onChange={(e) =>
-                      updateAgenciaRelacionada(idx, "nome", e.target.value)
+                      updateAgenciaRelacionada(
+                        idx,
+                        "agencia_id",
+                        e.target.value ? Number(e.target.value) : null,
+                      )
                     }
                     className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
                                focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
-                    placeholder="Nome da agência"
-                  />
+                  >
+                    <option value="">Selecione uma agência</option>
+                    {agenciasOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {labelAgencia(opt)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Observação
+                    Observação / relação com o anunciante
                   </label>
                   <input
                     value={ag.observacao}
@@ -1226,7 +1285,7 @@ export default function Anunciantes() {
                     }
                     className="w-full h-[44px] rounded-xl border border-slate-300 px-3 text-base 
                                focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-500"
-                    placeholder="Ex.: agência líder, digital, off etc."
+                    placeholder="Ex.: Agência principal, digital, performance..."
                   />
                 </div>
               </div>
@@ -1293,10 +1352,8 @@ export default function Anunciantes() {
                       "CNPJ",
                       "UF",
                       "Segmento",
-                      "Localidade",
-                      "Contato / Site",
+                      "Contato",
                       "Redes",
-                      "Agências",
                       "Cadastro",
                       "Ações",
                     ].map(h => (
@@ -1352,7 +1409,7 @@ export default function Anunciantes() {
 
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-3 py-1 text-xs font-semibold">
-                          {a.uf_anunciante || "—"}
+                          {a.uf_cliente || "—"}
                         </span>
                       </td>
 
@@ -1364,18 +1421,6 @@ export default function Anunciantes() {
                               {a.subsegmento}
                             </span>
                           ) : null}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-800 text-base">
-                        <div className="flex flex-col">
-                          <span className="truncate">
-                            {a.logradouro || a.endereco || "—"}
-                          </span>
-                          <span className="text-sm text-slate-500 truncate">
-                            {a.bairro ? `${a.bairro} • ` : ""}
-                            {a.cep || ""}
-                          </span>
                         </div>
                       </td>
 
@@ -1419,10 +1464,6 @@ export default function Anunciantes() {
                           <LinkPill href={a.linkedin} label="LinkedIn" />
                           <LinkPill href={a.instagram} label="Instagram" />
                         </div>
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-800 text-sm">
-                        {a.agencias_relacionadas || <span className="text-slate-400">—</span>}
                       </td>
 
                       <td className="px-6 py-4 text-slate-700 text-sm">
@@ -1546,8 +1587,8 @@ export default function Anunciantes() {
                     UF
                   </label>
                   <select
-                    value={editItem.uf_anunciante || "DF"}
-                    onChange={(e) => campoEdit("uf_anunciante", e.target.value)}
+                    value={editItem.uf_cliente || "DF"}
+                    onChange={(e) => campoEdit("uf_cliente", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
                     {UFS.map(u => (
@@ -1579,7 +1620,7 @@ export default function Anunciantes() {
                   <input
                     value={editItem.email_anunciante || ""}
                     onChange={(e) => campoEdit("email_anunciante", e.target.value)}
-                    placeholder="contato@empresa.com.br"
+                    placeholder="contato@anunciante.com.br"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -1592,7 +1633,7 @@ export default function Anunciantes() {
                   <input
                     value={editItem.site || ""}
                     onChange={(e) => campoEdit("site", e.target.value)}
-                    placeholder="ex.: empresa.com.br"
+                    placeholder="ex.: anunciante.com.br"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -1604,7 +1645,7 @@ export default function Anunciantes() {
                   <input
                     value={editItem.linkedin || ""}
                     onChange={(e) => campoEdit("linkedin", e.target.value)}
-                    placeholder="ex.: linkedin.com/company/marca"
+                    placeholder="ex.: linkedin.com/company/anunciante"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -1616,12 +1657,12 @@ export default function Anunciantes() {
                   <input
                     value={editItem.instagram || ""}
                     onChange={(e) => campoEdit("instagram", e.target.value)}
-                    placeholder="ex.: instagram.com/marca"
+                    placeholder="ex.: instagram.com/anunciante"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
-                {/* Endereço / Segmento / Telefones */}
+                {/* Novos visuais */}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">
                     Endereço (complemento/observações)
@@ -1743,21 +1784,6 @@ export default function Anunciantes() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     placeholder="(11) 90000-0000"
                     inputMode="tel"
-                  />
-                </div>
-
-                {/* Agências Relacionadas (texto único no editor) */}
-                <div className="xl:col-span-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Agências relacionadas (texto)
-                  </label>
-                  <input
-                    value={editItem.agencias_relacionadas || ""}
-                    onChange={(e) =>
-                      campoEdit("agencias_relacionadas", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                    placeholder="Ex.: Agência X (principal) | Agência Y (digital)"
                   />
                 </div>
               </div>
