@@ -1,14 +1,24 @@
 # app/models.py
 from datetime import datetime
 from sqlalchemy.orm import relationship, foreign, remote
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Boolean, and_, DateTime
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    ForeignKey,
+    Float,
+    Date,
+    Boolean,
+    and_,
+    DateTime,
+)
 
 # ✅ Base central
 from app.models_base import Base
 
 
 class Agencia(Base):
-    __tablename__ = 'agencias'
+    __tablename__ = "agencias"
 
     id = Column(Integer, primary_key=True)
     nome_agencia = Column(String, nullable=False)
@@ -19,18 +29,28 @@ class Agencia(Base):
     email_agencia = Column(String)
     data_cadastro = Column(String)
 
-    # === Novos campos ===
+    # === campos novos (básicos) ===
     grupo_empresarial = Column(String, nullable=True)
     codinome = Column(String, unique=True, index=True, nullable=True)
     site = Column(String, nullable=True)
     linkedin = Column(String, nullable=True)
     instagram = Column(String, nullable=True)
 
+    # === campos novos (endereço / negócio / telefones) ===
+    endereco = Column(String, nullable=True)         # complemento / observações
+    logradouro = Column(String, nullable=True)
+    bairro = Column(String, nullable=True)
+    cep = Column(String, nullable=True)
+    segmento = Column(String, nullable=True)
+    subsegmento = Column(String, nullable=True)
+    telefone_socio1 = Column(String, nullable=True)
+    telefone_socio2 = Column(String, nullable=True)
+
     pis = relationship("PI", back_populates="agencia")
 
 
 class Anunciante(Base):
-    __tablename__ = 'anunciantes'
+    __tablename__ = "anunciantes"
 
     id = Column(Integer, primary_key=True)
     nome_anunciante = Column(String, nullable=False)
@@ -41,7 +61,26 @@ class Anunciante(Base):
     email_anunciante = Column(String)
     data_cadastro = Column(String)
 
-    # === Novos campos ===
+    # --- novos: endereço (cartão CNPJ / site) ---
+    logradouro = Column(String, nullable=True)   # Rua / Avenida
+    numero = Column(String, nullable=True)       # Número do endereço
+    complemento = Column(String, nullable=True)  # Complemento do endereço oficial
+    bairro = Column(String, nullable=True)
+    municipio = Column(String, nullable=True)
+    cep = Column(String, nullable=True)
+
+    # campo mais genérico para complemento / observações / endereço alternativo
+    endereco = Column(String, nullable=True)
+
+    # --- novos: telefones do sócio / contato principal ---
+    telefone_socio1 = Column(String, nullable=True)
+    telefone_socio2 = Column(String, nullable=True)
+
+    # --- novos: negócio / segmentação ---
+    segmento = Column(String, nullable=True)
+    subsegmento = Column(String, nullable=True)
+
+    # --- novos: dados de negócio / digitais ---
     grupo_empresarial = Column(String, nullable=True)
     codinome = Column(String, unique=True, index=True, nullable=True)
     site = Column(String, nullable=True)
@@ -52,14 +91,18 @@ class Anunciante(Base):
 
 
 class PI(Base):
-    __tablename__ = 'pis'
+    __tablename__ = "pis"
 
     id = Column(Integer, primary_key=True)
     numero_pi = Column(String, nullable=False, unique=True)
 
     # Vinculação
-    numero_pi_matriz = Column(String, nullable=True)   # usado se tipo_pi in {"Abatimento","Veiculação"}
-    numero_pi_normal = Column(String, nullable=True)   # usado se tipo_pi == "CS"
+    numero_pi_matriz = Column(
+        String, nullable=True
+    )  # usado se tipo_pi in {"Abatimento","Veiculação"}
+    numero_pi_normal = Column(
+        String, nullable=True
+    )  # usado se tipo_pi == "CS"
 
     # Tipo de PI
     # "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
@@ -85,20 +128,20 @@ class PI(Base):
     nome_campanha = Column(String)
     mes_venda = Column(String)
     dia_venda = Column(String)
-    canal = Column(String)            # canal “macro” do PI (ok manter)
+    canal = Column(String)  # canal “macro” do PI (ok manter)
     perfil = Column(String)
     subperfil = Column(String)
 
     # Valores e datas (totais do PI)
-    valor_bruto = Column(Float)     # pode ser somatório das veiculações
-    valor_liquido = Column(Float)   # idem
+    valor_bruto = Column(Float)  # pode ser somatório das veiculações
+    valor_liquido = Column(Float)  # idem
     vencimento = Column(Date)
     data_emissao = Column(Date)
 
     observacoes = Column(String)
 
-    agencia_id = Column(Integer, ForeignKey('agencias.id'))
-    anunciante_id = Column(Integer, ForeignKey('anunciantes.id'))
+    agencia_id = Column(Integer, ForeignKey("agencias.id"))
+    anunciante_id = Column(Integer, ForeignKey("anunciantes.id"))
 
     agencia = relationship("Agencia", back_populates="pis")
     anunciante = relationship("Anunciante", back_populates="pis")
@@ -108,14 +151,18 @@ class PI(Base):
         "Produto",
         back_populates="pi",
         cascade="save-update, merge",
-        passive_deletes=True
+        passive_deletes=True,
     )
 
     # Veiculações deste PI (para consultas globais por PI)
-    veiculacoes = relationship("Veiculacao", back_populates="pi", cascade="all, delete-orphan")
+    veiculacoes = relationship(
+        "Veiculacao", back_populates="pi", cascade="all, delete-orphan"
+    )
 
     # Entregas deste PI
-    entregas = relationship("Entrega", back_populates="pi", cascade="all, delete-orphan")
+    entregas = relationship(
+        "Entrega", back_populates="pi", cascade="all, delete-orphan"
+    )
 
     eh_matriz = Column(Boolean, default=False, nullable=False)
 
@@ -138,33 +185,41 @@ class PI(Base):
     )
 
     # NOVO: anexos (PDF do PI e Proposta)
-    anexos = relationship("PIAnexo", back_populates="pi", cascade="all, delete-orphan")
+    anexos = relationship(
+        "PIAnexo", back_populates="pi", cascade="all, delete-orphan"
+    )
 
 
 class PIAnexo(Base):
     __tablename__ = "pi_anexos"
 
     id = Column(Integer, primary_key=True)
-    pi_id = Column(Integer, ForeignKey("pis.id", ondelete="CASCADE"), nullable=False)
+    pi_id = Column(
+        Integer, ForeignKey("pis.id", ondelete="CASCADE"), nullable=False
+    )
 
     # tipo: "pi_pdf" ou "proposta_pdf"
     tipo = Column(String, nullable=False)
-    filename = Column(String, nullable=False)          # nome original
-    path = Column(String, nullable=False)              # caminho salvo (relativo/absoluto)
+    filename = Column(String, nullable=False)  # nome original
+    path = Column(String, nullable=False)  # caminho salvo (relativo/absoluto)
     mime = Column(String, nullable=True)
     size = Column(Integer, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    uploaded_at = Column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
 
     pi = relationship("PI", back_populates="anexos")
 
 
 class Produto(Base):
-    __tablename__ = 'produtos'
+    __tablename__ = "produtos"
 
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False, unique=True)
 
-    pi_id = Column(Integer, ForeignKey('pis.id', ondelete="SET NULL"), nullable=True)
+    pi_id = Column(
+        Integer, ForeignKey("pis.id", ondelete="SET NULL"), nullable=True
+    )
 
     descricao = Column(String, nullable=True)
 
@@ -174,44 +229,48 @@ class Produto(Base):
     unidade_rotulo = Column(String, nullable=True)
 
     pi = relationship("PI", back_populates="produtos")
-    veiculacoes = relationship("Veiculacao", back_populates="produto", cascade="all, delete-orphan")
+    veiculacoes = relationship(
+        "Veiculacao", back_populates="produto", cascade="all, delete-orphan"
+    )
 
 
 class Veiculacao(Base):
-    __tablename__ = 'veiculacoes'
+    __tablename__ = "veiculacoes"
 
     id = Column(Integer, primary_key=True)
 
-    produto_id = Column(Integer, ForeignKey('produtos.id'))
-    pi_id = Column(Integer, ForeignKey('pis.id'))
+    produto_id = Column(Integer, ForeignKey("produtos.id"))
+    pi_id = Column(Integer, ForeignKey("pis.id"))
 
     canal = Column(String, nullable=True)
     formato = Column(String, nullable=True)
 
     data_inicio = Column(String)  # "YYYY-MM-DD"
-    data_fim = Column(String)     # "YYYY-MM-DD" ou None
+    data_fim = Column(String)  # "YYYY-MM-DD" ou None
 
     quantidade = Column(Integer)
 
     valor_bruto = Column(Float, nullable=True)
-    desconto = Column(Float, nullable=True)        # percentual (0..100)
+    desconto = Column(Float, nullable=True)  # percentual (0..100)
     valor_liquido = Column(Float, nullable=True)
 
     produto = relationship("Produto", back_populates="veiculacoes")
     pi = relationship("PI", back_populates="veiculacoes")
-    entregas = relationship("Entrega", back_populates="veiculacao", cascade="all, delete-orphan")
+    entregas = relationship(
+        "Entrega", back_populates="veiculacao", cascade="all, delete-orphan"
+    )
 
 
 class Entrega(Base):
-    __tablename__ = 'entregas'
+    __tablename__ = "entregas"
 
     id = Column(Integer, primary_key=True)
     data_entrega = Column(Date, nullable=False)
     foi_entregue = Column(String, default="pendente")
     motivo = Column(String)
 
-    veiculacao_id = Column(Integer, ForeignKey('veiculacoes.id'))
-    pi_id = Column(Integer, ForeignKey('pis.id'))
+    veiculacao_id = Column(Integer, ForeignKey("veiculacoes.id"))
+    pi_id = Column(Integer, ForeignKey("pis.id"))
 
     veiculacao = relationship("Veiculacao", back_populates="entregas")
     pi = relationship("PI", back_populates="entregas")
