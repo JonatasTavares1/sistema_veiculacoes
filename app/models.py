@@ -37,7 +37,7 @@ class Agencia(Base):
     instagram = Column(String, nullable=True)
 
     # === campos novos (endereço / negócio / telefones) ===
-    endereco = Column(String, nullable=True)         # complemento / observações
+    endereco = Column(String, nullable=True)  # complemento / observações
     logradouro = Column(String, nullable=True)
     bairro = Column(String, nullable=True)
     cep = Column(String, nullable=True)
@@ -46,6 +46,7 @@ class Agencia(Base):
     telefone_socio1 = Column(String, nullable=True)
     telefone_socio2 = Column(String, nullable=True)
 
+    # relação com PI (tabela pis_cadastro)
     pis = relationship("PI", back_populates="agencia")
 
 
@@ -87,11 +88,13 @@ class Anunciante(Base):
     linkedin = Column(String, nullable=True)
     instagram = Column(String, nullable=True)
 
+    # relação com PI (tabela pis_cadastro)
     pis = relationship("PI", back_populates="anunciante")
 
 
 class PI(Base):
-    __tablename__ = "pis"
+    # 👇 aqui é a tabela REAL que você quer usar
+    __tablename__ = "pis_cadastro"
 
     id = Column(Integer, primary_key=True)
     numero_pi = Column(String, nullable=False, unique=True)
@@ -195,13 +198,13 @@ class PIAnexo(Base):
 
     id = Column(Integer, primary_key=True)
     pi_id = Column(
-        Integer, ForeignKey("pis.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("pis_cadastro.id", ondelete="CASCADE"), nullable=False
     )
 
     # tipo: "pi_pdf" ou "proposta_pdf"
     tipo = Column(String, nullable=False)
     filename = Column(String, nullable=False)  # nome original
-    path = Column(String, nullable=False)  # caminho salvo (relativo/absoluto)
+    path = Column(String, nullable=False)      # caminho salvo (relativo/absoluto)
     mime = Column(String, nullable=True)
     size = Column(Integer, nullable=True)
     uploaded_at = Column(
@@ -218,7 +221,7 @@ class Produto(Base):
     nome = Column(String, nullable=False, unique=True)
 
     pi_id = Column(
-        Integer, ForeignKey("pis.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("pis_cadastro.id", ondelete="SET NULL"), nullable=True
     )
 
     descricao = Column(String, nullable=True)
@@ -240,13 +243,13 @@ class Veiculacao(Base):
     id = Column(Integer, primary_key=True)
 
     produto_id = Column(Integer, ForeignKey("produtos.id"))
-    pi_id = Column(Integer, ForeignKey("pis.id"))
+    pi_id = Column(Integer, ForeignKey("pis_cadastro.id"))
 
     canal = Column(String, nullable=True)
     formato = Column(String, nullable=True)
 
     data_inicio = Column(String)  # "YYYY-MM-DD"
-    data_fim = Column(String)  # "YYYY-MM-DD" ou None
+    data_fim = Column(String)     # "YYYY-MM-DD" ou None
 
     quantidade = Column(Integer)
 
@@ -270,7 +273,7 @@ class Entrega(Base):
     motivo = Column(String)
 
     veiculacao_id = Column(Integer, ForeignKey("veiculacoes.id"))
-    pi_id = Column(Integer, ForeignKey("pis.id"))
+    pi_id = Column(Integer, ForeignKey("pis_cadastro.id"))
 
     veiculacao = relationship("Veiculacao", back_populates="entregas")
     pi = relationship("PI", back_populates="entregas")
