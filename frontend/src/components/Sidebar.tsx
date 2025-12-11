@@ -13,28 +13,28 @@ const norm = (s: string) => s.trim().toLowerCase()
 const displayLabel = (original: string) => LABEL_OVERRIDES[norm(original)] ?? original
 
 function buildGroups(allItems: Item[]): Group[] {
-  const byLabel = new Map(allItems.map(i => [norm(i.label), i]))
+  // Apenas estes três itens devem aparecer no menu
+  const allowed = new Set<string>(["executivos", "agências", "anunciantes", "agencias"])
+
+  const filtered = allItems.filter(i => allowed.has(norm(i.label)))
+
+  const byLabel = new Map(filtered.map(i => [norm(i.label), i]))
   const take = (label: string) => {
-    const v = byLabel.get(norm(label))
-    if (v) byLabel.delete(norm(label))
+    const key = norm(label)
+    const v = byLabel.get(key)
+    if (v) byLabel.delete(key)
     return v
   }
 
-  // Ordem solicitada
-  const comercialOrder = [
-    "PIs", "Cadastrar PI", "Matrizes", "Executivos",
-    "Agências", "Anunciantes", "Produtos",
-  ]
-  const opecOrder = ["Veiculações", "Entregas"]
+  // Ordem explícita no grupo
+  const comercialOrder = ["Executivos", "Agências", "Anunciantes"]
 
   const comercialItems = comercialOrder.map(take).filter(Boolean) as Item[]
-  const opecItems      = opecOrder.map(take).filter(Boolean) as Item[]
-  const leftovers      = Array.from(byLabel.values())
 
   const groups: Group[] = []
-  if (comercialItems.length) groups.push({ title: "Comercial", items: comercialItems })
-  if (opecItems.length)      groups.push({ title: "OPEC",      items: opecItems })
-  if (leftovers.length)      groups.push({ title: "Outros",    items: leftovers })
+  if (comercialItems.length) {
+    groups.push({ title: "Comercial", items: comercialItems })
+  }
   return groups
 }
 
@@ -45,7 +45,11 @@ export default function Sidebar({ open, items }: Props) {
   )
 
   useEffect(() => {
-    if (!open) setExpanded(prev => Object.fromEntries(Object.keys(prev).map(k => [k, false])))
+    if (!open) {
+      setExpanded(prev =>
+        Object.fromEntries(Object.keys(prev).map(k => [k, false])),
+      )
+    }
   }, [open])
 
   const toggle = (title: string) =>
@@ -59,7 +63,7 @@ export default function Sidebar({ open, items }: Props) {
         "transition-all duration-300",
         open ? "w-80" : "w-24",
         "min-h-[calc(100vh-80px)]",
-        "flex flex-col"
+        "flex flex-col",
       ].join(" ")}
       role="navigation"
       aria-label="Menu lateral"
@@ -92,42 +96,51 @@ export default function Sidebar({ open, items }: Props) {
                   className={[
                     "w-full flex items-center justify-between px-2 py-1",
                     "text-white/90",
-                    open ? "text-lg font-bold uppercase tracking-wider" : "text-[11px] uppercase",
-                    "hover:text-white transition-colors"
+                    open
+                      ? "text-lg font-bold uppercase tracking-wider"
+                      : "text-[11px] uppercase",
+                    "hover:text-white transition-colors",
                   ].join(" ")}
                   title={open ? group.title : undefined}
                 >
-                  <span className={open ? "block" : "hidden"}>{group.title}</span>
+                  <span className={open ? "block" : "hidden"}>
+                    {group.title}
+                  </span>
                   <span
                     aria-hidden
                     className={[
                       "transition-transform",
-                      open ? (isOpen ? "rotate-0" : "-rotate-90") : "hidden"
+                      open ? (isOpen ? "rotate-0" : "-rotate-90") : "hidden",
                     ].join(" ")}
                   >
                     ▾
                   </span>
-                  {!open && <span className="w-6 h-1.5 bg-white/30 rounded-full" />}
+                  {!open && (
+                    <span className="w-6 h-1.5 bg-white/30 rounded-full" />
+                  )}
                 </button>
 
-                {/* Lista (aparece/ some; scroll fica no container pai) */}
+                {/* Lista (aparece/some; scroll fica no container pai) */}
                 <div className={isOpen && open ? "block" : "hidden"}>
                   <ul className="mt-1">
                     {group.items.map(item => {
                       const shownLabel = displayLabel(item.label)
                       return (
-                        <li key={`${group.title}-${item.to}`} className="mb-2 last:mb-0">
+                        <li
+                          key={`${group.title}-${item.to}`}
+                          className="mb-2 last:mb-0"
+                        >
                           <NavLink
                             to={item.to}
                             end={item.to === "/"}
                             className={({ isActive }) =>
                               [
                                 "group flex items-center rounded-xl px-4 py-3",
-                                "text-[17px] font-medium", // ligeiramente maior
+                                "text-[17px] font-medium",
                                 "transition-colors",
                                 isActive
                                   ? "bg-white/20 ring-1 ring-white/20 shadow-inner"
-                                  : "hover:bg-white/10"
+                                  : "hover:bg-white/10",
                               ].join(" ")
                             }
                             title={shownLabel}
@@ -137,19 +150,28 @@ export default function Sidebar({ open, items }: Props) {
                                 <span
                                   className={[
                                     "mr-4 h-8 w-1.5 rounded-full transition-all",
-                                    isActive ? "bg-white" : "bg-white/30 group-hover:bg-white/50"
+                                    isActive
+                                      ? "bg-white"
+                                      : "bg-white/30 group-hover:bg-white/50",
                                   ].join(" ")}
                                 />
                                 <span
                                   className={[
                                     "inline-flex h-9 w-9 items-center justify-center rounded-xl text-2xl",
-                                    isActive ? "bg-white/25" : "bg-white/10 group-hover:bg-white/20"
+                                    isActive
+                                      ? "bg-white/25"
+                                      : "bg-white/10 group-hover:bg-white/20",
                                   ].join(" ")}
                                   aria-hidden
                                 >
                                   •
                                 </span>
-                                <span className={(open ? "ml-4 block" : "ml-0 hidden") + " truncate"}>
+                                <span
+                                  className={
+                                    (open ? "ml-4 block" : "ml-0 hidden") +
+                                    " truncate"
+                                  }
+                                >
                                   {shownLabel}
                                 </span>
                               </>
