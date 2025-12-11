@@ -2,9 +2,12 @@
 import { useEffect, useMemo, useState } from "react"
 
 // ====== Tipos ======
+// eslint-disable-next-line @typescript-eslint/no-type-alias
 type TipoPI = "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
+// eslint-disable-next-line @typescript-eslint/no-type-alias
 type PISimple = { numero_pi: string; nome_campanha?: string | null }
 
+// eslint-disable-next-line @typescript-eslint/no-type-alias
 type VeicDraft = {
   canal?: string
   formato?: string
@@ -17,6 +20,7 @@ type VeicDraft = {
   valor_liquido?: number | null
 }
 
+// eslint-disable-next-line @typescript-eslint/no-type-alias
 type ProdutoDraft = {
   nome: string
   veiculacoes: VeicDraft[]
@@ -185,7 +189,9 @@ export default function CadastroPI() {
       // nomes de produtos (catálogo)
       try {
         const list = await getJSON<any[]>(`${API}/produtos`)
-        const nomes = (Array.isArray(list) ? list : []).map((p:any) => String(p.nome || "")).filter(Boolean)
+        const nomes = (Array.isArray(list) ? list : [])
+          .map((p:any) => String(p.nome || ""))
+          .filter(Boolean)
         setOpcoesProdutoNome(Array.from(new Set(nomes)))
       } catch {
         try {
@@ -263,7 +269,10 @@ export default function CadastroPI() {
         const mudouBruto = Object.prototype.hasOwnProperty.call(patch, "valor_bruto")
         const mudouDesc  = Object.prototype.hasOwnProperty.call(patch, "desconto")
         if ((mudouBruto || mudouDesc) && merged.valor_bruto != null && merged.desconto != null) {
-          const calc = Number((merged.valor_bruto * (1 - (merged.desconto || 0) / 100)).toFixed(2))
+          const calc = Number(
+            (merged.valor_bruto * (1 - (merged.desconto || 0) / 100))
+              .toFixed(2),
+          )
           merged.valor_liquido = calc
         }
         return merged
@@ -311,24 +320,41 @@ export default function CadastroPI() {
     const b = v.valor_bruto ?? null
     const d = v.desconto ?? null
     const lInf = v.valor_liquido ?? null
-    const lCalc = (b != null && d != null) ? Number((b * (1 - d / 100)).toFixed(2)) : null
+    const lCalc = (b != null && d != null)
+      ? Number((b * (1 - d / 100)).toFixed(2))
+      : null
     const mismatch = (lInf != null && lCalc != null) ? !nearEq(lInf, lCalc) : false
     return { b, d, lInf, lCalc, mismatch }
   }
 
   // Totais a partir das VEICULAÇÕES
-  const { somaBrutoVeics, somaLiquidoVeics, liquidoCalcVeics, algumMismatchVeic } = useMemo(() => {
+  const {
+    somaBrutoVeics,
+    somaLiquidoVeics,
+    liquidoCalcVeics,
+    algumMismatchVeic,
+  } = useMemo(() => {
     let b = 0, l = 0, lc = 0, mis = false
     for (const p of produtos) {
       for (const v of p.veiculacoes) {
-        const { b: vb, lInf, lCalc, mismatch } = numbersFromVeic(v)
+        const {
+          b: vb,
+          lInf,
+          lCalc,
+          mismatch,
+        } = numbersFromVeic(v)
         b += vb ?? 0
         l += lInf ?? (lCalc ?? 0)
         lc += lCalc ?? 0
         if (mismatch) mis = true
       }
     }
-    return { somaBrutoVeics: b, somaLiquidoVeics: l, liquidoCalcVeics: lc, algumMismatchVeic: mis }
+    return {
+      somaBrutoVeics: b,
+      somaLiquidoVeics: l,
+      liquidoCalcVeics: lc,
+      algumMismatchVeic: mis,
+    }
   }, [produtos])
 
   // ===== Regras de envio
@@ -351,7 +377,19 @@ export default function CadastroPI() {
     // mês de venda (se informado) precisa estar em MM/AAAA
     if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) return false
     return true
-  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, produtos, algumMismatchVeic, valorBruto, valorLiquido, somaBrutoVeics, somaLiquidoVeics, mesVenda])
+  }, [
+    numeroPI,
+    tipoPI,
+    numeroPINormal,
+    numeroPIMatriz,
+    produtos,
+    algumMismatchVeic,
+    valorBruto,
+    valorLiquido,
+    somaBrutoVeics,
+    somaLiquidoVeics,
+    mesVenda,
+  ])
 
   // ===== Upload de anexos após criar PI
   // agora usamos: POST /pis/{pi_id}/arquivos (multipart) com campos "arquivo_pi" e "proposta"
@@ -865,7 +903,8 @@ export default function CadastroPI() {
                             </thead>
                             <tbody>
                               {p.veiculacoes.map((v, vIdx) => {
-                                const { b, d, lInf, lCalc, mismatch } = numbersFromVeic(v)
+                                // <<< AQUI removemos o lInf da desestruturação >>>
+                                const { b, d, lCalc, mismatch } = numbersFromVeic(v)
                                 return (
                                   <tr key={vIdx} className="border-b last:border-0 align-top">
                                     <td className="px-3 py-2">

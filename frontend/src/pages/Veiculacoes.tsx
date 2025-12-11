@@ -366,9 +366,9 @@ export default function Veiculacoes() {
   }, [rows, debouncedBusca, statusFiltro, statusMap, piDelivMap])
 
   // Totais gerais
-  const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
+  /*const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
   const totalValor = useMemo(() => grupos.reduce((acc, g) => acc + g.totalValor, 0), [grupos])
-  const totalQtd = useMemo(() => grupos.reduce((acc, g) => acc + g.totalQtd, 0), [grupos])
+  const totalQtd = useMemo(() => grupos.reduce((acc, g) => acc + g.totalQtd, 0), [grupos])*/
 
   // KPIs
   const kpis = useMemo(() => {

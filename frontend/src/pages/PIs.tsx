@@ -800,7 +800,7 @@ export default function PIs() {
                   {filtrada.map((pi, idx) => {
                     const dataVenda = (pi.dia_venda && pi.mes_venda) ? `${pi.dia_venda}/${pi.mes_venda}` : ""
                     const piMatriz = (mostraPIMatriz(pi.tipo_pi)) ? (pi.numero_pi_matriz || "") : ""
-                    const excluindo = deletingIds.has(pi.id)
+                    //const excluindo = deletingIds.has(pi.id)
                     const urlPI = buildArquivoUrl(pi, "pi")
                     const urlProp = buildArquivoUrl(pi, "proposta")
                     const temPi = anexos[pi.id]?.pi ?? false
