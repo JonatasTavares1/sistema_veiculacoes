@@ -6,9 +6,9 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 // ✅ Fallback local de executivos (sempre disponível)
 const DEFAULT_EXECUTIVOS = [
   "Rafale e Francio", "Rafael Rodrigo", "Rodrigo da Silva", "Juliana Madazio",
-  "Flavio de Paula", "Lorena Fernandes", "Henri Marques", "Caio Bruno",
+  "Flavio de Paula", "Lorena Fernandes", "Caio Bruno",
   "Flavia Cabral", "Paula Caroline", "Leila Santos", "Jessica Ribeiro",
-  "Paula Campos",
+  "Paula Campos", "Janaina Orlani"
 ]
 
 // Tipos de dados
@@ -172,19 +172,28 @@ function jsonToCSV(rows: Record<string, any>[]) {
 
 // ---- deep clean ----
 function deepClean<T = any>(obj: T): T {
-  if (obj === null || obj === undefined) return obj
+  if (obj === null || obj === undefined) {
+    return obj
+  }
+
   if (typeof obj === "string") {
     const t = obj.trim()
-    return (t === "" ? null : (t as any))
+    // string vazia vira null; fazemos cast para T para manter a assinatura genérica
+    return (t === "" ? null : t) as unknown as T
   }
-  if (Array.isArray(obj)) return obj.map(deepClean) as any
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepClean(item)) as unknown as T
+  }
+
   if (typeof obj === "object") {
     const out: any = {}
     for (const [k, v] of Object.entries(obj as any)) {
       out[k] = deepClean(v as any)
     }
-    return out
+    return out as T
   }
+
   return obj
 }
 
