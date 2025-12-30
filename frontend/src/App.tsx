@@ -11,7 +11,7 @@ import Produtos from "./pages/Produtos";
 import Veiculacoes from "./pages/Veiculacoes";
 import Entregas from "./pages/Entregas";
 
-import Login from "./pages/login";
+import Login from "./pages/Login";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
 function Home() {
@@ -26,7 +26,7 @@ export default function App() {
   return (
     <Routes>
       {/* Pública */}
-      <Route path="/login" element={<Login />} />
+      <Route path="/Login" element={<Login />} />
 
       {/* Protegida */}
       <Route
