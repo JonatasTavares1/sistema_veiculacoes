@@ -16,15 +16,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Decide qual engine usar
 if DATABASE_URL:
-    # 🔹 Postgres (ou outro banco) via DATABASE_URL
-    # Ex: postgresql://user:pass@host:port/dbname
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
     )
     print(f"💾 Usando DATABASE_URL: {DATABASE_URL}")
 else:
-    # 🔹 Fallback: SQLite local (apenas se DATABASE_URL não estiver definido)
     engine = create_engine(
         f"sqlite:///{DB_PATH}",
         echo=False,
@@ -38,13 +35,13 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 def init_db():
     # Importa models só aqui pra evitar import circular
     import app.models  # noqa: F401
+    import app.models_auth  # noqa: F401
 
     # Cria as tabelas que ainda não existirem
     Base.metadata.create_all(bind=engine)
 
 
 if __name__ == "__main__":
-    # Scriptzinho utilitário pra recriar o banco LOCAL (só faz sentido pro SQLite)
     if not DATABASE_URL:
         if DB_PATH.exists():
             DB_PATH.unlink()
