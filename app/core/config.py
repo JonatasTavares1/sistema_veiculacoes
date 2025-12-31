@@ -20,3 +20,10 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
 # Reset token
 RESET_TOKEN_EXPIRES_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRES_MINUTES", "30"))
+
+# =========================
+# Admin seed (bootstrap)
+# =========================
+SEED_ADMIN_EMAIL = os.getenv("SEED_ADMIN_EMAIL", "").strip().lower()
+SEED_ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "")
+SEED_ADMIN_ROLE = os.getenv("SEED_ADMIN_ROLE", "admin")
