@@ -13,7 +13,7 @@ from app.core.config import (
     JWT_EXPIRES_MINUTES,
     JWT_SECRET,
     FRONTEND_BASE_URL,
-    RESET_TOKEN_MINUTES,
+    RESET_TOKEN_EXPIRES_MINUTES,
 )
 from app.core.security import create_access_token, verify_password
 from app.core.email import send_email
@@ -68,7 +68,7 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Credenciais inválidas.")
 
-    if not user.is_approved:
+    if not getattr(user, "is_approved", False):
         raise HTTPException(status_code=403, detail="Cadastro pendente de aprovação do administrador.")
 
     if not verify_password(data.senha, user.password_hash):
@@ -94,7 +94,6 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
 
     exists = get_user_by_email(db, email)
     if exists:
-        # Se já existe e está pendente, devolve a mensagem padrão sem vazar info
         raise HTTPException(status_code=409, detail="Usuário já existe. Tente recuperar a senha ou aguarde aprovação.")
 
     user = create_user_pending(db, email=email, senha=data.senha)
@@ -112,17 +111,22 @@ def forgot_password(data: ForgotIn, db: Session = Depends(get_db)):
     user = get_user_by_email(db, email)
 
     # Sempre retornar OK (não vaza se existe ou não)
-    if not user or not user.is_approved:
+    if not user or not getattr(user, "is_approved", False):
         return {"ok": True, "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição."}
 
     token = uuid4().hex
-    set_reset_token(db, user, token, minutes=RESET_TOKEN_MINUTES)
+    set_reset_token(db, user, token, minutes=RESET_TOKEN_EXPIRES_MINUTES)
 
     link = f"{FRONTEND_BASE_URL}/reset-password?token={token}"
     send_email(
         to_email=user.email,
         subject="Redefinição de senha - Sistema de Veiculações",
-        body=f"Olá.\n\nPara redefinir sua senha, acesse o link abaixo (válido por {RESET_TOKEN_MINUTES} minutos):\n{link}\n\nSe você não solicitou, ignore este e-mail.",
+        body=(
+            "Olá.\n\n"
+            f"Para redefinir sua senha, acesse o link abaixo (válido por {RESET_TOKEN_EXPIRES_MINUTES} minutos):\n"
+            f"{link}\n\n"
+            "Se você não solicitou, ignore este e-mail."
+        ),
     )
 
     return {"ok": True, "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição."}
@@ -140,7 +144,7 @@ def reset_password(data: ResetIn, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Token inválido ou expirado.")
 
-    if not user.reset_token_expires_at or user.reset_token_expires_at < datetime.utcnow():
+    if not getattr(user, "reset_token_expires_at", None) or user.reset_token_expires_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Token inválido ou expirado.")
 
     update_password(db, user, data.nova_senha)
