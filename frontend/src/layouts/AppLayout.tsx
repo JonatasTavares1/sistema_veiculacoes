@@ -1,11 +1,11 @@
 // src/layouts/AppLayout.tsx
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Outlet, useNavigate } from "react-router-dom"
 import Sidebar from "../components/Sidebar"
 import Header from "../components/Header"
 import { clearSession, getUser } from "../services/auth"
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default function AppLayout() {
   const [open, setOpen] = useState(true)
   const navigate = useNavigate()
 
@@ -13,11 +13,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   function handleLogout() {
     clearSession()
-    navigate("/Login", { replace: true })
+    navigate("/login", { replace: true })
   }
 
   const items = [
-    { to: "/", label: "Início" },
     { to: "/pis", label: "PIs" },
     { to: "/pis/cadastro", label: "Cadastrar PI" },
     { to: "/matrizes", label: "Matrizes" },
@@ -28,6 +27,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { to: "/anunciantes", label: "Anunciantes" },
     { to: "/executivos", label: "Executivos" },
   ]
+
+  // Item extra para admin (opcional)
+  if (user?.role === "admin") {
+    items.unshift({ to: "/admin/usuarios", label: "Admin • Usuários" })
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -61,7 +65,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Área de conteúdo */}
-        <main className="flex-1 p-4 overflow-auto">{children}</main>
+        <main className="flex-1 p-4 overflow-auto">
+          <Outlet />
+        </main>
       </div>
     </div>
   )

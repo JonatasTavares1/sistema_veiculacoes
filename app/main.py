@@ -18,6 +18,8 @@ from app.core.config import (
     SEED_ADMIN_ROLE,
     ALLOWED_EMAIL_DOMAIN,
 )
+from app.routes import auth
+from app.routes import admin_users
 
 # Routers
 from app.routes.auth import router as auth_router
@@ -30,6 +32,8 @@ from app.routes.executivos import router as executivos_router
 from app.routes.produtos import router as produtos_router
 from app.routes.matrizes import router as matrizes_router
 from app.routes.veiculacoes import router as veiculacoes_router
+from app.routes.auth import router as auth_router
+from app.routes.admin_users import router as admin_users_router
 
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
@@ -99,6 +103,8 @@ app.include_router(executivos_router, dependencies=protected)
 app.include_router(produtos_router, dependencies=protected)
 app.include_router(matrizes_router, dependencies=protected)
 app.include_router(veiculacoes_router, dependencies=protected)
+app.include_router(auth_router)
+app.include_router(admin_users_router)
 
 if __name__ == "__main__":
     import uvicorn

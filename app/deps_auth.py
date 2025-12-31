@@ -1,20 +1,39 @@
 # app/deps_auth.py
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from app.core.config import JWT_ALG, JWT_SECRET
-from app.core.security import decode_token
+from fastapi import Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+import jwt
 
-security = HTTPBearer(auto_error=False)
+from app.deps import get_db
+from app.core.config import JWT_SECRET, JWT_ALG
+from app.crud.users import get_user_by_id
+
 
 def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
 ):
-    if not creds or not creds.credentials:
-        raise HTTPException(status_code=401, detail="Token ausente.")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Não autenticado.")
 
-    token = creds.credentials
+    token = authorization.split(" ", 1)[1].strip()
     try:
-        payload = decode_token(token, JWT_SECRET, JWT_ALG)
-        return payload
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
     except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    user_id = payload.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    user = get_user_by_id(db, int(user_id))
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário não encontrado.")
+
+    return user
+
+
+def require_admin(user=Depends(get_current_user)):
+    if (user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
+    return user
+

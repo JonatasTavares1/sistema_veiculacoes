@@ -1,29 +1,18 @@
-// src/pages/Login.tsx
 import React, { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import {
-  ALLOWED_DOMAIN,
-  isAllowedEmail,
-  normalizeEmail,
-  setSession,
-  type AuthUser,
-} from "../services/auth";
+import { Link, useNavigate } from "react-router-dom";
+import { ALLOWED_DOMAIN, isAllowedEmail, normalizeEmail } from "../services/auth";
 
 const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
 
-type LoginResponse = {
-  token: string;
-  user: AuthUser;
-};
-
-export default function Login() {
+export default function Register() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
-  const location = useLocation() as any;
 
   const emailOk = useMemo(() => {
     if (!email) return true;
@@ -33,6 +22,7 @@ export default function Login() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErro(null);
+    setOkMsg(null);
 
     const normalized = normalizeEmail(email);
 
@@ -40,36 +30,33 @@ export default function Login() {
       setErro(`Acesso permitido apenas para e-mails ${ALLOWED_DOMAIN}`);
       return;
     }
-
-    if (!senha || senha.trim().length < 4) {
-      setErro("Informe a senha.");
+    if (!senha || senha.trim().length < 6) {
+      setErro("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (senha !== senha2) {
+      setErro("As senhas não conferem.");
       return;
     }
 
     setLoading(true);
     try {
-      const resp = await fetch(`${API}/auth/login`, {
+      const resp = await fetch(`${API}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: normalized, senha }),
       });
 
-      const data = (await resp.json()) as any;
-
+      const data = await resp.json().catch(() => ({} as any));
       if (!resp.ok) {
-        const msg = data?.error || data?.detail || "Falha no login";
+        const msg = data?.detail || data?.error || "Falha ao cadastrar.";
         throw new Error(msg);
       }
 
-      const parsed = data as LoginResponse;
-      if (!parsed?.token) throw new Error("Resposta inválida do servidor.");
-
-      setSession(parsed.token, parsed.user);
-
-      const dest = location?.state?.from?.pathname || "/";
-      navigate(dest, { replace: true });
+      setOkMsg("Cadastro enviado para aprovação. Você receberá um e-mail quando for aprovado.");
+      setTimeout(() => navigate("/login", { replace: true }), 1200);
     } catch (err: any) {
-      setErro(err?.message || "Erro no login");
+      setErro(err?.message || "Erro ao cadastrar.");
     } finally {
       setLoading(false);
     }
@@ -79,9 +66,9 @@ export default function Login() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 grid place-items-center p-6">
       <div className="w-full max-w-md">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow p-6">
-          <h1 className="text-2xl font-semibold">Acessar sistema</h1>
+          <h1 className="text-2xl font-semibold">Criar cadastro</h1>
           <p className="text-sm text-zinc-400 mt-1">
-            Restrito para contas corporativas ({ALLOWED_DOMAIN})
+            Restrito para contas corporativas ({ALLOWED_DOMAIN}). O acesso depende de aprovação do administrador.
           </p>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
@@ -116,9 +103,25 @@ export default function Login() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm text-zinc-300 mb-1">Confirmar senha</label>
+              <input
+                value={senha2}
+                onChange={(e) => setSenha2(e.target.value)}
+                type="password"
+                className="w-full rounded-xl bg-zinc-950 border border-zinc-800 px-3 py-2 outline-none focus:border-red-600"
+                required
+              />
+            </div>
+
             {erro && (
               <div className="rounded-xl border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-200">
                 {erro}
+              </div>
+            )}
+            {okMsg && (
+              <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-100">
+                {okMsg}
               </div>
             )}
 
@@ -127,25 +130,15 @@ export default function Login() {
               disabled={loading}
               className="w-full rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed px-4 py-2 font-semibold"
             >
-              {loading ? "Entrando..." : "Entrar"}
-            </button>
-            <div className="flex items-center justify-between text-sm mt-3">
-            <button
-              type="button"
-              onClick={() => navigate("/cadastro")}
-              className="text-zinc-300 hover:text-white underline"
-            >
-              Criar conta
+              {loading ? "Enviando..." : "Enviar cadastro"}
             </button>
 
-            <button
-              type="button"
-              onClick={() => navigate("/esqueci-senha")}
-              className="text-zinc-300 hover:text-white underline"
-            >
-              Esqueci minha senha
-            </button>
-          </div>
+            <div className="text-sm text-zinc-400">
+              Já tem conta?{" "}
+              <Link to="/login" className="text-zinc-100 hover:underline">
+                Entrar
+              </Link>
+            </div>
           </form>
         </div>
       </div>
