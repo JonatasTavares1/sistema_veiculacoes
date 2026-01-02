@@ -63,4 +63,5 @@ google-auth-oauthlib
 psycopg2-binary
 pyjwt 
 passlib[bcrypt]
+smtplib
 
