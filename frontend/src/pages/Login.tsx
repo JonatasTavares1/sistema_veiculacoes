@@ -131,10 +131,17 @@ export default function Login() {
         body: JSON.stringify({ email: normalized, senha }),
       });
 
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data?.detail || "Falha no login");
+      const data = (await resp.json()) as any;
 
-      setSession(data.token, data.user);
+      if (!resp.ok) {
+        const msg = data?.error || data?.detail || "Falha no login";
+        throw new Error(msg);
+      }
+
+      const parsed = data as LoginResponse;
+      if (!parsed?.token) throw new Error("Resposta inválida do servidor.");
+
+      setSession(parsed.token, parsed.user);
 
       const dest = location?.state?.from?.pathname || "/";
       navigate(dest, { replace: true });
