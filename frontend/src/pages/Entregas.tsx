@@ -1,7 +1,8 @@
 // src/pages/Entregas.tsx
 import { useEffect, useMemo, useState } from "react"
+import { apiGet, apiPost, apiPut, apiDelete } from "../services/api"
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+//const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000" // mantido só p/ referência visual (não usado nas calls)
 
 // ===== Tipos (sem status) =====
 type Entrega = {
@@ -22,65 +23,6 @@ type VeicFull = {
   formato?: string | null
   data_inicio?: string | null
   data_fim?: string | null
-}
-
-// ===== Helpers HTTP (mensagens de erro do FastAPI) =====
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
-    throw new Error(msg)
-  }
-  return r.json()
-}
-async function putJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
-    throw new Error(msg)
-  }
-  return r.json()
-}
-async function delJSON(url: string): Promise<void> {
-  const r = await fetch(url, { method: "DELETE" })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const j = await r.json()
-      if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-    } catch {
-      const t = await r.text().catch(() => "")
-      if (t) msg += ` - ${t}`
-    }
-    throw new Error(msg)
-  }
 }
 
 // ===== Helpers UI =====
@@ -164,7 +106,7 @@ export default function Entregas() {
   const [novoMotivo, setNovoMotivo] = useState("")
   const [salvando, setSalvando] = useState(false)
 
-  // edição (modal) — sem status (continua editando entregas por veiculação existentes)
+  // edição (modal)
   const [editOpen, setEditOpen] = useState(false)
   const [edit, setEdit] = useState<Entrega | null>(null)
   const [editVeicId, setEditVeicId] = useState<number | "">("")
@@ -178,14 +120,15 @@ export default function Entregas() {
   const togglePI = (pi: string) =>
     setExpanded(prev => {
       const n = new Set(prev)
-      if (n.has(pi)) n.delete(pi); else n.add(pi)
+      if (n.has(pi)) n.delete(pi)
+      else n.add(pi)
       return n
     })
 
   // ===== Carregamentos =====
   async function carregarVeiculacoes() {
     try {
-      const vs = await getJSON<any[]>(`${API}/veiculacoes`)
+      const vs = await apiGet<any[]>(`/veiculacoes`)
       const rows: VeicFull[] = (Array.isArray(vs) ? vs : []).map(v => ({
         id: v.id,
         pi_id: v.pi_id ?? null,
@@ -200,7 +143,9 @@ export default function Entregas() {
       }))
       setVeics(rows)
       const map: Record<number, VeicFull> = {}
-      rows.forEach(v => { map[v.id] = v })
+      rows.forEach(v => {
+        map[v.id] = v
+      })
       setVeicMap(map)
     } catch (e: any) {
       console.warn("Falha ao carregar veiculações:", e?.message)
@@ -208,9 +153,10 @@ export default function Entregas() {
   }
 
   async function carregarEntregas() {
-    setLoading(true); setErro(null)
+    setLoading(true)
+    setErro(null)
     try {
-      const es = await getJSON<Entrega[]>(`${API}/entregas`)
+      const es = await apiGet<Entrega[]>(`/entregas`)
       setLista(Array.isArray(es) ? es : [])
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar entregas.")
@@ -219,7 +165,10 @@ export default function Entregas() {
     }
   }
 
-  useEffect(() => { carregarVeiculacoes(); carregarEntregas() }, [])
+  useEffect(() => {
+    carregarVeiculacoes()
+    carregarEntregas()
+  }, [])
 
   // ===== Opções de PI (únicos) para o select de "Nova entrega" =====
   const piOptions = useMemo(() => {
@@ -241,9 +190,12 @@ export default function Entregas() {
     const map = new Map<number, Entrega>()
     for (const e of lista) {
       const cur = map.get(e.veiculacao_id)
-      if (!cur) { map.set(e.veiculacao_id, e); continue }
-      const a = (cur.data_entrega || "") + `#${String(cur.id).padStart(8,"0")}`
-      const b = (e.data_entrega || "") + `#${String(e.id).padStart(8,"0")}`
+      if (!cur) {
+        map.set(e.veiculacao_id, e)
+        continue
+      }
+      const a = (cur.data_entrega || "") + `#${String(cur.id).padStart(8, "0")}`
+      const b = (e.data_entrega || "") + `#${String(e.id).padStart(8, "0")}`
       if (b > a) map.set(e.veiculacao_id, e)
     }
     return map
@@ -252,7 +204,7 @@ export default function Entregas() {
   // ===== Agrupamento por PI =====
   type GrupoPI = {
     pi: string
-    header: { cliente?: string | null, campanha?: string | null }
+    header: { cliente?: string | null; campanha?: string | null }
     itens: Array<{ veic: VeicFull; entrega?: Entrega | null }>
   }
 
@@ -289,18 +241,24 @@ export default function Entregas() {
   }, [veics, ultimaEntregaPorVeic, busca])
 
   // ===== Ações =====
-  // >>> ALTERADO: salvarNova agora registra por PI <<<
   async function salvarNova() {
-    if (!novoPINum) { alert("Selecione o PI."); return }
-    if (!novaData) { alert("Informe a data de entrega."); return }
+    if (!novoPINum) {
+      alert("Selecione o PI.")
+      return
+    }
+    if (!novaData) {
+      alert("Informe a data de entrega.")
+      return
+    }
     setSalvando(true)
     try {
       // tenta endpoint nativo por PI (precisa de pi_id)
       const firstOfPI = veics.find(v => (v.numero_pi || "—").toString() === novoPINum && v.pi_id != null)
+
       if (firstOfPI?.pi_id != null) {
         let ok = false
         try {
-          await postJSON(`${API}/entregas_pi`, {
+          await apiPost(`/entregas_pi`, {
             pi_id: firstOfPI.pi_id,
             data_entrega: novaData,
             motivo: (novoMotivo || "").trim() || null,
@@ -308,17 +266,18 @@ export default function Entregas() {
           ok = true
         } catch {
           // tenta variação /entregas/pi
-          await postJSON(`${API}/entregas/pi`, {
+          await apiPost(`/entregas/pi`, {
             pi_id: firstOfPI.pi_id,
             data_entrega: novaData,
             motivo: (novoMotivo || "").trim() || null,
           })
           ok = true
         }
+
         if (ok) {
-          setNovoPINum(""); setNovaData(""); setNovoMotivo("")
-          // a listagem ainda se baseia em /entregas (por veiculação); se a API por PI não refletir lá,
-          // não muda a lista. Mesmo assim, recarregamos por segurança.
+          setNovoPINum("")
+          setNovaData("")
+          setNovoMotivo("")
           await carregarEntregas()
           alert("Entrega do PI cadastrada com sucesso!")
           setSalvando(false)
@@ -326,19 +285,23 @@ export default function Entregas() {
         }
       }
 
-      // Fallback: criar 1 entrega por VEICULAÇÃO do PI (mesmo que o botão do card faz)
+      // Fallback: criar 1 entrega por VEICULAÇÃO do PI
       const veicsDoPI = veics.filter(v => (v.numero_pi || "—").toString() === novoPINum)
       if (!veicsDoPI.length) throw new Error("PI selecionado não possui veiculações.")
+
       await Promise.all(
         veicsDoPI.map(v =>
-          postJSON(`${API}/entregas`, {
+          apiPost(`/entregas`, {
             veiculacao_id: v.id,
             data_entrega: novaData,
             motivo: (novoMotivo || "").trim() || null,
           })
         )
       )
-      setNovoPINum(""); setNovaData(""); setNovoMotivo("")
+
+      setNovoPINum("")
+      setNovaData("")
+      setNovoMotivo("")
       await carregarEntregas()
       alert("Entrega registrada para cada veiculação do PI (fallback).")
     } catch (e: any) {
@@ -357,20 +320,25 @@ export default function Entregas() {
     setEditOpen(true)
   }
   function fecharEdicao() {
-    setEditOpen(false); setEdit(null); setEditError(null)
+    setEditOpen(false)
+    setEdit(null)
+    setEditError(null)
   }
 
   async function salvarEdicao() {
     if (!edit) return
-    if (!editData) { setEditError("Data é obrigatória."); return }
+    if (!editData) {
+      setEditError("Data é obrigatória.")
+      return
+    }
     setEditSaving(true)
     try {
-      const upd = await putJSON<Entrega>(`${API}/entregas/${edit.id}`, {
+      const upd = await apiPut<Entrega>(`/entregas/${edit.id}`, {
         veiculacao_id: editVeicId || undefined,
         data_entrega: editData,
         motivo: editMotivo || null,
       })
-      setLista(prev => prev.map(x => x.id === upd.id ? upd : x))
+      setLista(prev => prev.map(x => (x.id === upd.id ? upd : x)))
       fecharEdicao()
     } catch (e: any) {
       setEditError(e?.message || "Erro ao salvar edição.")
@@ -383,18 +351,9 @@ export default function Entregas() {
     const novo = prompt("Motivo (pode ficar vazio):", e.motivo || "")
     if (novo === null) return
     try {
-      const url = `${API}/entregas/${e.id}/motivo?motivo=${encodeURIComponent(novo)}`
-      const r = await fetch(url, { method: "PUT" })
-      if (!r.ok) {
-        let msg = `${r.status} ${r.statusText}`
-        try {
-          const j = await r.json()
-          if (j?.detail) msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`
-        } catch { /* no-op */ }
-        throw new Error(msg)
-      }
-      const upd: Entrega = await r.json()
-      setLista(prev => prev.map(x => x.id === upd.id ? upd : x))
+      const path = `/entregas/${e.id}/motivo?motivo=${encodeURIComponent(novo)}`
+      const upd = await apiPut<Entrega>(path, {}) // corpo vazio; seu api.ts já manda JSON
+      setLista(prev => prev.map(x => (x.id === upd.id ? upd : x)))
     } catch (err: any) {
       alert(err?.message || "Falha ao atualizar motivo.")
     }
@@ -403,7 +362,7 @@ export default function Entregas() {
   async function excluir(e: Entrega) {
     if (!confirm(`Excluir entrega #${e.id} de ${isoToBR(e.data_entrega)}?`)) return
     try {
-      await delJSON(`${API}/entregas/${e.id}`)
+      await apiDelete(`/entregas/${e.id}`)
       setLista(prev => prev.filter(x => x.id !== e.id))
     } catch (err: any) {
       alert(err?.message || "Erro ao excluir entrega.")
@@ -413,14 +372,14 @@ export default function Entregas() {
   // ===== Entrega por PI (modal existente — cria 1 por veiculação do PI) =====
   const [piModalOpen, setPiModalOpen] = useState(false)
   const [piModalPI, setPiModalPI] = useState<string | null>(null)
-  const [piModalData, setPiModalData] = useState(() => new Date().toISOString().slice(0,10))
+  const [piModalData, setPiModalData] = useState(() => new Date().toISOString().slice(0, 10))
   const [piModalMotivo, setPiModalMotivo] = useState("")
   const [piModalSaving, setPiModalSaving] = useState(false)
   const [piModalError, setPiModalError] = useState<string | null>(null)
 
   function abrirEntregaPI(pi: string) {
     setPiModalPI(pi)
-    setPiModalData(new Date().toISOString().slice(0,10))
+    setPiModalData(new Date().toISOString().slice(0, 10))
     setPiModalMotivo("")
     setPiModalError(null)
     setPiModalOpen(true)
@@ -430,17 +389,25 @@ export default function Entregas() {
     setPiModalPI(null)
     setPiModalError(null)
   }
+
   async function salvarEntregaPI() {
     if (!piModalPI) return
     const grupo = gruposPI.find(g => g.pi === piModalPI)
-    if (!grupo) { setPiModalError("PI não encontrado."); return }
+    if (!grupo) {
+      setPiModalError("PI não encontrado.")
+      return
+    }
     const veicsDoPI = grupo.itens.map(i => i.veic)
-    if (!veicsDoPI.length) { setPiModalError("Este PI não possui veiculações."); return }
-    setPiModalSaving(true); setPiModalError(null)
+    if (!veicsDoPI.length) {
+      setPiModalError("Este PI não possui veiculações.")
+      return
+    }
+    setPiModalSaving(true)
+    setPiModalError(null)
     try {
       await Promise.all(
         veicsDoPI.map(v =>
-          postJSON(`${API}/entregas`, {
+          apiPost(`/entregas`, {
             veiculacao_id: v.id,
             data_entrega: piModalData,
             motivo: piModalMotivo || null,
@@ -458,7 +425,10 @@ export default function Entregas() {
 
   // ===== Export =====
   async function exportarPlanilha(rows: Entrega[]) {
-    if (!rows?.length) { alert("Nada para exportar."); return }
+    if (!rows?.length) {
+      alert("Nada para exportar.")
+      return
+    }
     const data = rows.map(e => {
       const v = veicMap[e.veiculacao_id]
       return {
@@ -471,7 +441,7 @@ export default function Entregas() {
         Motivo: e.motivo || "",
       }
     })
-    const nomeArq = `entregas_${new Date().toISOString().slice(0,10)}.xlsx`
+    const nomeArq = `entregas_${new Date().toISOString().slice(0, 10)}.xlsx`
     try {
       const XLSX = await import("xlsx")
       const ws = XLSX.utils.json_to_sheet(data)
@@ -501,7 +471,10 @@ export default function Entregas() {
             📤 Exportar XLSX
           </button>
           <button
-            onClick={() => { carregarVeiculacoes(); carregarEntregas(); }}
+            onClick={() => {
+              carregarVeiculacoes()
+              carregarEntregas()
+            }}
             className="px-5 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 transition shadow-sm"
           >
             Atualizar
@@ -517,12 +490,14 @@ export default function Entregas() {
             <label className="block text-xl font-semibold text-slate-800 mb-2">PI</label>
             <select
               value={novoPINum}
-              onChange={(e) => setNovoPINum(e.target.value)}
+              onChange={e => setNovoPINum(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             >
               <option value="">Selecione…</option>
               {piOptions.map(({ pi, label }) => (
-                <option key={pi} value={pi}>{label}</option>
+                <option key={pi} value={pi}>
+                  {label}
+                </option>
               ))}
             </select>
           </div>
@@ -532,7 +507,7 @@ export default function Entregas() {
             <input
               type="date"
               value={novaData}
-              onChange={(e) => setNovaData(e.target.value)}
+              onChange={e => setNovaData(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
           </div>
@@ -541,7 +516,7 @@ export default function Entregas() {
             <label className="block text-xl font-semibold text-slate-800 mb-2">Motivo (opcional)</label>
             <input
               value={novoMotivo}
-              onChange={(e) => setNovoMotivo(e.target.value)}
+              onChange={e => setNovoMotivo(e.target.value)}
               placeholder="Ex.: Cliente solicitou reagendamento…"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
             />
@@ -564,7 +539,7 @@ export default function Entregas() {
         <label className="block text-xl font-semibold text-slate-800 mb-2">Buscar</label>
         <input
           value={busca}
-          onChange={(e) => setBusca(e.target.value)}
+          onChange={e => setBusca(e.target.value)}
           placeholder="Nº do PI, Produto, Cliente, Motivo…"
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
         />
@@ -581,7 +556,7 @@ export default function Entregas() {
             Nenhuma entrega encontrada.
           </div>
         ) : (
-          gruposPI.map((g) => {
+          gruposPI.map(g => {
             const isOpen = expanded.has(g.pi)
             const veicsDoPI = g.itens.map(i => i.veic)
             const allComData = veicsDoPI.length > 0 && g.itens.every(i => !!i.entrega?.data_entrega)
@@ -594,16 +569,19 @@ export default function Entregas() {
                   allComData ? "border-emerald-300 ring-2 ring-emerald-300" : "border-slate-200"
                 )}
               >
-                <div className={classNames(
-                  "px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b",
-                  allComData ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
-                )}>
+                <div
+                  className={classNames(
+                    "px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b",
+                    allComData ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
+                  )}
+                >
                   <div className="min-w-0">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="font-mono text-lg font-bold text-slate-900">PI {g.pi}</span>
                       {(g.header.cliente || g.header.campanha) && (
                         <span className="text-slate-800 font-medium truncate max-w-[60ch]">
-                          {g.header.cliente || "—"}{g.header.campanha ? <span className="text-slate-500"> • {g.header.campanha}</span> : null}
+                          {g.header.cliente || "—"}
+                          {g.header.campanha ? <span className="text-slate-500"> • {g.header.campanha}</span> : null}
                         </span>
                       )}
                       {allComData && (
@@ -640,9 +618,7 @@ export default function Entregas() {
                         <div key={veic.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="font-medium text-slate-900 truncate">
-                                {veic.produto_nome || "—"}
-                              </div>
+                              <div className="font-medium text-slate-900 truncate">{veic.produto_nome || "—"}</div>
                               <div className="mt-1 flex flex-wrap gap-2 text-xs">
                                 {veic.canal && <span className={chipCanal(veic.canal)}>{veic.canal}</span>}
                                 {veic.formato && (
@@ -658,7 +634,9 @@ export default function Entregas() {
                               </div>
 
                               <div className="mt-3 text-sm text-slate-700">
-                                <div><b>Última entrega:</b> {entrega?.data_entrega ? isoToBR(entrega.data_entrega) : "—"}</div>
+                                <div>
+                                  <b>Última entrega:</b> {entrega?.data_entrega ? isoToBR(entrega.data_entrega) : "—"}
+                                </div>
                                 {entrega?.motivo && (
                                   <div className="text-slate-500 truncate" title={entrega.motivo}>
                                     <b>Motivo:</b> {entrega.motivo}
@@ -726,9 +704,7 @@ export default function Entregas() {
 
             <div className="p-6 space-y-6">
               {editError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-                  {editError}
-                </div>
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{editError}</div>
               )}
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -736,7 +712,7 @@ export default function Entregas() {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Veiculação</label>
                   <select
                     value={editVeicId}
-                    onChange={(e) => setEditVeicId(e.target.value ? Number(e.target.value) : "")}
+                    onChange={e => setEditVeicId(e.target.value ? Number(e.target.value) : "")}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   >
                     <option value="">—</option>
@@ -753,7 +729,7 @@ export default function Entregas() {
                   <input
                     type="date"
                     value={editData}
-                    onChange={(e) => setEditData(e.target.value)}
+                    onChange={e => setEditData(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -762,7 +738,7 @@ export default function Entregas() {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Motivo</label>
                   <input
                     value={editMotivo}
-                    onChange={(e) => setEditMotivo(e.target.value)}
+                    onChange={e => setEditMotivo(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
@@ -790,9 +766,7 @@ export default function Entregas() {
             <div className="p-6 border-b flex items-start justify-between">
               <div>
                 <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Entrega do PI</div>
-                <div className="mt-1 text-3xl font-extrabold text-slate-900">
-                  {piModalPI}
-                </div>
+                <div className="mt-1 text-3xl font-extrabold text-slate-900">{piModalPI}</div>
               </div>
               <button
                 onClick={fecharEntregaPI}
@@ -805,9 +779,7 @@ export default function Entregas() {
 
             <div className="p-6 space-y-6">
               {piModalError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-                  {piModalError}
-                </div>
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{piModalError}</div>
               )}
 
               <div>
@@ -815,7 +787,7 @@ export default function Entregas() {
                 <input
                   type="date"
                   value={piModalData}
-                  onChange={(e) => setPiModalData(e.target.value)}
+                  onChange={e => setPiModalData(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
@@ -824,7 +796,7 @@ export default function Entregas() {
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Motivo / Observação (opcional)</label>
                 <textarea
                   value={piModalMotivo}
-                  onChange={(e) => setPiModalMotivo(e.target.value)}
+                  onChange={e => setPiModalMotivo(e.target.value)}
                   placeholder="Ex.: campanha concluída conforme plano…"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   rows={3}

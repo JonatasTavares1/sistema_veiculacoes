@@ -1,7 +1,8 @@
 // src/pages/Agencias.tsx
 import { useEffect, useMemo, useState } from "react"
+import { apiGet, apiPost, apiPut } from "../services/api"
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+/*const API = import.meta.env.VITE_API_URL || "http://localhost:8000"*/
 
 // ✅ Fallback local de executivos (sempre disponível)
 const DEFAULT_EXECUTIVOS = [
@@ -37,53 +38,6 @@ type Agencia = {
   subsegmento?: string | null
   telefone_socio1?: string | null
   telefone_socio2?: string | null
-}
-
-// -------- Helpers HTTP --------
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const t = await r.json()
-      if (t?.detail) {
-        msg += ` - ${
-          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
-        }`
-      }
-    } catch {}
-    throw new Error(msg)
-  }
-  return r.json()
-}
-async function putJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const t = await r.json()
-      if (t?.detail) {
-        msg += ` - ${
-          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
-        }`
-      }
-    } catch {}
-    throw new Error(msg)
-  }
-  return r.json()
 }
 
 // -------- Constantes / Utils --------
@@ -170,7 +124,6 @@ function deepClean<T = any>(obj: T): T {
 
   if (typeof obj === "string") {
     const t = obj.trim()
-    // string vazia vira null; fazemos cast para T para manter a assinatura genérica
     return (t === "" ? null : t) as unknown as T
   }
 
@@ -278,12 +231,15 @@ export default function Agencias() {
     setLoading(true); setErro(null)
     try {
       const [exs, ags] = await Promise.all([
-        getJSON<string[]>(`${API}/executivos`).catch(() => []),
-        getJSON<Agencia[]>(`${API}/agencias`),
+        // protegida (leva Bearer). Se sua rota /executivos for pública, troque para: apiGet(..., { auth: false })
+        apiGet<string[]>("/executivos").catch(() => []),
+        apiGet<Agencia[]>("/agencias"),
       ])
+
       const mergedExecs = Array.from(
         new Set([...(Array.isArray(exs) ? exs : []), ...DEFAULT_EXECUTIVOS]),
       ).sort((a, b) => a.localeCompare(b, "pt-BR"))
+
       setExecutivos(mergedExecs)
       setLista(Array.isArray(ags) ? ags : [])
     } catch (e: any) {
@@ -305,11 +261,14 @@ export default function Agencias() {
     try {
       let data: any | null = null
       try {
-        data = await getJSON<any>(`${API}/agencias/cnpj/${num}`)
+        // rota interna (protegida)
+        data = await apiGet<any>(`/agencias/cnpj/${num}`)
       } catch {
+        // fallback público
         const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${num}`)
         if (r.ok) data = await r.json()
       }
+
       if (data) {
         const nomeFantasia = data.nome_fantasia || data.fantasia || ""
         const razaoSocial  = data.razao_social || data.nome || ""
@@ -405,7 +364,8 @@ export default function Agencias() {
         // contatos, executivosAtendimento
       }
       const body = deepClean(raw)
-      await postJSON(`${API}/agencias`, body)
+
+      await apiPost("/agencias", body)
 
       // reset
       setCnpj("")
@@ -586,7 +546,9 @@ export default function Agencias() {
         telefone_socio2: formatPhoneBR(editItem.telefone_socio2 || ""),
       }
       const body = deepClean(raw)
-      await putJSON(`${API}/agencias/${editItem.id}`, body)
+
+      await apiPut(`/agencias/${editItem.id}`, body)
+
       fecharEditor()
       await carregar()
     } catch (e: any) {

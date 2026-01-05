@@ -32,20 +32,35 @@ from app.routes.veiculacoes import router as veiculacoes_router
 
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
-# CORS — não usar "*" com allow_credentials=True
+# ==========================================================
+# CORS
+# - Você autentica por Authorization: Bearer <token>
+# - Portanto NÃO precisa cookies -> allow_credentials=False
+# - Para Vercel: previews mudam a URL, então use allow_origin_regex
+# ==========================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Dev local
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5174",
+
+        # Produção Vercel (exato)
         "https://golive-veiculacoes.vercel.app",
     ],
+
+    # ✅ cobre previews do Vercel do seu projeto
+    # Se você tiver outro projeto em Vercel, adicione aqui ou ajuste o regex.
+    # - Ex.: https://golive-veiculacoes-abc123.vercel.app
+    allow_origin_regex=r"^https:\/\/golive-veiculacoes(-[a-z0-9-]+)?\.vercel\.app$",
+
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],  # útil se você fizer download de arquivos
 )
 
 # Static: garantir que a pasta exista antes de montar

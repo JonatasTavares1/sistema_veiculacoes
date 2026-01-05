@@ -1,7 +1,6 @@
 // src/pages/Anunciantes.tsx
 import { useEffect, useMemo, useState } from "react"
-
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+import { apiGet, apiPost, apiPut } from "../services/api"
 
 // ✅ Fallback local de executivos (sempre disponível)
 const DEFAULT_EXECUTIVOS = [
@@ -45,53 +44,6 @@ type AgenciaOption = {
   nome_agencia: string
   razao_social_agencia?: string | null
   codinome?: string | null
-}
-
-// -------- Helpers HTTP --------
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-async function postJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const t = await r.json()
-      if (t?.detail) {
-        msg += ` - ${
-          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
-        }`
-      }
-    } catch {}
-    throw new Error(msg)
-  }
-  return r.json()
-}
-async function putJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let msg = `${r.status} ${r.statusText}`
-    try {
-      const t = await r.json()
-      if (t?.detail) {
-        msg += ` - ${
-          typeof t.detail === "string" ? t.detail : JSON.stringify(t.detail)
-        }`
-      }
-    } catch {}
-    throw new Error(msg)
-  }
-  return r.json()
 }
 
 // -------- Constantes / Utils --------
@@ -178,7 +130,6 @@ function deepClean<T = any>(obj: T): T {
 
   if (typeof obj === "string") {
     const t = obj.trim()
-    // string vazia vira null; fazemos cast para T para manter a assinatura genérica
     return (t === "" ? null : t) as unknown as T
   }
 
@@ -296,9 +247,9 @@ export default function Anunciantes() {
     setLoading(true); setErro(null)
     try {
       const [exs, ags, ans] = await Promise.all([
-        getJSON<string[]>(`${API}/executivos`).catch(() => []),
-        getJSON<AgenciaOption[]>(`${API}/agencias`).catch(() => []),
-        getJSON<Anunciante[]>(`${API}/anunciantes`),
+        apiGet<string[]>("/executivos").catch(() => []),
+        apiGet<AgenciaOption[]>("/agencias").catch(() => []),
+        apiGet<Anunciante[]>("/anunciantes"),
       ])
 
       const mergedExecs = Array.from(
@@ -332,7 +283,7 @@ export default function Anunciantes() {
 
       // 1) tenta buscar NO BANCO de Anunciantes
       try {
-        data = await getJSON<any>(`${API}/anunciantes/cnpj/${num}`)
+        data = await apiGet<any>(`/anunciantes/cnpj/${num}`)
       } catch {
         data = null
       }
@@ -340,7 +291,7 @@ export default function Anunciantes() {
       // 2) se não achou, consulta BrasilAPI via backend
       if (!data) {
         try {
-          data = await getJSON<any>(`${API}/anunciantes/cnpj/${num}/consulta`)
+          data = await apiGet<any>(`/anunciantes/cnpj/${num}/consulta`)
         } catch {
           data = null
         }
@@ -351,7 +302,6 @@ export default function Anunciantes() {
         return
       }
 
-      // ----- mapeamento: tenta campos do seu modelo e da BrasilAPI -----
       const razaoSocial =
         data.razao_social_anunciante ||
         data.razao_social ||
@@ -404,7 +354,6 @@ export default function Anunciantes() {
           ? `${data.ddd_telefone_2}${data.telefone_2 || ""}`
           : "")
 
-      // ----- aplica nos campos de formulário -----
       if (razaoSocial) setRazao(razaoSocial)
       if (nomeFantasia) setNome(nomeFantasia)
 
@@ -480,7 +429,7 @@ export default function Anunciantes() {
         // contatos, executivosAtendimento, agenciasRelacionadas
       }
       const body = deepClean(raw)
-      await postJSON(`${API}/anunciantes`, body)
+      await apiPost("/anunciantes", body)
 
       // reset form
       setCnpj("")
@@ -656,7 +605,7 @@ export default function Anunciantes() {
         // telefone_socio1, telefone_socio2, etc.
       }
       const body = deepClean(raw)
-      await putJSON(`${API}/anunciantes/${editItem.id}`, body)
+      await apiPut(`/anunciantes/${editItem.id}`, body)
       fecharEditor()
       await carregar()
     } catch (e: any) {

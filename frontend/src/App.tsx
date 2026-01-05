@@ -16,7 +16,7 @@ import Entregas from "./pages/Entregas";
 import Login from "./pages/Login";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
-// novas páginas (crie esses arquivos depois; por enquanto pode deixar placeholders)
+
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";

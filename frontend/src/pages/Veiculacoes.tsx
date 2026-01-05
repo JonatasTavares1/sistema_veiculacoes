@@ -1,9 +1,9 @@
 // frontend/src/pages/Veiculacoes.tsx
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { apiGet, apiPost, apiPut } from "../services/api"
 
 // ======================== Config/Util ========================
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
 // não usamos endpoint de status do backend; veiculando/não veiculado é só local
 const HAS_STATUS_ENDPOINT = false
@@ -88,37 +88,6 @@ function withinRangeInclusive(nowISO: string, startISO?: string | null, endISO?:
   if (s && now < s) return false
   if (e && now > e) return false
   return true
-}
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-async function postJSON<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let detail = await r.text()
-    try { detail = (await r.json()).detail ?? detail } catch {}
-    throw new Error(detail || `Erro ${r.status}`)
-  }
-  return r.json()
-}
-async function putJSON<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    let detail = await r.text()
-    try { detail = (await r.json()).detail ?? detail } catch {}
-    throw new Error(detail || `Erro ${r.status}`)
-  }
-  return r.json()
 }
 
 // Normaliza numero_pi (sempre com um fallback seguro)
@@ -224,7 +193,7 @@ export default function Veiculacoes() {
       return next
     })
     if (HAS_STATUS_ENDPOINT) {
-      postJSON(`${API}/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
+      apiPost(`/veiculacoes/${id}/status`, { em_veiculacao: on, atualizado_em: ts }).catch(() => {})
     }
   }
 
@@ -250,7 +219,7 @@ export default function Veiculacoes() {
       let data: RowAgenda[] = []
 
       if (ignorarPeriodo) {
-        const all = await getJSON<any[]>(`${API}/veiculacoes`)
+        const all = await apiGet<any[]>(`/veiculacoes`)
         data = (all || []).map(v => {
           const base: RowAgenda = {
             id: v.id,
@@ -284,7 +253,8 @@ export default function Veiculacoes() {
         if (executivo !== "Todos" && executivo.trim()) qs.set("executivo", executivo)
         if (diretoria !== "Todos" && diretoria.trim()) qs.set("diretoria", diretoria)
         if (uf.trim()) qs.set("uf_cliente", uf.trim())
-        const raw = await getJSON<any[]>(`${API}/veiculacoes/agenda?${qs.toString()}`)
+
+        const raw = await apiGet<any[]>(`/veiculacoes/agenda?${qs.toString()}`)
         data = (Array.isArray(raw) ? raw : []).map((r: any) => {
           const base: RowAgenda = {
             ...r,
@@ -297,7 +267,8 @@ export default function Veiculacoes() {
 
       setRows(Array.isArray(data) ? data : [])
 
-      const exsFromApi = await getJSON<string[]>(`${API}/executivos`).catch(() => [])
+      // executivos (pode ser 401 sem token se não estiver no api.ts)
+      const exsFromApi = await apiGet<string[]>(`/executivos`).catch(() => [])
       const merged = Array.from(new Set([...(Array.isArray(exsFromApi) ? exsFromApi : []), ...DEFAULT_EXECUTIVOS]))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, "pt-BR"))
@@ -308,6 +279,7 @@ export default function Veiculacoes() {
       setLoading(false)
     }
   }
+
   useEffect(() => { carregar() }, [])
   useEffect(() => { carregar() }, [ignorarPeriodo, inicio, fim, canal, formato, executivo, diretoria, uf])
 
@@ -365,11 +337,6 @@ export default function Veiculacoes() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, debouncedBusca, statusFiltro, statusMap, piDelivMap])
 
-  // Totais gerais
-  /*const totalLinhas = useMemo(() => grupos.reduce((acc, g) => acc + g.itens.length, 0), [grupos])
-  const totalValor = useMemo(() => grupos.reduce((acc, g) => acc + g.totalValor, 0), [grupos])
-  const totalQtd = useMemo(() => grupos.reduce((acc, g) => acc + g.totalQtd, 0), [grupos])*/
-
   // KPIs
   const kpis = useMemo(() => {
     let shouldOn = 0, markedOn = 0, mismatchShouldButOff = 0, mismatchOutButOn = 0
@@ -395,7 +362,7 @@ export default function Veiculacoes() {
 
   async function finalizarSomente(veic: RowAgenda) {
     try {
-      await putJSON(`${API}/veiculacoes/${veic.id}`, { data_fim: todayISO() })
+      await apiPut(`/veiculacoes/${veic.id}`, { data_fim: todayISO() })
     } catch {}
     setOn(veic.id, false)
     await carregar()
@@ -426,7 +393,7 @@ export default function Veiculacoes() {
       // registra uma entrega no backend PARA CADA veiculação do PI
       await Promise.all(
         piAlvo.itens.map(v =>
-          postJSON(`${API}/entregas`, {
+          apiPost(`/entregas`, {
             veiculacao_id: v.id,
             pi_id: piAlvo.header.pi_id,
             data_entrega: piEntregaData || todayISO(),
@@ -471,7 +438,11 @@ export default function Veiculacoes() {
   function statusBadge(r: RowAgenda) {
     const deliveredPI = isDeliveredByPI(r)
     if (deliveredPI) {
-      return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">📦 Entregue (PI)</span>
+      return (
+        <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">
+          📦 Entregue (PI)
+        </span>
+      )
     }
 
     const on = resolveOn(r)
@@ -481,15 +452,31 @@ export default function Veiculacoes() {
     const warnStart = !!start && today === start && !on
 
     if (warnStart) {
-      return <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 border border-red-200 px-2 py-0.5 text-xs font-semibold">⚠ Deveria estar no ar</span>
+      return (
+        <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 border border-red-200 px-2 py-0.5 text-xs font-semibold">
+          ⚠ Deveria estar no ar
+        </span>
+      )
     }
     if (within && on) {
-      return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">✅ Veiculando</span>
+      return (
+        <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">
+          ✅ Veiculando
+        </span>
+      )
     }
     if (!within && on) {
-      return <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-semibold">⏳ Fora do período (veiculando)</span>
+      return (
+        <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-semibold">
+          ⏳ Fora do período (veiculando)
+        </span>
+      )
     }
-    return <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 text-xs font-semibold">⛔ Não veiculado</span>
+    return (
+      <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 text-xs font-semibold">
+        ⛔ Não veiculado
+      </span>
+    )
   }
 
   function deliveryPillPI(r: RowAgenda) {
@@ -497,12 +484,27 @@ export default function Veiculacoes() {
     const info = piDelivMap[key]
     if (!info) return null
     if (info.status === "Sim") {
-      return <span title={`Entregue (PI) em ${parseISODateToBR(info.data || "")}`} className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs border border-emerald-200">📦 Entregue (PI)</span>
+      return (
+        <span
+          title={`Entregue (PI) em ${parseISODateToBR(info.data || "")}`}
+          className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs border border-emerald-200"
+        >
+          📦 Entregue (PI)
+        </span>
+      )
     }
     if (info.status === "pendente") {
-      return <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs border border-amber-200">⏳ Entrega do PI pendente</span>
+      return (
+        <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs border border-amber-200">
+          ⏳ Entrega do PI pendente
+        </span>
+      )
     }
-    return <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 px-2 py-0.5 text-xs border border-red-200">⛔ Entrega do PI NÃO realizada</span>
+    return (
+      <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 px-2 py-0.5 text-xs border border-red-200">
+        ⛔ Entrega do PI NÃO realizada
+      </span>
+    )
   }
 
   // ======================== Render ========================
@@ -513,6 +515,7 @@ export default function Veiculacoes() {
         <div>
           <h1 className="text-4xl font-extrabold text-slate-900">Veiculações — Agenda</h1>
           <div className="mt-2 text-slate-600 flex flex-wrap gap-3"></div>
+
           {/* KPIs de status */}
           <div className="mt-2 flex flex-wrap gap-2 text-sm">
             <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-800 px-2.5 py-1 border border-emerald-200">
@@ -693,7 +696,6 @@ export default function Veiculacoes() {
               const isOpen = expanded.has(g.numero_pi)
               const piKey = piKeyFromRow(g.header)
               const allDelivered = isPIDeliveredByKey(piKey)
-
               const infoPI = piDelivMap[piKey]
 
               return (
@@ -717,7 +719,8 @@ export default function Veiculacoes() {
 
                         <span
                           className="text-slate-800 font-medium truncate max-w-[70ch]"
-                          title={[g.header.cliente, g.header.campanha].filter(Boolean).join(" • ") || ""}>
+                          title={[g.header.cliente, g.header.campanha].filter(Boolean).join(" • ") || ""}
+                        >
                           {g.header.cliente || "—"}
                           {g.header.campanha && (
                             <span className="text-slate-500"> • {g.header.campanha}</span>
@@ -747,9 +750,15 @@ export default function Veiculacoes() {
 
                       {/* Totais do PI */}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">Qtde: <b className="ml-1">{g.totalQtd}</b></span>
-                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">Valor: <b className="ml-1">{fmtMoney(g.totalValor)}</b></span>
-                        <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-700 px-2.5 py-0.5 border border-slate-200">Veiculações: <b className="ml-1">{g.itens.length}</b></span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">
+                          Qtde: <b className="ml-1">{g.totalQtd}</b>
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 border border-slate-200">
+                          Valor: <b className="ml-1">{fmtMoney(g.totalValor)}</b>
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-700 px-2.5 py-0.5 border border-slate-200">
+                          Veiculações: <b className="ml-1">{g.itens.length}</b>
+                        </span>
                       </div>
                     </div>
 
@@ -762,6 +771,7 @@ export default function Veiculacoes() {
                       >
                         📦 Entregar PI
                       </button>
+
                       <button
                         onClick={() => irParaEntregas({ numero_pi: g.numero_pi })}
                         className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
@@ -819,17 +829,26 @@ export default function Veiculacoes() {
                                         </span>
                                       )}
                                       {r.formato && (
-                                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200" title="Formato">
+                                        <span
+                                          className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200"
+                                          title="Formato"
+                                        >
                                           {r.formato}
                                         </span>
                                       )}
                                       {(r.data_inicio || r.data_fim) && (
-                                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200" title="Período">
+                                        <span
+                                          className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200"
+                                          title="Período"
+                                        >
                                           {parseISODateToBR(r.data_inicio)} → {parseISODateToBR(r.data_fim)}
                                         </span>
                                       )}
                                       {typeof r.quantidade === "number" && (
-                                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200" title="Quantidade">
+                                        <span
+                                          className="inline-flex items-center rounded-full bg-slate-100 text-slate-800 px-2 py-0.5 font-semibold border border-slate-200"
+                                          title="Quantidade"
+                                        >
                                           Qtde {r.quantidade}
                                         </span>
                                       )}
@@ -857,7 +876,11 @@ export default function Veiculacoes() {
                                         className="h-4 w-4 accent-emerald-600"
                                         title="Marcar como veiculando"
                                       />
-                                      {on ? <span className="text-emerald-700 font-semibold">veiculando</span> : <span className="text-red-700 font-semibold">não veiculado</span>}
+                                      {on ? (
+                                        <span className="text-emerald-700 font-semibold">veiculando</span>
+                                      ) : (
+                                        <span className="text-red-700 font-semibold">não veiculado</span>
+                                      )}
                                     </label>
 
                                     {/* Ações por veic (sem entrega aqui) */}
@@ -1029,15 +1052,24 @@ async function exportarXLSX(allRows: RowAgenda[], nomeArquivo: string) {
   const xlsx = await import("xlsx")
   const ws = xlsx.utils.json_to_sheet(mapped, { header: Object.keys(mapped[0] || {}) })
   const moneyCol = "Valor (R$)"
-  mapped.forEach((r, i) => {
-    const cell = xlsx.utils.encode_cell({ r: i + 1, c: Object.keys(mapped[0]).indexOf(moneyCol) })
-    const v = r[moneyCol as keyof typeof r] as number
-    ;(ws as any)[cell] = { t: "s", v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) }
-  })
+  const headers = Object.keys(mapped[0] || {})
+  const moneyIdx = headers.indexOf(moneyCol)
+
+  if (moneyIdx >= 0) {
+    mapped.forEach((r, i) => {
+      const cell = xlsx.utils.encode_cell({ r: i + 1, c: moneyIdx })
+      const v = r[moneyCol as keyof typeof r] as number
+      ;(ws as any)[cell] = {
+        t: "s",
+        v: (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+      }
+    })
+  }
+
   const wb = xlsx.utils.book_new()
   xlsx.utils.book_append_sheet(wb, ws, "Agenda")
   const now = new Date()
-  const stamp = now.toISOString().slice(0,19).replace(/[:T]/g,"-")
+  const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, "-")
   const finalName = `${nomeArquivo}_${stamp}.xlsx`
   xlsx.writeFile(wb, finalName)
 }

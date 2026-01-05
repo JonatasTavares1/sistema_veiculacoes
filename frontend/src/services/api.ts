@@ -8,15 +8,24 @@ type RequestOptions = RequestInit & {
   auth?: boolean; // default true
 };
 
+// ✅ IMPORTANTE: como você usa Bearer Token, NÃO use include por padrão.
+// Isso evita quebrar CORS quando o backend responde com ACAO: *
+const DEFAULT_CREDENTIALS: RequestCredentials = "omit";
+
 function withTs(path: string) {
   const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}_ts=${Date.now()}`;
+  return `${path}${sep}ts=${Date.now()}`;
+}
+
+function joinUrl(base: string, path: string) {
+  const b = (base || "").replace(/\/+$/, "");
+  const p = (path || "").startsWith("/") ? path : `/${path}`;
+  return `${b}${p}`;
 }
 
 function buildHeaders(extra?: HeadersInit, auth: boolean = true, body?: any) {
   const h = new Headers(extra || {});
 
-  // Se for FormData, não setar Content-Type (browser define boundary)
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   if (!isForm && !h.has("Content-Type")) {
     h.set("Content-Type", "application/json");
@@ -46,7 +55,9 @@ async function parseError(resp: Response) {
     if (ct.includes("application/json")) {
       const j: any = await resp.json();
       if (j?.detail) {
-        msg += ` - ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`;
+        msg += ` - ${
+          typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)
+        }`;
       } else if (j?.error) {
         msg += ` - ${j.error}`;
       }
@@ -69,13 +80,18 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const auth = opts?.auth ?? true;
 
-  const url = `${API_BASE}${withTs(path)}`;
+  const url = joinUrl(API_BASE, withTs(path));
 
   const resp = await fetch(url, {
     ...opts,
     method,
     headers: buildHeaders(opts?.headers, auth, body),
-    cache: "no-store",
+    cache: opts?.cache ?? "no-store",
+
+    // ✅ aqui está o ponto: omit por padrão (CORS fica ok com ACAO: *)
+    // Se algum endpoint precisar de cookie: passe opts.credentials="include" naquele call
+    credentials: opts?.credentials ?? DEFAULT_CREDENTIALS,
+
     body:
       method === "GET" || method === "DELETE"
         ? undefined
@@ -97,19 +113,19 @@ export async function apiRequest<T>(
   return (await resp.text()) as T;
 }
 
-// Para downloads (blob) com Authorization
 export async function apiDownloadBlob(
   path: string,
   opts?: RequestOptions
 ): Promise<Blob> {
   const auth = opts?.auth ?? true;
-  const url = `${API_BASE}${withTs(path)}`;
+  const url = joinUrl(API_BASE, withTs(path));
 
   const resp = await fetch(url, {
     ...opts,
     method: "GET",
     headers: buildHeaders(opts?.headers, auth),
-    cache: "no-store",
+    cache: opts?.cache ?? "no-store",
+    credentials: opts?.credentials ?? DEFAULT_CREDENTIALS,
   });
 
   await handle401(resp);

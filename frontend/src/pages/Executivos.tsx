@@ -1,7 +1,6 @@
 // src/pages/Executivos.tsx
 import { useEffect, useMemo, useState } from "react"
-
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+import { apiGet, apiPut } from "../services/api" // ✅ padrão do api.ts
 
 type TipoRegistro = "Agência" | "Anunciante"
 
@@ -14,21 +13,6 @@ type Linha = {
   Documento?: string
   UF: string
   Executivo: string
-}
-
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-async function putJSON<T>(url: string, body: any): Promise<T> {
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
 }
 
 /* -------------------- helpers doc (CPF/CNPJ) -------------------- */
@@ -94,11 +78,15 @@ export default function Executivos() {
     (async () => {
       try {
         setErro(null)
-        const nomes = await getJSON<string[]>(`${API}/executivos`)
+        // ✅ agora usa apiGet (injeta Authorization e trata 401)
+        const nomes = await apiGet<string[]>("/executivos")
+
         // DEDUP + sort para garantir keys únicas nos <option>
-        const uniq = Array.from(new Set(nomes)).filter(Boolean)
-          .sort((a, b) => a.localeCompare(b, "pt-BR"))
-        setExecutivos(uniq)
+        const uniq = Array.from(new Set((nomes || []) as any))
+          .filter(Boolean)
+          .sort((a, b) => String(a).localeCompare(String(b), "pt-BR"))
+
+        setExecutivos(uniq as string[])
       } catch (e: any) {
         setErro(e?.message || "Erro ao carregar executivos.")
       }
@@ -114,7 +102,8 @@ export default function Executivos() {
     setErro(null)
     try {
       const params = new URLSearchParams({ tipo, executivo: executivoSel })
-      const dados = await getJSON<Linha[]>(`${API}/executivos/busca?${params.toString()}`)
+      // ✅ apiGet com querystring
+      const dados = await apiGet<Linha[]>(`/executivos/busca?${params.toString()}`)
       setLinhas(Array.isArray(dados) ? dados : [])
     } catch (e: any) {
       setErro(e?.message || "Erro ao buscar.")
@@ -128,7 +117,7 @@ export default function Executivos() {
     setErro(null)
     try {
       const params = new URLSearchParams({ tipo })
-      const dados = await getJSON<Linha[]>(`${API}/executivos/busca?${params.toString()}`)
+      const dados = await apiGet<Linha[]>(`/executivos/busca?${params.toString()}`)
       setLinhas(Array.isArray(dados) ? dados : [])
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar lista.")
@@ -180,7 +169,8 @@ export default function Executivos() {
   async function salvarEdicao() {
     if (!editOriginal) return
     try {
-      await putJSON(`${API}/executivos/editar`, {
+      // ✅ apiPut injeta Authorization, trata 401, parseia erro
+      await apiPut(`/executivos/editar`, {
         tipo,
         item_id: editOriginal.ID,
         novos_dados: editCampos, // documento já vai formatado
@@ -358,7 +348,9 @@ export default function Executivos() {
                     onChange={(e) =>
                       setEditCampos((prev) => ({
                         ...prev,
-                        [campo]: isDocKey(campo) ? formatDocPartial(e.target.value) : e.target.value
+                        [campo]: isDocKey(campo)
+                          ? formatDocPartial(e.target.value)
+                          : e.target.value
                       }))
                     }
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
