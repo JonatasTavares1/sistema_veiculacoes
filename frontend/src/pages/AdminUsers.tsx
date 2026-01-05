@@ -1,77 +1,51 @@
-import React, { useEffect, useState } from "react";
-import { getToken, getUser } from "../services/auth";
-
-const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
+// src/pages/AdminUsers.tsx
+import { useEffect, useState } from "react"
+import { getUser } from "../services/auth"
+import { apiGet, apiPost } from "../services/api"
 
 type PendingUser = {
-  id: number;
-  email: string;
-  role: string;
-  is_approved: boolean;
-};
+  id: number
+  email: string
+  role: string
+  is_approved: boolean
+}
 
 export default function AdminUsers() {
-  const [lista, setLista] = useState<PendingUser[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [lista, setLista] = useState<PendingUser[]>([])
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
 
-  const me = getUser();
+  const me = getUser()
 
   async function carregar() {
-    setLoading(true);
-    setErro(null);
+    setLoading(true)
+    setErro(null)
 
     try {
-      const token = getToken();
-      const resp = await fetch(`${API}/admin/users/pending`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
-
-      const data = await resp.json().catch(() => ({} as any));
-      if (!resp.ok) {
-        throw new Error(data?.detail || "Falha ao carregar usuários pendentes.");
-      }
-
-      setLista(Array.isArray(data) ? data : []);
+      const data = await apiGet<PendingUser[]>(`/admin/users/pending`)
+      setLista(Array.isArray(data) ? data : [])
     } catch (e: any) {
-      setErro(e?.message || "Erro ao carregar.");
+      setErro(e?.message || "Erro ao carregar.")
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
   async function aprovar(userId: number) {
-    if (!confirm("Aprovar este usuário?")) return;
+    if (!confirm("Aprovar este usuário?")) return
 
     try {
-      const token = getToken();
-      const resp = await fetch(`${API}/admin/users/${userId}/approve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-        body: JSON.stringify({ role: "user" }),
-      });
-
-      const data = await resp.json().catch(() => ({} as any));
-      if (!resp.ok) {
-        throw new Error(data?.detail || "Falha ao aprovar usuário.");
-      }
-
-      alert("Usuário aprovado. O e-mail de confirmação foi enviado (ou simulado no console).");
-      await carregar();
+      await apiPost(`/admin/users/${userId}/approve`, { role: "user" })
+      alert("Usuário aprovado. O e-mail de confirmação foi enviado (ou simulado no console).")
+      await carregar()
     } catch (e: any) {
-      alert(e?.message || "Erro ao aprovar.");
+      alert(e?.message || "Erro ao aprovar.")
     }
   }
 
   useEffect(() => {
-    carregar();
-  }, []);
+    carregar()
+  }, [])
 
   // segurança básica de UI
   if (me?.role !== "admin") {
@@ -81,7 +55,7 @@ export default function AdminUsers() {
           Acesso restrito ao administrador.
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -134,5 +108,5 @@ export default function AdminUsers() {
         </div>
       )}
     </div>
-  );
+  )
 }
