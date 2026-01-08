@@ -88,8 +88,7 @@ export async function apiRequest<T>(
     headers: buildHeaders(opts?.headers, auth, body),
     cache: opts?.cache ?? "no-store",
 
-    // ✅ aqui está o ponto: omit por padrão (CORS fica ok com ACAO: *)
-    // Se algum endpoint precisar de cookie: passe opts.credentials="include" naquele call
+    // ✅ omit por padrão (CORS ok com ACAO: *)
     credentials: opts?.credentials ?? DEFAULT_CREDENTIALS,
 
     body:

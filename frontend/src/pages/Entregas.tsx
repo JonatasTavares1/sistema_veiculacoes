@@ -1,8 +1,7 @@
 // src/pages/Entregas.tsx
 import { useEffect, useMemo, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { apiGet, apiPost, apiPut, apiDelete } from "../services/api"
-
-//const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000" // mantido só p/ referência visual (não usado nas calls)
 
 // ===== Tipos (sem status) =====
 type Entrega = {
@@ -88,6 +87,8 @@ function jsonToCSV(rows: Record<string, any>[]) {
 
 // ==================== Página ====================
 export default function Entregas() {
+  const navigate = useNavigate()
+
   // base
   const [veics, setVeics] = useState<VeicFull[]>([])
   const [veicMap, setVeicMap] = useState<Record<number, VeicFull>>({})
@@ -125,6 +126,96 @@ export default function Entregas() {
       return n
     })
 
+  // ===========================
+  // ✅ MODAL: Enviar para Faturamento (OPEC)
+  // ===========================
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sendEntregaId, setSendEntregaId] = useState<number | null>(null)
+  const [sendPiId, setSendPiId] = useState<number | null>(null)
+  const [sendPiNumero, setSendPiNumero] = useState<string>("")
+  const [sendEnviadoEm, setSendEnviadoEm] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [sendFiles, setSendFiles] = useState<File[]>([])
+  const [sendSaving, setSendSaving] = useState(false)
+  const [sendUploading, setSendUploading] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendUploadError, setSendUploadError] = useState<string | null>(null)
+
+  function abrirModalEnviarFaturamento(opts: { entregaId: number; piId?: number | null; piNumero?: string | null }) {
+    setSendOpen(true)
+    setSendEntregaId(opts.entregaId)
+    setSendPiId(opts.piId ?? null)
+    setSendPiNumero((opts.piNumero || "").toString())
+    setSendEnviadoEm(new Date().toISOString().slice(0, 10))
+    setSendFiles([])
+    setSendError(null)
+    setSendUploadError(null)
+    setSendSaving(false)
+    setSendUploading(false)
+  }
+
+  function fecharModalEnviarFaturamento() {
+    if (sendSaving || sendUploading) return
+    setSendOpen(false)
+    setSendEntregaId(null)
+    setSendPiId(null)
+    setSendPiNumero("")
+    setSendFiles([])
+    setSendError(null)
+    setSendUploadError(null)
+    setSendSaving(false)
+    setSendUploading(false)
+  }
+
+  async function uploadOpecAnexos(faturamentoId: number, files: File[]) {
+    if (!files.length) return
+    for (const file of files) {
+      const form = new FormData()
+      form.append("tipo", "OPEC")
+      form.append("file", file)
+      await apiPost(`/faturamentos/${faturamentoId}/anexos`, form as any)
+    }
+  }
+
+  async function confirmarEnviarFaturamento() {
+    if (!sendEntregaId) {
+      setSendError("Entrega inválida.")
+      return
+    }
+
+    setSendSaving(true)
+    setSendError(null)
+    setSendUploadError(null)
+
+    try {
+      const resp = await apiPost<any>(`/entregas/${sendEntregaId}/enviar-faturamento`, {})
+      const fatId = Number(resp?.faturamento_id || 0)
+      if (!fatId) throw new Error("Não consegui obter o faturamento_id.")
+
+      if (sendFiles.length) {
+        setSendUploading(true)
+        try {
+          await uploadOpecAnexos(fatId, sendFiles)
+        } catch (e: any) {
+          setSendUploadError(e?.message || "Falha ao enviar anexos.")
+        } finally {
+          setSendUploading(false)
+        }
+      }
+
+      alert("Enviado para faturamento. O card já deve aparecer no Financeiro.")
+
+      if (!sendUploadError) {
+        fecharModalEnviarFaturamento()
+        if (sendPiId) navigate(`/faturamentos?pi_id=${encodeURIComponent(String(sendPiId))}`)
+        else navigate(`/faturamentos`)
+      }
+    } catch (e: any) {
+      setSendError(e?.message || "Erro ao enviar para faturamento.")
+    } finally {
+      setSendSaving(false)
+    }
+  }
+
   // ===== Carregamentos =====
   async function carregarVeiculacoes() {
     try {
@@ -156,8 +247,14 @@ export default function Entregas() {
     setLoading(true)
     setErro(null)
     try {
-      const es = await apiGet<Entrega[]>(`/entregas`)
-      setLista(Array.isArray(es) ? es : [])
+      const es = await apiGet<any[]>(`/entregas`)
+      const normalized: Entrega[] = (Array.isArray(es) ? es : []).map((x: any) => ({
+        id: x.id,
+        veiculacao_id: x.veiculacao_id,
+        data_entrega: x.data_entrega,
+        motivo: x.motivo ?? null,
+      }))
+      setLista(normalized)
     } catch (e: any) {
       setErro(e?.message || "Erro ao carregar entregas.")
     } finally {
@@ -252,7 +349,6 @@ export default function Entregas() {
     }
     setSalvando(true)
     try {
-      // tenta endpoint nativo por PI (precisa de pi_id)
       const firstOfPI = veics.find(v => (v.numero_pi || "—").toString() === novoPINum && v.pi_id != null)
 
       if (firstOfPI?.pi_id != null) {
@@ -265,7 +361,6 @@ export default function Entregas() {
           })
           ok = true
         } catch {
-          // tenta variação /entregas/pi
           await apiPost(`/entregas/pi`, {
             pi_id: firstOfPI.pi_id,
             data_entrega: novaData,
@@ -285,7 +380,6 @@ export default function Entregas() {
         }
       }
 
-      // Fallback: criar 1 entrega por VEICULAÇÃO do PI
       const veicsDoPI = veics.filter(v => (v.numero_pi || "—").toString() === novoPINum)
       if (!veicsDoPI.length) throw new Error("PI selecionado não possui veiculações.")
 
@@ -333,12 +427,18 @@ export default function Entregas() {
     }
     setEditSaving(true)
     try {
-      const upd = await apiPut<Entrega>(`/entregas/${edit.id}`, {
+      const upd = await apiPut<any>(`/entregas/${edit.id}`, {
         veiculacao_id: editVeicId || undefined,
         data_entrega: editData,
         motivo: editMotivo || null,
       })
-      setLista(prev => prev.map(x => (x.id === upd.id ? upd : x)))
+      const normalized: Entrega = {
+        id: upd.id,
+        veiculacao_id: upd.veiculacao_id,
+        data_entrega: upd.data_entrega,
+        motivo: upd.motivo ?? null,
+      }
+      setLista(prev => prev.map(x => (x.id === normalized.id ? normalized : x)))
       fecharEdicao()
     } catch (e: any) {
       setEditError(e?.message || "Erro ao salvar edição.")
@@ -352,8 +452,14 @@ export default function Entregas() {
     if (novo === null) return
     try {
       const path = `/entregas/${e.id}/motivo?motivo=${encodeURIComponent(novo)}`
-      const upd = await apiPut<Entrega>(path, {}) // corpo vazio; seu api.ts já manda JSON
-      setLista(prev => prev.map(x => (x.id === upd.id ? upd : x)))
+      const upd = await apiPut<any>(path, {})
+      const normalized: Entrega = {
+        id: upd.id,
+        veiculacao_id: upd.veiculacao_id,
+        data_entrega: upd.data_entrega,
+        motivo: upd.motivo ?? null,
+      }
+      setLista(prev => prev.map(x => (x.id === normalized.id ? normalized : x)))
     } catch (err: any) {
       alert(err?.message || "Falha ao atualizar motivo.")
     }
@@ -463,6 +569,7 @@ export default function Entregas() {
         <h1 className="text-4xl font-extrabold text-slate-900">Entregas (por PI)</h1>
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => exportarPlanilha(lista)}
             disabled={!lista.length}
             className="px-5 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg hover:bg-slate-50 disabled:opacity-60"
@@ -471,6 +578,7 @@ export default function Entregas() {
             📤 Exportar XLSX
           </button>
           <button
+            type="button"
             onClick={() => {
               carregarVeiculacoes()
               carregarEntregas()
@@ -525,6 +633,7 @@ export default function Entregas() {
 
         <div className="mt-6">
           <button
+            type="button"
             onClick={salvarNova}
             disabled={salvando}
             className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
@@ -561,6 +670,11 @@ export default function Entregas() {
             const veicsDoPI = g.itens.map(i => i.veic)
             const allComData = veicsDoPI.length > 0 && g.itens.every(i => !!i.entrega?.data_entrega)
 
+            const firstWithPiId = g.itens.find(i => i.veic.pi_id != null)?.veic
+            const piIdForFinance = firstWithPiId?.pi_id ?? null
+
+            const firstEntrega = g.itens.find(i => !!i.entrega)?.entrega || null
+
             return (
               <div
                 key={g.pi}
@@ -596,13 +710,36 @@ export default function Entregas() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {/* ✅ Só fica este: abre modal (não navega direto) */}
                     <button
+                      type="button"
+                      onClick={() => {
+                        if (!firstEntrega) {
+                          alert("Ainda não existe entrega registrada para este PI. Registre uma entrega primeiro.")
+                          return
+                        }
+                        abrirModalEnviarFaturamento({
+                          entregaId: firstEntrega.id,
+                          piId: piIdForFinance,
+                          piNumero: g.pi,
+                        })
+                      }}
+                      className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      title="Enviar para o Financeiro (abre modal para anexos)"
+                    >
+                      💳 Faturamento
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => abrirEntregaPI(g.pi)}
                       className="px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       📦 Registrar entrega do PI
                     </button>
+
                     <button
+                      type="button"
                       onClick={() => togglePI(g.pi)}
                       className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
@@ -645,27 +782,45 @@ export default function Entregas() {
                               </div>
                             </div>
 
-                            {/* Ações rápidas no último registro (se houver) */}
                             <div className="text-right">
                               {entrega && (
                                 <div className="flex flex-col gap-2">
                                   <button
+                                    type="button"
                                     onClick={() => abrirEdicao(entrega)}
                                     className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
                                   >
                                     ✏️ Editar
                                   </button>
+
                                   <button
+                                    type="button"
                                     onClick={() => atualizarMotivoQuick(entrega)}
                                     className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
                                   >
                                     📝 Motivo
                                   </button>
+
                                   <button
+                                    type="button"
                                     onClick={() => excluir(entrega)}
                                     className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
                                   >
                                     🗑️ Excluir
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      abrirModalEnviarFaturamento({
+                                        entregaId: entrega.id,
+                                        piId: veic.pi_id ?? null,
+                                        piNumero: veic.numero_pi ?? g.pi,
+                                      })
+                                    }
+                                    className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+                                  >
+                                    💰 Enviar p/ Faturamento
                                   </button>
                                 </div>
                               )}
@@ -682,7 +837,7 @@ export default function Entregas() {
         )}
       </section>
 
-      {/* Modal de edição (sem status) */}
+      {/* Modal de edição */}
       {editOpen && edit && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={fecharEdicao} />
@@ -695,6 +850,7 @@ export default function Entregas() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={fecharEdicao}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
@@ -746,6 +902,7 @@ export default function Entregas() {
 
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={salvarEdicao}
                   disabled={editSaving}
                   className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
@@ -758,7 +915,7 @@ export default function Entregas() {
         </div>
       )}
 
-      {/* Modal: entrega do PI (sem status) */}
+      {/* Modal: entrega do PI */}
       {piModalOpen && piModalPI && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => !piModalSaving && fecharEntregaPI()} />
@@ -769,6 +926,7 @@ export default function Entregas() {
                 <div className="mt-1 text-3xl font-extrabold text-slate-900">{piModalPI}</div>
               </div>
               <button
+                type="button"
                 onClick={fecharEntregaPI}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
                 disabled={piModalSaving}
@@ -805,6 +963,7 @@ export default function Entregas() {
 
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={salvarEntregaPI}
                   disabled={piModalSaving}
                   className="px-6 py-3 rounded-2xl bg-emerald-600 text-white text-lg font-semibold hover:bg-emerald-700 disabled:opacity-60"
@@ -815,6 +974,151 @@ export default function Entregas() {
 
               <div className="text-xs text-slate-500">
                 * Se a sua API por PI não existir, este botão cria um registro de entrega para <b>cada veiculação</b> deste PI (fallback).
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Modal: Enviar para Faturamento (OPEC) */}
+      {sendOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={fecharModalEnviarFaturamento} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
+            <div className="p-6 border-b flex items-start justify-between">
+              <div className="min-w-0">
+                <div className="text-sm uppercase tracking-wide text-red-700 font-semibold">Enviar para Faturamento</div>
+                <div className="mt-1 text-3xl font-extrabold text-slate-900">
+                  PI {sendPiNumero || "—"}{" "}
+                  <span className="text-sm font-semibold text-slate-600">• Entrega #{sendEntregaId ?? "—"}</span>
+                </div>
+                <div className="mt-2 text-xs text-slate-600">
+                  Aqui a OPEC anexa os documentos e envia para o Financeiro iniciar a esteira.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharModalEnviarFaturamento}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                disabled={sendSaving || sendUploading}
+              >
+                ✖ Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {sendError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700">{sendError}</div>
+              )}
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Data do envio para o faturamento</label>
+                <input
+                  type="date"
+                  value={sendEnviadoEm}
+                  onChange={e => setSendEnviadoEm(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  disabled={sendSaving || sendUploading}
+                />
+                <div className="mt-1 text-xs text-slate-500">
+                  (Visual. O backend já marca o horário do envio.)
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">Anexos (OPEC)</div>
+                    <div className="text-xs text-slate-600">Relatório, prints, PDFs, etc.</div>
+                  </div>
+
+                  <label className="px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer">
+                    📎 Selecionar
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || [])
+                        if (!files.length) return
+                        setSendFiles((prev) => {
+                          const merged = [...prev, ...files]
+                          const uniq = new Map<string, File>()
+                          for (const f of merged) {
+                            uniq.set(`${f.name}#${f.size}#${f.lastModified}`, f)
+                          }
+                          return Array.from(uniq.values())
+                        })
+                        setSendUploadError(null)
+                        e.currentTarget.value = ""
+                      }}
+                      disabled={sendSaving || sendUploading}
+                    />
+                  </label>
+                </div>
+
+                {sendUploadError && (
+                  <div className="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm">
+                    {sendUploadError}
+                  </div>
+                )}
+
+                {sendFiles.length ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="text-xs text-slate-700">
+                      <b>{sendFiles.length}</b> arquivo(s) selecionado(s)
+                    </div>
+
+                    <ul className="text-sm text-slate-700 space-y-1">
+                      {sendFiles.map((f, idx) => (
+                        <li key={`${f.name}-${f.size}-${f.lastModified}`} className="flex items-center justify-between gap-3">
+                          <span className="truncate">
+                            {f.name} <span className="text-xs text-slate-500">({Math.ceil(f.size / 1024)} KB)</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="px-2 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-white text-xs"
+                            onClick={() => setSendFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            disabled={sendSaving || sendUploading}
+                          >
+                            Remover
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-slate-600">Nenhum anexo selecionado.</div>
+                )}
+              </div>
+
+              <div className="pt-1 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={confirmarEnviarFaturamento}
+                  disabled={sendSaving || sendUploading}
+                  className="px-6 py-3 rounded-2xl bg-red-600 text-white text-lg font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {sendSaving ? "Enviando..." : sendUploading ? "Enviando anexos..." : "Confirmar e enviar"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sendPiId) navigate(`/faturamentos?pi_id=${encodeURIComponent(String(sendPiId))}`)
+                    else navigate(`/faturamentos`)
+                  }}
+                  className="px-6 py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-lg font-semibold hover:bg-slate-50"
+                  disabled={sendSaving || sendUploading}
+                  title="Abrir a tela do Financeiro"
+                >
+                  Ir para Financeiro
+                </button>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                * Neste modal a OPEC envia anexos como <b>OPEC</b>. NF e Comprovante ficam para o Financeiro.
               </div>
             </div>
           </div>

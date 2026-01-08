@@ -1,4 +1,3 @@
-# app/deps_auth.py
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 import jwt
@@ -37,3 +36,12 @@ def require_admin(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
     return user
 
+
+def require_roles(*roles: str):
+    def _dep(user=Depends(get_current_user)):
+        role = (getattr(user, "role", "") or "").lower().strip()
+        allowed = {r.lower().strip() for r in roles if r}
+        if role not in allowed:
+            raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação.")
+        return user
+    return _dep

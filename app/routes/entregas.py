@@ -5,9 +5,13 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.schemas.entrega import EntregaCreate, EntregaUpdate, EntregaOut
 from app.crud import entrega_crud
+from app.crud import faturamento_crud
 from app.database import SessionLocal
 
+from app.deps_auth import require_roles
+
 router = APIRouter(prefix="/entregas", tags=["entregas"])
+
 
 def get_db():
     db = SessionLocal()
@@ -16,13 +20,18 @@ def get_db():
     finally:
         db.close()
 
+
 # ---------- helpers de serialização ----------
 def _serialize_entrega(r) -> EntregaOut:
     foi = (r.foi_entregue or "pendente").strip()
     foi_lower = foi.lower()
     entregue_bool = foi_lower in {"sim", "entregue", "ok", "1", "true"}
     status_txt = "Entregue" if entregue_bool else "Pendente"
-    # Mantém compatibilidade com o front: inclui status/status_entrega e boolean entregue
+
+    fat = getattr(r, "faturamento", None)
+    fat_id = fat.id if fat else None
+    fat_status = (fat.status or "").upper() if fat else None
+
     return EntregaOut(
         id=r.id,
         pi_id=r.pi_id,
@@ -33,7 +42,10 @@ def _serialize_entrega(r) -> EntregaOut:
         status_entrega=status_txt,
         entregue=entregue_bool,
         motivo=r.motivo or "",
+        faturamento_id=fat_id,
+        faturamento_status=fat_status,
     )
+
 
 # ---- listas ----
 @router.get("", response_model=List[EntregaOut])
@@ -50,16 +62,18 @@ def listar_todas(
         regs = entrega_crud.list_all(db)
     return [_serialize_entrega(r) for r in regs]
 
+
 @router.get("/veiculacao/{veiculacao_id:int}", response_model=List[EntregaOut])
 def por_veiculacao(veiculacao_id: int, db: Session = Depends(get_db)):
     regs = entrega_crud.list_by_veiculacao(db, veiculacao_id)
     return [_serialize_entrega(r) for r in regs]
 
-# ✅ novo: por PI (casa com o front que chama /pis/{id}/entregas)
+
 @router.get("/pi/{pi_id:int}", response_model=List[EntregaOut])
 def por_pi(pi_id: int, db: Session = Depends(get_db)):
     regs = entrega_crud.list_by_pi(db, pi_id)
     return [_serialize_entrega(r) for r in regs]
+
 
 # ---- CRUD ----
 @router.post("", response_model=EntregaOut, status_code=status.HTTP_201_CREATED)
@@ -70,6 +84,7 @@ def criar(body: EntregaCreate, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.put("/{entrega_id:int}", response_model=EntregaOut)
 def atualizar(entrega_id: int, body: EntregaUpdate, db: Session = Depends(get_db)):
     try:
@@ -77,6 +92,7 @@ def atualizar(entrega_id: int, body: EntregaUpdate, db: Session = Depends(get_db
         return _serialize_entrega(upd)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.put("/{entrega_id:int}/entregue", response_model=EntregaOut)
 def marcar_como_entregue(entrega_id: int, db: Session = Depends(get_db)):
@@ -86,6 +102,7 @@ def marcar_como_entregue(entrega_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.put("/{entrega_id:int}/motivo", response_model=EntregaOut)
 def atualizar_motivo(entrega_id: int, motivo: str, db: Session = Depends(get_db)):
     try:
@@ -94,10 +111,31 @@ def atualizar_motivo(entrega_id: int, motivo: str, db: Session = Depends(get_db)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.delete("/{entrega_id:int}")
 def deletar(entrega_id: int, db: Session = Depends(get_db)):
     try:
         entrega_crud.delete(db, entrega_id)
         return JSONResponse({"ok": True, "deleted_id": entrega_id})
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+# ============================
+# ✅ enviar para faturamento
+# ============================
+@router.post(
+    "/{entrega_id:int}/enviar-faturamento",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+def enviar_para_faturamento(
+    entrega_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_roles("admin", "opec")),
+):
+    try:
+        fat = faturamento_crud.criar_ou_obter(db, entrega_id)
+        return {"ok": True, "faturamento_id": fat.id, "status": fat.status}
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

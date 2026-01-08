@@ -22,22 +22,25 @@ export default function AppLayout() {
     { to: "/matrizes", label: "Matrizes" },
     { to: "/veiculacoes", label: "Veiculações" },
     { to: "/entregas", label: "Entregas" },
+
+    ...(user?.role === "admin" || user?.role === "financeiro"
+      ? [{ to: "/faturamentos", label: "Financeiro" }]
+      : []),
+
     { to: "/produtos", label: "Produtos" },
     { to: "/agencias", label: "Agências" },
     { to: "/anunciantes", label: "Anunciantes" },
     { to: "/executivos", label: "Executivos" },
   ]
 
-  // Item extra para admin (opcional)
   if (user?.role === "admin") {
     items.unshift({ to: "/admin/usuarios", label: "Admin • Usuários" })
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header fixo (vermelho) */}
       <Header
-        onToggleSidebar={() => setOpen((v) => !v)}
+        onToggleSidebar={() => setOpen(v => !v)}
         rightSlot={
           <div className="flex items-center gap-3">
             {user?.email && (
@@ -57,14 +60,11 @@ export default function AppLayout() {
         }
       />
 
-      {/* LAYOUT EM LINHA: sidebar à esquerda, conteúdo à direita */}
       <div className="flex w-full">
-        {/* Wrapper sticky pra sidebar ficar colada na lateral abaixo do header */}
         <div className="sticky top-[80px] h-[calc(100vh-80px)]">
-          <Sidebar open={open} items={items} />
+          <Sidebar open={open} items={items} role={user?.role} />
         </div>
 
-        {/* Área de conteúdo */}
         <main className="flex-1 p-4 overflow-auto">
           <Outlet />
         </main>

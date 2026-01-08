@@ -22,9 +22,20 @@ class EntregaUpdate(EntregaBase):
 class EntregaOut(BaseModel):
     id: int
     veiculacao_id: int
+    pi_id: Optional[int] = None
+
     data_entrega: str
     foi_entregue: EntregaStatus
     motivo: Optional[str] = ""
+
+    # ✅ compatibilidade com seu router (status textual + boolean)
+    status: Optional[str] = None
+    status_entrega: Optional[str] = None
+    entregue: Optional[bool] = None
+
+    # ✅ novo: status do faturamento (para o frontend)
+    faturamento_id: Optional[int] = None
+    faturamento_status: Optional[str] = None  # ENVIADO/EM_FATURAMENTO/FATURADO/PAGO
 
     class Config:
         from_attributes = True

@@ -1,39 +1,40 @@
 // src/App.tsx
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom"
 
-import AppLayout from "./layouts/AppLayout";
+import AppLayout from "./layouts/AppLayout"
 
-import CadastroPI from "./pages/CadastroPI";
-import Matrizes from "./pages/Matrizes";
-import Executivos from "./pages/Executivos";
-import Anunciantes from "./pages/Anunciantes";
-import Agencias from "./pages/Agencias";
-import PIs from "./pages/PIs";
-import Produtos from "./pages/Produtos";
-import Veiculacoes from "./pages/Veiculacoes";
-import Entregas from "./pages/Entregas";
+import CadastroPI from "./pages/CadastroPI"
+import Matrizes from "./pages/Matrizes"
+import Executivos from "./pages/Executivos"
+import Anunciantes from "./pages/Anunciantes"
+import Agencias from "./pages/Agencias"
+import PIs from "./pages/PIs"
+import Produtos from "./pages/Produtos"
+import Veiculacoes from "./pages/Veiculacoes"
+import Entregas from "./pages/Entregas"
 
-import Login from "./pages/Login";
-import ProtectedRoute from "./routes/ProtectedRoute";
+// ✅ NOVO
+import Faturamentos from "./pages/Faturamentos"
 
+import Login from "./pages/Login"
+import ProtectedRoute from "./routes/ProtectedRoute"
 
-import Register from "./pages/Register";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import AdminUsers from "./pages/AdminUsers";
+import Register from "./pages/Register"
+import ForgotPassword from "./pages/ForgotPassword"
+import ResetPassword from "./pages/ResetPassword"
+import AdminUsers from "./pages/AdminUsers"
 
 function Home() {
-  return <div className="p-6 text-2xl">Bem-vindo</div>;
+  return <div className="p-6 text-2xl">Bem-vindo</div>
 }
 
 function NotFound() {
-  return <div className="p-6 text-xl">Página não encontrada.</div>;
+  return <div className="p-6 text-xl">Página não encontrada.</div>
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* Redirect inicial (opcional) */}
       <Route path="/" element={<Navigate to="/pis" replace />} />
 
       {/* Públicas */}
@@ -62,7 +63,16 @@ export default function App() {
         <Route path="/anunciantes" element={<Anunciantes />} />
         <Route path="/agencias" element={<Agencias />} />
 
-        {/* Admin (proteção por role será feita no ProtectedRoute) */}
+        {/* ✅ Financeiro: admin também entra por regra no ProtectedRoute */}
+        <Route
+          path="/faturamentos"
+          element={
+            <ProtectedRoute requiredRole="financeiro">
+              <Faturamentos />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/admin/usuarios"
           element={
@@ -75,8 +85,7 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
 
-      {/* Fallback final */}
       <Route path="*" element={<NotFound />} />
     </Routes>
-  );
+  )
 }

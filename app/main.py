@@ -1,4 +1,3 @@
-# app/main.py
 from dotenv import load_dotenv
 load_dotenv()  # carrega .env antes de qualquer import que dependa de variáveis
 
@@ -29,38 +28,32 @@ from app.routes.produtos import router as produtos_router
 from app.routes.matrizes import router as matrizes_router
 from app.routes.veiculacoes import router as veiculacoes_router
 
+# ✅ faturamentos
+from app.routes.faturamentos import router as faturamentos_router
+
 
 app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 
 # ==========================================================
 # CORS
-# - Você autentica por Authorization: Bearer <token>
-# - Portanto NÃO precisa cookies -> allow_credentials=False
-# - Para Vercel: previews mudam a URL, então use allow_origin_regex
+# - Auth por Authorization: Bearer <token>
+# - Não precisa cookies -> allow_credentials=False
 # ==========================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        # Dev local
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5174",
-
-        # Produção Vercel (exato)
         "https://golive-veiculacoes.vercel.app",
     ],
-
-    # ✅ cobre previews do Vercel do seu projeto
-    # Se você tiver outro projeto em Vercel, adicione aqui ou ajuste o regex.
-    # - Ex.: https://golive-veiculacoes-abc123.vercel.app
     allow_origin_regex=r"^https:\/\/golive-veiculacoes(-[a-z0-9-]+)?\.vercel\.app$",
-
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],  # útil se você fizer download de arquivos
+    expose_headers=["Content-Disposition"],
 )
 
 # Static: garantir que a pasta exista antes de montar
@@ -74,7 +67,6 @@ def _startup():
     init_db()
 
     # Seed opcional de admin (somente se você definir no .env / env vars do Render)
-    # Recomendação: SEED_ADMIN_EMAIL precisa terminar com o domínio permitido
     if SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD:
         try:
             from app.crud.users import get_user_by_email, create_user
@@ -82,7 +74,6 @@ def _startup():
 
             db = SessionLocal()
             try:
-                # valida domínio também no seed (para não abrir exceção de regra)
                 if ALLOWED_EMAIL_DOMAIN and not SEED_ADMIN_EMAIL.endswith(ALLOWED_EMAIL_DOMAIN):
                     print(f"⚠️ Seed admin ignorado: email não termina com {ALLOWED_EMAIL_DOMAIN}")
                 else:
@@ -106,7 +97,7 @@ def healthcheck():
     return {"status": "ok"}
 
 
-# ROTAS PROTEGIDAS (todas exigem Authorization: Bearer <token>)
+# ROTAS PROTEGIDAS
 protected = [Depends(get_current_user)]
 
 app.include_router(pis_router, dependencies=protected)
@@ -118,7 +109,10 @@ app.include_router(produtos_router, dependencies=protected)
 app.include_router(matrizes_router, dependencies=protected)
 app.include_router(veiculacoes_router, dependencies=protected)
 
-# Admin (também deve estar protegido lá dentro com require_admin nas rotas sensíveis)
+# ✅ faturamentos protegido
+app.include_router(faturamentos_router, dependencies=protected)
+
+# Admin
 app.include_router(admin_users_router, dependencies=protected)
 
 

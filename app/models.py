@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     and_,
     DateTime,
+    UniqueConstraint,
 )
 
 # ✅ Base central
@@ -100,12 +101,8 @@ class PI(Base):
     numero_pi = Column(String, nullable=False, unique=True)
 
     # Vinculação
-    numero_pi_matriz = Column(
-        String, nullable=True
-    )  # usado se tipo_pi in {"Abatimento","Veiculação"}
-    numero_pi_normal = Column(
-        String, nullable=True
-    )  # usado se tipo_pi == "CS"
+    numero_pi_matriz = Column(String, nullable=True)   # usado se tipo_pi in {"Abatimento","Veiculação"}
+    numero_pi_normal = Column(String, nullable=True)   # usado se tipo_pi == "CS"
 
     # Tipo de PI
     # "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
@@ -136,7 +133,7 @@ class PI(Base):
     subperfil = Column(String)
 
     # Valores e datas (totais do PI)
-    valor_bruto = Column(Float)  # pode ser somatório das veiculações
+    valor_bruto = Column(Float)    # pode ser somatório das veiculações
     valor_liquido = Column(Float)  # idem
     vencimento = Column(Date)
     data_emissao = Column(Date)
@@ -149,7 +146,7 @@ class PI(Base):
     agencia = relationship("Agencia", back_populates="pis")
     anunciante = relationship("Anunciante", back_populates="pis")
 
-    # Produtos relacionados (catálogo global pode existir sem PI; não apagar em cascata)
+    # Produtos relacionados
     produtos = relationship(
         "Produto",
         back_populates="pi",
@@ -157,7 +154,7 @@ class PI(Base):
         passive_deletes=True,
     )
 
-    # Veiculações deste PI (para consultas globais por PI)
+    # Veiculações deste PI
     veiculacoes = relationship(
         "Veiculacao", back_populates="pi", cascade="all, delete-orphan"
     )
@@ -197,9 +194,7 @@ class PIAnexo(Base):
     __tablename__ = "pi_anexos"
 
     id = Column(Integer, primary_key=True)
-    pi_id = Column(
-        Integer, ForeignKey("pis_cadastro.id", ondelete="CASCADE"), nullable=False
-    )
+    pi_id = Column(Integer, ForeignKey("pis_cadastro.id", ondelete="CASCADE"), nullable=False)
 
     # tipo: "pi_pdf" ou "proposta_pdf"
     tipo = Column(String, nullable=False)
@@ -207,9 +202,7 @@ class PIAnexo(Base):
     path = Column(String, nullable=False)      # caminho salvo (relativo/absoluto)
     mime = Column(String, nullable=True)
     size = Column(Integer, nullable=True)
-    uploaded_at = Column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     pi = relationship("PI", back_populates="anexos")
 
@@ -220,9 +213,7 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False, unique=True)
 
-    pi_id = Column(
-        Integer, ForeignKey("pis_cadastro.id", ondelete="SET NULL"), nullable=True
-    )
+    pi_id = Column(Integer, ForeignKey("pis_cadastro.id", ondelete="SET NULL"), nullable=True)
 
     descricao = Column(String, nullable=True)
 
@@ -277,3 +268,67 @@ class Entrega(Base):
 
     veiculacao = relationship("Veiculacao", back_populates="entregas")
     pi = relationship("PI", back_populates="entregas")
+
+    # ✅ 1:1 com faturamento (se enviado)
+    faturamento = relationship(
+        "Faturamento",
+        back_populates="entrega",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+# =========================
+# FATURAMENTO (NOVO)
+# =========================
+
+class Faturamento(Base):
+    __tablename__ = "faturamentos"
+    __table_args__ = (
+        UniqueConstraint("entrega_id", name="uq_faturamentos_entrega_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+
+    entrega_id = Column(Integer, ForeignKey("entregas.id", ondelete="CASCADE"), nullable=False)
+
+    # Status do pipeline
+    # ENVIADO -> EM_FATURAMENTO -> FATURADO -> PAGO
+    status = Column(String, nullable=False, default="ENVIADO")
+
+    enviado_em = Column(DateTime, default=datetime.utcnow, nullable=False)
+    em_faturamento_em = Column(DateTime, nullable=True)
+    faturado_em = Column(DateTime, nullable=True)
+    pago_em = Column(DateTime, nullable=True)
+
+    nf_numero = Column(String, nullable=True)
+    observacao = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    entrega = relationship("Entrega", back_populates="faturamento")
+
+    anexos = relationship(
+        "FaturamentoAnexo",
+        back_populates="faturamento",
+        cascade="all, delete-orphan",
+    )
+
+
+class FaturamentoAnexo(Base):
+    __tablename__ = "faturamento_anexos"
+
+    id = Column(Integer, primary_key=True)
+    faturamento_id = Column(Integer, ForeignKey("faturamentos.id", ondelete="CASCADE"), nullable=False)
+
+    # tipos sugeridos: OPEC, NF, COMPROVANTE_PAGAMENTO
+    tipo = Column(String, nullable=False)
+
+    filename = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    mime = Column(String, nullable=True)
+    size = Column(Integer, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    faturamento = relationship("Faturamento", back_populates="anexos")
