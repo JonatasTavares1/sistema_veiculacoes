@@ -13,7 +13,10 @@ import Produtos from "./pages/Produtos"
 import Veiculacoes from "./pages/Veiculacoes"
 import Entregas from "./pages/Entregas"
 
-// ✅ NOVO
+// ✅ NOVO: Vendas
+import Vendas from "./pages/Vendas"
+
+// ✅ faturamentos
 import Faturamentos from "./pages/Faturamentos"
 
 import Login from "./pages/Login"
@@ -63,7 +66,10 @@ export default function App() {
         <Route path="/anunciantes" element={<Anunciantes />} />
         <Route path="/agencias" element={<Agencias />} />
 
-        {/* ✅ Financeiro: admin também entra por regra no ProtectedRoute */}
+        {/* ✅ Vendas */}
+        <Route path="/vendas" element={<Vendas />} />
+
+        {/* ✅ Financeiro */}
         <Route
           path="/faturamentos"
           element={

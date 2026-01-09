@@ -80,10 +80,10 @@ class AgenciaOut(BaseModel):
 
     # existentes
     razao_social_agencia: Optional[str] = None
-    cnpj_agencia: str
+    cnpj_agencia: Optional[str] = None
     uf_agencia: Optional[str] = None
     executivo: str
-    email_agencia: Optional[EmailStr] = None
+    email_agencia: Optional[str] = None
     data_cadastro: Optional[str] = None
 
     # novos (básicos)

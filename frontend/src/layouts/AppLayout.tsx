@@ -20,6 +20,10 @@ export default function AppLayout() {
     { to: "/pis", label: "PIs" },
     { to: "/pis/cadastro", label: "Cadastrar PI" },
     { to: "/matrizes", label: "Matrizes" },
+
+    // ✅ Vendas (Comercial/Gestão)
+    { to: "/vendas", label: "Vendas" },
+
     { to: "/veiculacoes", label: "Veiculações" },
     { to: "/entregas", label: "Entregas" },
 
@@ -62,7 +66,8 @@ export default function AppLayout() {
 
       <div className="flex w-full">
         <div className="sticky top-[80px] h-[calc(100vh-80px)]">
-          <Sidebar open={open} items={items} role={user?.role} />
+          {/* ✅ remove role para corrigir TS2322 */}
+          <Sidebar open={open} items={items} />
         </div>
 
         <main className="flex-1 p-4 overflow-auto">

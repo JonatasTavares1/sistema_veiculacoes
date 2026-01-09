@@ -24,7 +24,7 @@ class Agencia(Base):
     id = Column(Integer, primary_key=True)
     nome_agencia = Column(String, nullable=False)
     razao_social_agencia = Column(String)
-    cnpj_agencia = Column(String, unique=True, nullable=False)
+    cnpj_agencia = Column(String, unique=True, nullable=True)
     uf_agencia = Column(String)
     executivo = Column(String, nullable=False)
     email_agencia = Column(String)
@@ -32,7 +32,7 @@ class Agencia(Base):
 
     # === campos novos (básicos) ===
     grupo_empresarial = Column(String, nullable=True)
-    codinome = Column(String, unique=True, index=True, nullable=True)
+    codinome = Column(String, index=True, nullable=True)
     site = Column(String, nullable=True)
     linkedin = Column(String, nullable=True)
     instagram = Column(String, nullable=True)
@@ -332,3 +332,28 @@ class FaturamentoAnexo(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     faturamento = relationship("Faturamento", back_populates="anexos")
+# =========================
+# METAS DE VENDAS (NOVO)
+# =========================
+
+class MetaVenda(Base):
+    __tablename__ = "metas_vendas"
+    __table_args__ = (
+        UniqueConstraint("mes", "ano", "escopo", "chave", name="uq_meta_mes_ano_escopo_chave"),
+    )
+
+    id = Column(Integer, primary_key=True)
+
+    mes = Column(Integer, nullable=False)   # 1..12
+    ano = Column(Integer, nullable=False)
+
+    # "EXECUTIVO" ou "DIRETORIA"
+    escopo = Column(String, nullable=False)
+
+    # nome do executivo OU nome da diretoria (depende do escopo)
+    chave = Column(String, nullable=False)
+
+    valor_meta = Column(Float, nullable=False, default=0.0)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
