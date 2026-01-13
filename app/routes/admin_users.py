@@ -67,31 +67,26 @@ def approve(
 
     role = (data.role or "user").strip().lower()
 
-    # ✅ valida role
     allowed_roles = {"user", "admin", "executivo", "financeiro"}
     if role not in allowed_roles:
-        raise HTTPException(status_code=422, detail=f"Role inválida. Use: {', '.join(sorted(allowed_roles))}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Role inválida. Use: {', '.join(sorted(allowed_roles))}",
+        )
 
     # ✅ se for executivo, executivo_nome é obrigatório
     if role == "executivo":
         exec_nome = (data.executivo_nome or "").strip()
         if not exec_nome:
             raise HTTPException(status_code=422, detail="Para role=executivo, informe executivo_nome.")
-        setattr(user, "executivo_nome", exec_nome)
+        user.executivo_nome = exec_nome
     else:
-        # se não for executivo, pode limpar (opcional)
-        if hasattr(user, "executivo_nome"):
-            setattr(user, "executivo_nome", None)
+        user.executivo_nome = None
 
     # Ajusta role
     set_user_role(db, user_id=user.id, role=role)
 
-    # Persistir executivo_nome
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # Aprova (registra quem aprovou)
+    # aprova
     approve_user(db, user_id=user.id, approved_by=current_user.id)
 
     # Notifica por e-mail

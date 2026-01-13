@@ -20,6 +20,14 @@ def _get_exec_nome_from_user(user) -> str:
     return nome
 
 
+def _pick(obj, attr: str, default=None):
+    return getattr(obj, attr, default)
+
+
+def _safe_str(v) -> str:
+    return (v or "").strip()
+
+
 @router.get("")
 def me_basic(user=Depends(get_current_user)):
     """Retorna dados básicos do usuário logado."""
@@ -74,12 +82,14 @@ def me_carteira(
     # Base: PIs do executivo
     q_base = db.query(PI).filter(PI.executivo == exec_nome)
 
-    # Seu PI.mes_venda é string: a gente filtra por "1".."12"
+    # Seu PI.mes_venda é string: filtra por "1".."12"
     q_base = q_base.filter(PI.mes_venda == str(mes))
 
     # Ano: usa data_emissao (Date)
     q_base = q_base.filter(PI.data_emissao.isnot(None))
-    q_base = q_base.filter(func.strftime("%Y", PI.data_emissao) == str(ano))
+
+    # ✅ PostgreSQL: extrai ano (evita strftime do SQLite)
+    q_base = q_base.filter(func.extract("year", PI.data_emissao) == ano)
 
     total_pis = q_base.count()
     soma_bruto = (
@@ -125,10 +135,14 @@ def me_carteira(
             "valor_liquido": float(soma_liquido or 0.0),
         },
         "top_anunciantes": [
-            {"label": a[0], "valor": float(a[1] or 0.0)} for a in top_anunciantes if a[0]
+            {"label": _safe_str(a[0]), "valor": float(a[1] or 0.0)}
+            for a in top_anunciantes
+            if _safe_str(a[0])
         ],
         "top_agencias": [
-            {"label": a[0], "valor": float(a[1] or 0.0)} for a in top_agencias if a[0]
+            {"label": _safe_str(a[0]), "valor": float(a[1] or 0.0)}
+            for a in top_agencias
+            if _safe_str(a[0])
         ],
         "pis": [
             {
@@ -142,4 +156,120 @@ def me_carteira(
             }
             for p in pis
         ],
+    }
+
+
+# ==========================================================
+# ✅ NOVO: Carteira completa do executivo (listas + busca + paginação)
+# ==========================================================
+
+@router.get("/carteira/agencias")
+def me_carteira_agencias(
+    q: str | None = Query(default=None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles("executivo", "admin")),
+):
+    exec_nome = _get_exec_nome_from_user(user)
+
+    base = db.query(Agencia).filter(Agencia.executivo == exec_nome)
+
+    # Busca (case-insensitive) por nome
+    if q and q.strip():
+        qq = f"%{q.strip().lower()}%"
+        if hasattr(Agencia, "nome_agencia"):
+            base = base.filter(func.lower(Agencia.nome_agencia).like(qq))
+        elif hasattr(Agencia, "nome"):
+            base = base.filter(func.lower(Agencia.nome).like(qq))
+
+    total = int(base.count() or 0)
+
+    # Ordenação segura (nome > id)
+    if hasattr(Agencia, "nome_agencia"):
+        order_col = Agencia.nome_agencia
+    elif hasattr(Agencia, "nome"):
+        order_col = Agencia.nome
+    else:
+        order_col = Agencia.id
+
+    rows = base.order_by(order_col).offset(offset).limit(limit).all()
+
+    items = []
+    for a in rows:
+        items.append(
+            {
+                "id": _pick(a, "id"),
+                "nome": _safe_str(_pick(a, "nome_agencia", _pick(a, "nome", ""))),
+                "cnpj": _pick(a, "cnpj_agencia", _pick(a, "cnpj", None)),
+                "uf": _pick(a, "uf_agencia", _pick(a, "uf", None)),
+                "executivo": _pick(a, "executivo", exec_nome),
+            }
+        )
+
+    # Remove entradas vazias (nome vazio)
+    items = [i for i in items if _safe_str(i.get("nome"))]
+
+    return {
+        "executivo": exec_nome,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+@router.get("/carteira/anunciantes")
+def me_carteira_anunciantes(
+    q: str | None = Query(default=None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles("executivo", "admin")),
+):
+    exec_nome = _get_exec_nome_from_user(user)
+
+    base = db.query(Anunciante).filter(Anunciante.executivo == exec_nome)
+
+    # Busca (case-insensitive) por nome
+    if q and q.strip():
+        qq = f"%{q.strip().lower()}%"
+        if hasattr(Anunciante, "nome_anunciante"):
+            base = base.filter(func.lower(Anunciante.nome_anunciante).like(qq))
+        elif hasattr(Anunciante, "nome"):
+            base = base.filter(func.lower(Anunciante.nome).like(qq))
+
+    total = int(base.count() or 0)
+
+    # Ordenação segura (nome > id)
+    if hasattr(Anunciante, "nome_anunciante"):
+        order_col = Anunciante.nome_anunciante
+    elif hasattr(Anunciante, "nome"):
+        order_col = Anunciante.nome
+    else:
+        order_col = Anunciante.id
+
+    rows = base.order_by(order_col).offset(offset).limit(limit).all()
+
+    items = []
+    for x in rows:
+        items.append(
+            {
+                "id": _pick(x, "id"),
+                "nome": _safe_str(_pick(x, "nome_anunciante", _pick(x, "nome", ""))),
+                "cnpj": _pick(x, "cnpj_anunciante", _pick(x, "cnpj", None)),
+                "uf": _pick(x, "uf_cliente", _pick(x, "uf", None)),
+                "executivo": _pick(x, "executivo", exec_nome),
+            }
+        )
+
+    # Remove entradas vazias (nome vazio)
+    items = [i for i in items if _safe_str(i.get("nome"))]
+
+    return {
+        "executivo": exec_nome,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
     }

@@ -28,6 +28,7 @@ from app.routes.produtos import router as produtos_router
 from app.routes.matrizes import router as matrizes_router
 from app.routes.veiculacoes import router as veiculacoes_router
 from app.routes.vendas import router as vendas_router
+from app.routes.me import router as me_router
 
 # ✅ faturamentos
 from app.routes.faturamentos import router as faturamentos_router
@@ -117,7 +118,7 @@ app.include_router(faturamentos_router, dependencies=protected)
 app.include_router(admin_users_router, dependencies=protected)
 
 app.include_router(vendas_router, dependencies=protected)
-
+app.include_router(me_router, dependencies=protected)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
