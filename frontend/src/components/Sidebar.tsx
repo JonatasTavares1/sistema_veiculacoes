@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { NavLink } from "react-router-dom"
+import { getUser } from "../services/auth"
 
 type Item = { to: string; label: string }
 type Props = { open: boolean; items: Item[] }
@@ -9,8 +10,26 @@ const LABEL_OVERRIDES: Record<string, string> = {
   pis: "Busca de PI",
   produtos: "Produto",
 }
+
 const norm = (s: string) => s.trim().toLowerCase()
 const displayLabel = (original: string) => LABEL_OVERRIDES[norm(original)] ?? original
+
+function canSeeMeuPerfil(role?: string | null) {
+  const r = norm(role || "")
+  return r === "executivo" || r === "admin"
+}
+
+function withMeuPerfil(allItems: Item[]) {
+  const user = getUser()
+  if (!canSeeMeuPerfil(user?.role)) return allItems
+
+  const exists = allItems.some(
+    (i) => norm(i.to) === "/meu-perfil" || norm(i.label) === "meu perfil"
+  )
+  if (exists) return allItems
+
+  return [{ to: "/meu-perfil", label: "Meu Perfil" }, ...(allItems || [])]
+}
 
 function buildGroups(allItems: Item[]): Group[] {
   const byLabel = new Map(allItems.map((i) => [norm(i.label), i]))
@@ -20,8 +39,8 @@ function buildGroups(allItems: Item[]): Group[] {
     return v
   }
 
-  // Ordem solicitada (incluindo Vendas como Comercial)
   const comercialOrder = [
+    "Meu Perfil",
     "PIs",
     "Cadastrar PI",
     "Matrizes",
@@ -47,14 +66,19 @@ function buildGroups(allItems: Item[]): Group[] {
 }
 
 export default function Sidebar({ open, items }: Props) {
-  const groups = useMemo(() => buildGroups(items || []), [items])
+  const enrichedItems = useMemo(() => withMeuPerfil(items || []), [items])
+  const groups = useMemo(() => buildGroups(enrichedItems || []), [enrichedItems])
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(groups.map((g) => [g.title, true]))
   )
 
   useEffect(() => {
-    if (!open) setExpanded((prev) => Object.fromEntries(Object.keys(prev).map((k) => [k, false])))
+    if (!open) {
+      setExpanded((prev) =>
+        Object.fromEntries(Object.keys(prev).map((k) => [k, false]))
+      )
+    }
   }, [open])
 
   useEffect(() => {
@@ -67,7 +91,8 @@ export default function Sidebar({ open, items }: Props) {
     })
   }, [groups])
 
-  const toggle = (title: string) => setExpanded((prev) => ({ ...prev, [title]: !prev[title] }))
+  const toggle = (title: string) =>
+    setExpanded((prev) => ({ ...prev, [title]: !prev[title] }))
 
   return (
     <aside
@@ -78,10 +103,12 @@ export default function Sidebar({ open, items }: Props) {
         open ? "w-80" : "w-24",
         "min-h-[calc(100vh-80px)]",
         "flex flex-col",
+        "overflow-hidden", // 🔒 evita scroll no container externo
       ].join(" ")}
       role="navigation"
       aria-label="Menu lateral"
     >
+      {/* HEADER FIXO */}
       <div className="px-5 py-5 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-black">
@@ -94,7 +121,8 @@ export default function Sidebar({ open, items }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-2 custom-scroll">
+      {/* ✅ ÁREA COM SCROLL */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2 custom-scroll">
         <nav className="p-3 space-y-3">
           {groups.map((group) => {
             const isOpen = !!expanded[group.title]
@@ -107,10 +135,11 @@ export default function Sidebar({ open, items }: Props) {
                   className={[
                     "w-full flex items-center justify-between px-2 py-1",
                     "text-white/90",
-                    open ? "text-lg font-bold uppercase tracking-wider" : "text-[11px] uppercase",
+                    open
+                      ? "text-lg font-bold uppercase tracking-wider"
+                      : "text-[11px] uppercase",
                     "hover:text-white transition-colors",
                   ].join(" ")}
-                  title={open ? group.title : undefined}
                 >
                   <span className={open ? "block" : "hidden"}>{group.title}</span>
                   <span
@@ -125,7 +154,7 @@ export default function Sidebar({ open, items }: Props) {
                   {!open && <span className="w-6 h-1.5 bg-white/30 rounded-full" />}
                 </button>
 
-                <div className={isOpen && open ? "block" : "hidden"}>
+                {isOpen && open && (
                   <ul className="mt-1">
                     {group.items.map((item) => {
                       const shownLabel = displayLabel(item.label)
@@ -133,37 +162,25 @@ export default function Sidebar({ open, items }: Props) {
                         <li key={`${group.title}-${item.to}`} className="mb-2 last:mb-0">
                           <NavLink
                             to={item.to}
-                            end={item.to === "/"}
                             className={({ isActive }) =>
                               [
                                 "group flex items-center rounded-xl px-4 py-3",
-                                "text-[17px] font-medium",
-                                "transition-colors",
+                                "text-[17px] font-medium transition-colors",
                                 isActive
                                   ? "bg-white/20 ring-1 ring-white/20 shadow-inner"
                                   : "hover:bg-white/10",
                               ].join(" ")
                             }
-                            title={shownLabel}
                           >
                             {({ isActive }) => (
                               <>
                                 <span
                                   className={[
-                                    "mr-4 h-8 w-1.5 rounded-full transition-all",
-                                    isActive ? "bg-white" : "bg-white/30 group-hover:bg-white/50",
+                                    "mr-4 h-8 w-1.5 rounded-full",
+                                    isActive ? "bg-white" : "bg-white/30",
                                   ].join(" ")}
                                 />
-                                <span
-                                  className={[
-                                    "inline-flex h-9 w-9 items-center justify-center rounded-xl text-2xl",
-                                    isActive ? "bg-white/25" : "bg-white/10 group-hover:bg-white/20",
-                                  ].join(" ")}
-                                  aria-hidden
-                                >
-                                  •
-                                </span>
-                                <span className={(open ? "ml-4 block" : "ml-0 hidden") + " truncate"}>
+                                <span className={open ? "ml-2 block truncate" : "hidden"}>
                                   {shownLabel}
                                 </span>
                               </>
@@ -173,7 +190,7 @@ export default function Sidebar({ open, items }: Props) {
                       )
                     })}
                   </ul>
-                </div>
+                )}
               </section>
             )
           })}

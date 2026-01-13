@@ -27,6 +27,9 @@ import ForgotPassword from "./pages/ForgotPassword"
 import ResetPassword from "./pages/ResetPassword"
 import AdminUsers from "./pages/AdminUsers"
 
+// ✅ NOVO: Meu Perfil
+import MeuPerfilExecutivo from "./pages/MeuPerfilExecutivo"
+
 function Home() {
   return <div className="p-6 text-2xl">Bem-vindo</div>
 }
@@ -55,6 +58,16 @@ export default function App() {
         }
       >
         <Route path="/home" element={<Home />} />
+
+        {/* ✅ Meu Perfil (Executivo) */}
+        <Route
+          path="/meu-perfil"
+          element={
+            <ProtectedRoute requiredRole={["executivo", "admin"]}>
+              <MeuPerfilExecutivo />
+            </ProtectedRoute>
+          }
+        />
 
         <Route path="/entregas" element={<Entregas />} />
         <Route path="/veiculacoes" element={<Veiculacoes />} />

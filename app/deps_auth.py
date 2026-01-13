@@ -32,16 +32,31 @@ def get_current_user(
 
 
 def require_admin(user=Depends(get_current_user)):
-    if (user.role or "").lower() != "admin":
+    if (getattr(user, "role", "") or "").lower().strip() != "admin":
         raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
     return user
 
 
 def require_roles(*roles: str):
+    """
+    Permite acesso somente para os roles informados.
+    ✅ Admin sempre é permitido (override).
+    """
     def _dep(user=Depends(get_current_user)):
         role = (getattr(user, "role", "") or "").lower().strip()
-        allowed = {r.lower().strip() for r in roles if r}
+
+        # ✅ admin sempre pode tudo
+        if role == "admin":
+            return user
+
+        allowed = { (r or "").lower().strip() for r in roles if (r or "").strip() }
+        if not allowed:
+            # se ninguém passou roles, não deveria acontecer; mas evita liberar por acidente
+            raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação.")
+
         if role not in allowed:
             raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação.")
+
         return user
+
     return _dep

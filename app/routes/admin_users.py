@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.deps import get_db
-from app.deps_auth import get_current_user, require_admin
+from app.deps_auth import require_admin
 from app.core.email import send_email
 from app.core.config import FRONTEND_BASE_URL
 from app.crud.users import (
@@ -19,6 +19,8 @@ router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 class ApproveIn(BaseModel):
     role: str = "user"
+    # ✅ NOVO: se role=executivo, precisa vir preenchido
+    executivo_nome: str | None = None
 
 
 class UserItem(BaseModel):
@@ -27,6 +29,7 @@ class UserItem(BaseModel):
     role: str
     status: str
     is_approved: bool
+    executivo_nome: str | None = None
 
 
 @router.get("/pending", response_model=list[UserItem])
@@ -42,6 +45,7 @@ def pending(
             role=u.role,
             status=u.status,
             is_approved=u.is_approved,
+            executivo_nome=getattr(u, "executivo_nome", None),
         )
         for u in users
     ]
@@ -61,9 +65,31 @@ def approve(
     if user.is_approved:
         return {"ok": True, "message": "Usuário já está aprovado."}
 
-    # Ajusta role (se vier diferente)
     role = (data.role or "user").strip().lower()
+
+    # ✅ valida role
+    allowed_roles = {"user", "admin", "executivo", "financeiro"}
+    if role not in allowed_roles:
+        raise HTTPException(status_code=422, detail=f"Role inválida. Use: {', '.join(sorted(allowed_roles))}")
+
+    # ✅ se for executivo, executivo_nome é obrigatório
+    if role == "executivo":
+        exec_nome = (data.executivo_nome or "").strip()
+        if not exec_nome:
+            raise HTTPException(status_code=422, detail="Para role=executivo, informe executivo_nome.")
+        setattr(user, "executivo_nome", exec_nome)
+    else:
+        # se não for executivo, pode limpar (opcional)
+        if hasattr(user, "executivo_nome"):
+            setattr(user, "executivo_nome", None)
+
+    # Ajusta role
     set_user_role(db, user_id=user.id, role=role)
+
+    # Persistir executivo_nome
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     # Aprova (registra quem aprovou)
     approve_user(db, user_id=user.id, approved_by=current_user.id)

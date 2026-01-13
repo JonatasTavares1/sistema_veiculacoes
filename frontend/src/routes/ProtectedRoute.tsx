@@ -1,4 +1,3 @@
-// src/routes/ProtectedRoute.tsx
 import React from "react"
 import { Navigate, useLocation } from "react-router-dom"
 import { getUser, isAuthenticated } from "../services/auth"
@@ -11,6 +10,7 @@ function norm(v?: string | null) {
 
 function hasRole(userRole: string, required?: RoleLike) {
   if (!required) return true
+
   const r = norm(userRole)
 
   // ✅ admin sempre pode tudo
@@ -19,7 +19,17 @@ function hasRole(userRole: string, required?: RoleLike) {
   if (Array.isArray(required)) {
     return required.map(norm).includes(r)
   }
+
   return r === norm(required)
+}
+
+function getDefaultDeniedRedirect(role?: string) {
+  const r = norm(role)
+
+  // Ajuste fino: cada role cai numa "home" natural
+  if (r === "executivo") return "/meu-perfil" // quando criarmos
+  if (r === "financeiro") return "/faturamentos"
+  return "/pis"
 }
 
 export default function ProtectedRoute({
@@ -35,13 +45,11 @@ export default function ProtectedRoute({
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  if (requiredRole) {
-    const user = getUser()
-    const role = user?.role || ""
+  const user = getUser()
+  const role = user?.role || ""
 
-    if (!hasRole(role, requiredRole)) {
-      return <Navigate to="/pis" replace />
-    }
+  if (requiredRole && !hasRole(role, requiredRole)) {
+    return <Navigate to={getDefaultDeniedRedirect(role)} replace />
   }
 
   return <>{children}</>

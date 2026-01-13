@@ -28,29 +28,38 @@ from app.crud.users import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
 class LoginIn(BaseModel):
     email: EmailStr
     senha: str
+
 
 class RegisterIn(BaseModel):
     email: EmailStr
     senha: str
 
+
 class ForgotIn(BaseModel):
     email: EmailStr
+
 
 class ResetIn(BaseModel):
     token: str
     nova_senha: str
 
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr
     role: str
+    # ✅ NOVO: devolve vínculo do executivo (para renderizar "Meu Perfil")
+    executivo_nome: str | None = None
+
 
 class LoginOut(BaseModel):
     token: str
     user: UserOut
+
 
 def _enforce_domain(email: str):
     if not email.endswith(ALLOWED_EMAIL_DOMAIN):
@@ -58,6 +67,7 @@ def _enforce_domain(email: str):
             status_code=403,
             detail=f"Acesso permitido apenas para e-mails {ALLOWED_EMAIL_DOMAIN}",
         )
+
 
 @router.post("/login", response_model=LoginOut)
 def login(data: LoginIn, db: Session = Depends(get_db)):
@@ -69,7 +79,10 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Credenciais inválidas.")
 
     if not getattr(user, "is_approved", False):
-        raise HTTPException(status_code=403, detail="Cadastro pendente de aprovação do administrador.")
+        raise HTTPException(
+            status_code=403,
+            detail="Cadastro pendente de aprovação do administrador.",
+        )
 
     if not verify_password(data.senha, user.password_hash):
         raise HTTPException(status_code=401, detail="Credenciais inválidas.")
@@ -82,7 +95,16 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
         expires_minutes=JWT_EXPIRES_MINUTES,
     )
 
-    return LoginOut(token=token, user=UserOut(id=user.id, email=user.email, role=user.role))
+    return LoginOut(
+        token=token,
+        user=UserOut(
+            id=user.id,
+            email=user.email,
+            role=user.role,
+            executivo_nome=getattr(user, "executivo_nome", None),
+        ),
+    )
+
 
 @router.post("/register")
 def register(data: RegisterIn, db: Session = Depends(get_db)):
@@ -90,11 +112,17 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
     _enforce_domain(email)
 
     if not data.senha or len(data.senha.strip()) < 6:
-        raise HTTPException(status_code=400, detail="A senha deve ter pelo menos 6 caracteres.")
+        raise HTTPException(
+            status_code=400,
+            detail="A senha deve ter pelo menos 6 caracteres.",
+        )
 
     exists = get_user_by_email(db, email)
     if exists:
-        raise HTTPException(status_code=409, detail="Usuário já existe. Tente recuperar a senha ou aguarde aprovação.")
+        raise HTTPException(
+            status_code=409,
+            detail="Usuário já existe. Tente recuperar a senha ou aguarde aprovação.",
+        )
 
     user = create_user_pending(db, email=email, senha=data.senha)
     return {
@@ -102,6 +130,7 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
         "message": "Cadastro enviado para aprovação. Você receberá um e-mail após aprovação.",
         "user_id": user.id,
     }
+
 
 @router.post("/forgot-password")
 def forgot_password(data: ForgotIn, db: Session = Depends(get_db)):
@@ -112,7 +141,10 @@ def forgot_password(data: ForgotIn, db: Session = Depends(get_db)):
 
     # Sempre retornar OK (não vaza se existe ou não)
     if not user or not getattr(user, "is_approved", False):
-        return {"ok": True, "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição."}
+        return {
+            "ok": True,
+            "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição.",
+        }
 
     token = uuid4().hex
     set_reset_token(db, user, token, minutes=RESET_TOKEN_EXPIRES_MINUTES)
@@ -129,7 +161,11 @@ def forgot_password(data: ForgotIn, db: Session = Depends(get_db)):
         ),
     )
 
-    return {"ok": True, "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição."}
+    return {
+        "ok": True,
+        "message": "Se este e-mail estiver habilitado, enviaremos instruções de redefinição.",
+    }
+
 
 @router.post("/reset-password")
 def reset_password(data: ResetIn, db: Session = Depends(get_db)):
@@ -138,7 +174,10 @@ def reset_password(data: ResetIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Token inválido.")
 
     if not data.nova_senha or len(data.nova_senha.strip()) < 6:
-        raise HTTPException(status_code=400, detail="A nova senha deve ter pelo menos 6 caracteres.")
+        raise HTTPException(
+            status_code=400,
+            detail="A nova senha deve ter pelo menos 6 caracteres.",
+        )
 
     user = get_user_by_reset_token(db, token)
     if not user:

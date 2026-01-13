@@ -1,23 +1,23 @@
 // src/pages/Login.tsx
-import React, { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import React, { useMemo, useState } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import {
   ALLOWED_DOMAIN,
   isAllowedEmail,
   normalizeEmail,
   setSession,
   type AuthUser,
-} from "../services/auth";
+} from "../services/auth"
 
-import logoNegativa from "../assets/logo-negativa_.png";
-import logoSvg from "../assets/logo.svg";
+import logoNegativa from "../assets/logo-negativa_.png"
+import logoSvg from "../assets/logo.svg"
 
-const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
+const API = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000"
 
 type LoginResponse = {
-  token: string;
-  user: AuthUser;
-};
+  token: string
+  user: AuthUser
+}
 
 function IconMail(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -35,7 +35,7 @@ function IconMail(props: React.SVGProps<SVGSVGElement>) {
         strokeLinejoin="round"
       />
     </svg>
-  );
+  )
 }
 
 function IconLock(props: React.SVGProps<SVGSVGElement>) {
@@ -53,7 +53,7 @@ function IconLock(props: React.SVGProps<SVGSVGElement>) {
         strokeWidth="1.6"
       />
     </svg>
-  );
+  )
 }
 
 function IconEye(props: React.SVGProps<SVGSVGElement>) {
@@ -70,7 +70,7 @@ function IconEye(props: React.SVGProps<SVGSVGElement>) {
         strokeWidth="1.6"
       />
     </svg>
-  );
+  )
 }
 
 function IconEyeOff(props: React.SVGProps<SVGSVGElement>) {
@@ -89,66 +89,99 @@ function IconEyeOff(props: React.SVGProps<SVGSVGElement>) {
         strokeLinecap="round"
       />
     </svg>
-  );
+  )
+}
+
+/**
+ * Guardar preferência do checkbox (somente o "flag")
+ * A sessão em si é gravada pelo setSession(token,user,remember).
+ */
+const REMEMBER_PREF_KEY = "sv_remember_me"
+
+function getInitialRemember(): boolean {
+  try {
+    const v = localStorage.getItem(REMEMBER_PREF_KEY)
+    if (v === "1") return true
+    if (v === "0") return false
+  } catch {
+    // ignore
+  }
+  return true // padrão: lembrar
+}
+
+function setRememberPref(v: boolean) {
+  try {
+    localStorage.setItem(REMEMBER_PREF_KEY, v ? "1" : "0")
+  } catch {
+    // ignore
+  }
 }
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const [email, setEmail] = useState("")
+  const [senha, setSenha] = useState("")
+  const [erro, setErro] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [showPass, setShowPass] = useState(false)
 
-  const navigate = useNavigate();
-  const location = useLocation() as any;
+  // ✅ lembrar sessão
+  const [remember, setRemember] = useState<boolean>(getInitialRemember())
+
+  const navigate = useNavigate()
+  const location = useLocation() as any
 
   const emailOk = useMemo(() => {
-    if (!email) return true;
-    return isAllowedEmail(email);
-  }, [email]);
+    if (!email) return true
+    return isAllowedEmail(email)
+  }, [email])
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErro(null);
+    e.preventDefault()
+    setErro(null)
 
-    const normalized = normalizeEmail(email);
+    const normalized = normalizeEmail(email)
 
     if (!isAllowedEmail(normalized)) {
-      setErro(`Acesso permitido apenas para e-mails ${ALLOWED_DOMAIN}`);
-      return;
+      setErro(`Acesso permitido apenas para e-mails ${ALLOWED_DOMAIN}`)
+      return
     }
 
     if (!senha || senha.trim().length < 4) {
-      setErro("Informe a senha.");
-      return;
+      setErro("Informe a senha.")
+      return
     }
 
-    setLoading(true);
+    setLoading(true)
     try {
       const resp = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: normalized, senha }),
-      });
+      })
 
-      const data = (await resp.json()) as any;
+      const data = (await resp.json()) as any
 
       if (!resp.ok) {
-        const msg = data?.error || data?.detail || "Falha no login";
-        throw new Error(msg);
+        const msg = data?.error || data?.detail || "Falha no login"
+        throw new Error(msg)
       }
 
-      const parsed = data as LoginResponse;
-      if (!parsed?.token) throw new Error("Resposta inválida do servidor.");
+      const parsed = data as LoginResponse
+      if (!parsed?.token) throw new Error("Resposta inválida do servidor.")
 
-      setSession(parsed.token, parsed.user);
+      // ✅ guarda preferencia do checkbox
+      setRememberPref(remember)
 
-      const dest = location?.state?.from?.pathname || "/";
-      navigate(dest, { replace: true });
+      // ✅ persiste sessão do jeito CERTO (usando as chaves do teu auth.ts)
+      // precisa do auth.ts com setSession(token,user,remember)
+      setSession(parsed.token, parsed.user, remember)
+
+      const dest = location?.state?.from?.pathname || "/"
+      navigate(dest, { replace: true })
     } catch (err: any) {
-      setErro(err?.message || "Erro no login");
+      setErro(err?.message || "Erro no login")
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
@@ -165,7 +198,7 @@ export default function Login() {
 
       <div className="relative min-h-screen grid place-items-center p-6">
         <div className="w-full max-w-md">
-          {/* LOGO (mais impactante) */}
+          {/* LOGO */}
           <div className="mb-8 flex justify-center">
             <div className="relative">
               <div className="absolute inset-x-0 -top-10 h-36 bg-red-600/25 blur-3xl rounded-full" />
@@ -178,28 +211,21 @@ export default function Login() {
             </div>
           </div>
 
-          {/* CARD premium (sheen no topo) */}
+          {/* CARD */}
           <div className="relative rounded-2xl border border-zinc-800/90 bg-zinc-900/60 shadow-[0_30px_90px_-60px_rgba(0,0,0,0.95)] backdrop-blur p-6 overflow-hidden">
             <div className="pointer-events-none absolute inset-x-0 -top-20 h-40 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.12),transparent_55%)]" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-600/45 to-transparent" />
 
             <div className="flex justify-between items-start gap-4">
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  Acessar sistema
-                </h1>
+                <h1 className="text-2xl font-semibold tracking-tight">Acessar sistema</h1>
                 <p className="text-sm text-zinc-400 mt-1">
                   Restrito para contas corporativas ({ALLOWED_DOMAIN})
                 </p>
               </div>
 
               <span className="inline-flex items-center gap-2 rounded-full border border-red-600/30 bg-red-600/10 px-3 py-1 text-xs text-red-200">
-                <img
-                  src={logoSvg}
-                  alt=""
-                  className="h-3.5 w-3.5 opacity-90"
-                  draggable={false}
-                />
+                <img src={logoSvg} alt="" className="h-3.5 w-3.5 opacity-90" draggable={false} />
                 Ambiente seguro
               </span>
             </div>
@@ -270,6 +296,23 @@ export default function Login() {
                 </div>
               </div>
 
+              {/* ✅ LEMBRAR-ME */}
+              <div className="flex items-center justify-between gap-3">
+                <label className="inline-flex items-center gap-2 text-sm text-zinc-300 select-none cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-red-600 focus:ring-red-600/30 focus:ring-4"
+                  />
+                  Lembrar-me neste dispositivo
+                </label>
+
+                <span className="text-xs text-zinc-500">
+                  {remember ? "Sessão persistente" : "Sai ao fechar o navegador"}
+                </span>
+              </div>
+
               {/* ERRO */}
               {erro && (
                 <div className="rounded-xl border border-red-900/70 bg-red-950/35 px-3 py-2 text-sm text-red-100">
@@ -277,7 +320,7 @@ export default function Login() {
                 </div>
               )}
 
-              {/* CTA premium */}
+              {/* CTA */}
               <button
                 type="submit"
                 disabled={loading}
@@ -315,19 +358,18 @@ export default function Login() {
               {/* rodapé */}
               <div className="pt-4 mt-2 border-t border-zinc-800/70">
                 <p className="text-xs text-zinc-500 leading-relaxed">
-                  Ao acessar, você concorda com as políticas internas de segurança e
-                  uso aceitável. Se precisar de acesso, solicite ao administrador.
+                  Ao acessar, você concorda com as políticas internas de segurança e uso aceitável.
+                  Se precisar de acesso, solicite ao administrador.
                 </p>
               </div>
             </form>
           </div>
 
           <div className="mt-5 text-center text-xs text-zinc-600">
-            <span className="text-zinc-500">Dica:</span> use seu e-mail corporativo e
-            senha cadastrada.
+            <span className="text-zinc-500">Dica:</span> use seu e-mail corporativo e senha cadastrada.
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
