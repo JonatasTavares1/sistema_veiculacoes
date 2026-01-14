@@ -1,6 +1,7 @@
 // src/pages/Produtos.tsx
 import { useEffect, useMemo, useState } from "react"
 import { apiDelete, apiGet, apiPost, apiPut } from "../services/api"
+import { getUser } from "../services/auth"
 
 type Modalidade = "DIA" | "SPOT" | "CPM" | "PACOTE"
 
@@ -15,8 +16,16 @@ type Produto = {
   valor_unitario?: number | null
 }
 
+function norm(v?: string | null) {
+  return (v || "").toLowerCase().trim()
+}
+
 /* ========= Página ========= */
 export default function Produtos() {
+  const user = getUser()
+  const role = norm(user?.role)
+  const isAdmin = role === "admin"
+
   const [lista, setLista] = useState<Produto[]>([])
   const [busca, setBusca] = useState("")
   const [loading, setLoading] = useState(false)
@@ -46,9 +55,7 @@ export default function Produtos() {
     setLoading(true)
     setErro(null)
     try {
-      const q = busca.trim()
-        ? `?termo=${encodeURIComponent(busca.trim())}`
-        : ""
+      const q = busca.trim() ? `?termo=${encodeURIComponent(busca.trim())}` : ""
       const rows = await apiGet<Produto[]>(`/produtos${q}`)
       setLista(Array.isArray(rows) ? rows : [])
     } catch (e: any) {
@@ -76,6 +83,7 @@ export default function Produtos() {
   const filtrada = useMemo(() => lista, [lista])
 
   function novo() {
+    if (!isAdmin) return
     setModo("create")
     setEditId(null)
     setForm({
@@ -92,6 +100,7 @@ export default function Produtos() {
   }
 
   function editar(p: Produto) {
+    if (!isAdmin) return
     setModo("edit")
     setEditId(p.id)
     setForm({
@@ -102,6 +111,11 @@ export default function Produtos() {
   }
 
   async function salvar() {
+    if (!isAdmin) {
+      alert("Seu perfil não tem permissão para criar/editar produtos.")
+      return
+    }
+
     if (saving) return
 
     const payload = {
@@ -137,6 +151,11 @@ export default function Produtos() {
   }
 
   async function remover(id: number) {
+    if (!isAdmin) {
+      alert("Seu perfil não tem permissão para excluir produtos.")
+      return
+    }
+
     if (!confirm("Excluir produto?")) return
     try {
       await apiDelete(`/produtos/${id}`)
@@ -149,16 +168,28 @@ export default function Produtos() {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-4xl font-extrabold text-slate-900">
-          Produtos (Catálogo)
-        </h1>
+        <div className="space-y-1">
+          <h1 className="text-4xl font-extrabold text-slate-900">
+            Produtos (Catálogo)
+          </h1>
+
+          {!isAdmin && (
+            <div className="text-sm text-slate-600">
+              Modo: <span className="font-semibold">somente leitura</span>
+            </div>
+          )}
+        </div>
+
         <div className="flex gap-2">
-          <button
-            onClick={novo}
-            className="px-5 py-3 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            ➕ Novo
-          </button>
+          {isAdmin && (
+            <button
+              onClick={novo}
+              className="px-5 py-3 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              ➕ Novo
+            </button>
+          )}
+
           <button
             onClick={carregar}
             className="px-5 py-3 rounded-2xl bg-red-600 text-white hover:bg-red-700"
@@ -203,20 +234,25 @@ export default function Produtos() {
                       "Unidade",
                       "Base (seg)",
                       "Valor unitário",
-                      "Ações",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-6 py-3 text-left text-sm font-semibold uppercase"
-                      >
-                        {h}
-                      </th>
-                    ))}
+                      isAdmin ? "Ações" : null,
+                    ]
+                      .filter(Boolean)
+                      .map((h) => (
+                        <th
+                          key={String(h)}
+                          className="px-6 py-3 text-left text-sm font-semibold uppercase"
+                        >
+                          {h}
+                        </th>
+                      ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {filtrada.map((p, idx) => (
-                    <tr key={p.id} className={idx % 2 ? "bg-red-50/40" : "bg-white"}>
+                    <tr
+                      key={p.id}
+                      className={idx % 2 ? "bg-red-50/40" : "bg-white"}
+                    >
                       <td className="px-6 py-3">{p.id}</td>
                       <td className="px-6 py-3">{p.nome}</td>
                       <td className="px-6 py-3">{p.categoria || "—"}</td>
@@ -231,24 +267,27 @@ export default function Produtos() {
                             })
                           : "—"}
                       </td>
-                      <td className="px-6 py-3">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => editar(p)}
-                            className="px-3 py-1.5 rounded-xl border"
-                            title="Editar"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => remover(p.id)}
-                            className="px-3 py-1.5 rounded-xl border"
-                            title="Excluir"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </td>
+
+                      {isAdmin && (
+                        <td className="px-6 py-3">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => editar(p)}
+                              className="px-3 py-1.5 rounded-xl border"
+                              title="Editar"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => remover(p.id)}
+                              className="px-3 py-1.5 rounded-xl border"
+                              title="Excluir"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -258,7 +297,8 @@ export default function Produtos() {
         )}
       </section>
 
-      {open && (
+      {/* Modal: somente admin */}
+      {isAdmin && open && (
         <div className="fixed inset-0 z-50">
           <div
             className="absolute inset-0 bg-black/40"
@@ -340,7 +380,10 @@ export default function Produtos() {
                     min={0}
                     value={form.base_segundos ?? ""}
                     onChange={(e) =>
-                      campo("base_segundos", e.target.value ? Number(e.target.value) : null)
+                      campo(
+                        "base_segundos",
+                        e.target.value ? Number(e.target.value) : null
+                      )
                     }
                     className="w-full rounded-xl border px-3 py-2"
                   />
@@ -355,7 +398,10 @@ export default function Produtos() {
                     step="0.01"
                     value={form.valor_unitario ?? ""}
                     onChange={(e) =>
-                      campo("valor_unitario", e.target.value ? Number(e.target.value) : null)
+                      campo(
+                        "valor_unitario",
+                        e.target.value ? Number(e.target.value) : null
+                      )
                     }
                     className="w-full rounded-xl border px-3 py-2"
                   />

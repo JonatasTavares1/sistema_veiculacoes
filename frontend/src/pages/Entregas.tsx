@@ -24,6 +24,37 @@ type VeicFull = {
   data_fim?: string | null
 }
 
+type EntregaStatus = "Sim" | "Não" | "pendente"
+
+// ======================== Persistência Local (PI entregue) ========================
+// (MESMA CHAVE usada em Veiculacoes.tsx)
+const LS_KEY_PI_DELIV = "pis_entregas_v1"
+type PIDelivery = { status: EntregaStatus; ts: string; data?: string | null; motivo?: string | null }
+
+function loadPIDeliveries(): Record<string, PIDelivery> {
+  try {
+    const raw = localStorage.getItem(LS_KEY_PI_DELIV)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, PIDelivery>
+    return parsed || {}
+  } catch {
+    return {}
+  }
+}
+function savePIDeliveries(map: Record<string, PIDelivery>) {
+  try {
+    localStorage.setItem(LS_KEY_PI_DELIV, JSON.stringify(map))
+  } catch {}
+}
+
+// chave ROBUSTA (igual Veiculacoes)
+function piKeyFromVeic(v: VeicFull) {
+  const n = (v.numero_pi ?? "").toString().trim()
+  if (n) return `PI#${n}`
+  if (typeof v.pi_id === "number" && !Number.isNaN(v.pi_id)) return `PIID#${v.pi_id}`
+  return `VEIC#${v.id}`
+}
+
 // ===== Helpers UI =====
 function isoToBR(iso?: string) {
   if (!iso) return ""
@@ -101,7 +132,7 @@ export default function Entregas() {
   // busca
   const [busca, setBusca] = useState("")
 
-  // ===== cadastro (AGORA por PI) =====
+  // ===== cadastro (por PI) =====
   const [novoPINum, setNovoPINum] = useState<string>("")
   const [novaData, setNovaData] = useState("") // YYYY-MM-DD
   const [novoMotivo, setNovoMotivo] = useState("")
@@ -336,6 +367,69 @@ export default function Entregas() {
     arr.sort((a, b) => a.pi.localeCompare(b.pi, "pt-BR", { numeric: true }))
     return arr
   }, [veics, ultimaEntregaPorVeic, busca])
+
+  // ========================
+  // ✅ Sync localStorage (pis_entregas_v1) com base nas entregas existentes
+  // - Sim: todas as veiculações do PI têm entrega
+  // - pendente: algumas têm entrega
+  // - remove: nenhuma tem entrega
+  // ========================
+  function syncLocalPIDeliveries() {
+    const current = loadPIDeliveries()
+    const next: Record<string, PIDelivery> = { ...current }
+
+    // agrupa veics por PI string para calcular completeness
+    const byPI = new Map<string, VeicFull[]>()
+    for (const v of veics) {
+      const piStr = (v.numero_pi || "—").toString()
+      if (!byPI.has(piStr)) byPI.set(piStr, [])
+      byPI.get(piStr)!.push(v)
+    }
+
+    for (const [piStr, veicsDoPI] of byPI.entries()) {
+      if (!veicsDoPI.length) continue
+
+      const veicsComEntrega = veicsDoPI.filter(v => !!ultimaEntregaPorVeic.get(v.id))
+      const hasAny = veicsComEntrega.length > 0
+      const hasAll = veicsComEntrega.length === veicsDoPI.length
+
+      const key = piKeyFromVeic(veicsDoPI[0])
+      if (!hasAny) {
+        // não existe entrega -> remove marcação local (para não “ficar preso” como entregue)
+        if (next[key]) delete next[key]
+        continue
+      }
+
+      // pega a entrega mais recente do PI (para data/motivo)
+      let last: Entrega | null = null
+      for (const v of veicsComEntrega) {
+        const e = ultimaEntregaPorVeic.get(v.id) || null
+        if (!e) continue
+        if (!last) last = e
+        else {
+          const a = (last.data_entrega || "") + `#${String(last.id).padStart(8, "0")}`
+          const b = (e.data_entrega || "") + `#${String(e.id).padStart(8, "0")}`
+          if (b > a) last = e
+        }
+      }
+
+      next[key] = {
+        status: hasAll ? "Sim" : "pendente",
+        ts: new Date().toISOString(),
+        data: last?.data_entrega ?? null,
+        motivo: last?.motivo ?? null,
+      }
+    }
+
+    savePIDeliveries(next)
+  }
+
+  useEffect(() => {
+    // só sincroniza quando já temos veics/lista processados
+    if (!veics.length) return
+    syncLocalPIDeliveries()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [veics, lista, ultimaEntregaPorVeic])
 
   // ===== Ações =====
   async function salvarNova() {
@@ -590,7 +684,7 @@ export default function Entregas() {
         </div>
       </div>
 
-      {/* Cadastro (AGORA por PI) */}
+      {/* Cadastro (por PI) */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-2xl font-bold text-slate-900 mb-4">Nova entrega (PI)</h2>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
@@ -710,7 +804,6 @@ export default function Entregas() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* ✅ Só fica este: abre modal (não navega direto) */}
                     <button
                       type="button"
                       onClick={() => {
@@ -1021,9 +1114,7 @@ export default function Entregas() {
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   disabled={sendSaving || sendUploading}
                 />
-                <div className="mt-1 text-xs text-slate-500">
-                  (Visual. O backend já marca o horário do envio.)
-                </div>
+                <div className="mt-1 text-xs text-slate-500">(Visual. O backend já marca o horário do envio.)</div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

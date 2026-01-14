@@ -27,33 +27,25 @@ def _serialize_pi(pi) -> Optional[Dict[str, Any]]:
     if not pi:
         return None
 
-    # Retorne aqui só o que você quer ver no card
     return {
         "id": pi.id,
         "numero_pi": getattr(pi, "numero_pi", None),
         "tipo_pi": getattr(pi, "tipo_pi", None),
         "numero_pi_matriz": getattr(pi, "numero_pi_matriz", None),
         "numero_pi_normal": getattr(pi, "numero_pi_normal", None),
-
         "nome_anunciante": getattr(pi, "nome_anunciante", None),
         "razao_social_anunciante": getattr(pi, "razao_social_anunciante", None),
         "cnpj_anunciante": getattr(pi, "cnpj_anunciante", None),
-
         "nome_agencia": getattr(pi, "nome_agencia", None),
         "razao_social_agencia": getattr(pi, "razao_social_agencia", None),
         "cnpj_agencia": getattr(pi, "cnpj_agencia", None),
-
         "nome_campanha": getattr(pi, "nome_campanha", None),
-
         "executivo": getattr(pi, "executivo", None),
         "diretoria": getattr(pi, "diretoria", None),
         "uf_cliente": getattr(pi, "uf_cliente", None),
         "canal": getattr(pi, "canal", None),
-
         "valor_bruto": getattr(pi, "valor_bruto", None),
         "valor_liquido": getattr(pi, "valor_liquido", None),
-
-        # datas (se quiser)
         "vencimento": _iso(getattr(pi, "vencimento", None)),
         "data_emissao": _iso(getattr(pi, "data_emissao", None)),
     }
@@ -70,10 +62,7 @@ def _serialize_fat(f, pi=None):
         "pago_em": _iso(f.pago_em),
         "nf_numero": f.nf_numero,
         "observacao": f.observacao,
-
-        # ✅ NOVO: PI no payload
         "pi": _serialize_pi(pi),
-
         "anexos": [
             {
                 "id": a.id,
@@ -102,7 +91,6 @@ def listar(
         pi_id=pi_id,
     )
 
-    # ✅ Monta map entrega_id -> PI (1 query, sem mexer em models)
     entrega_ids = [r.entrega_id for r in regs if getattr(r, "entrega_id", None)]
     pi_by_entrega: Dict[int, Any] = {}
 
@@ -117,7 +105,6 @@ def listar(
             .all()
         )
 
-        # rows = [(entrega_id, PI_obj), ...]
         for entrega_id_row, pi_obj in rows:
             pi_by_entrega[int(entrega_id_row)] = pi_obj
 
@@ -130,10 +117,6 @@ def gerar_por_pi(
     db: Session = Depends(get_db),
     _user=Depends(require_roles("admin", "financeiro", "opec")),
 ):
-    """
-    Gera (cria_ou_obter) faturamentos para todas as ENTREGAS do PI,
-    com base no relacionamento Veiculação.pi_id.
-    """
     from app.models import Entrega, Veiculacao
 
     entregas = (
@@ -174,7 +157,6 @@ def atualizar_status(
             observacao=body.observacao,
         )
 
-        # tenta incluir PI também nesse retorno
         from app.models import Entrega, Veiculacao, PI
 
         pi = (
@@ -202,10 +184,7 @@ async def anexar(
     role = ((getattr(user, "role", "") or "")).lower().strip()
 
     def deny():
-        raise HTTPException(
-            status_code=403,
-            detail="Sem permissão para anexar este tipo de documento.",
-        )
+        raise HTTPException(status_code=403, detail="Sem permissão para anexar este tipo de documento.")
 
     # admin pode tudo
     if role != "admin":

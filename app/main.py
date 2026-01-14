@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.deps_auth import get_current_user
+from app.deps_auth import get_current_user, require_roles
 from app.core.config import (
     SEED_ADMIN_EMAIL,
     SEED_ADMIN_PASSWORD,
@@ -99,26 +99,78 @@ def healthcheck():
     return {"status": "ok"}
 
 
-# ROTAS PROTEGIDAS
-protected = [Depends(get_current_user)]
+# ==========================================================
+# ROTAS PROTEGIDAS (AUTH) + ACL POR MÓDULO
+# ==========================================================
+auth_dep = [Depends(get_current_user)]
 
-app.include_router(pis_router, dependencies=protected)
-app.include_router(agencias_router, dependencies=protected)
-app.include_router(entregas_router, dependencies=protected)
-app.include_router(anunciantes_router, dependencies=protected)
-app.include_router(executivos_router, dependencies=protected)
-app.include_router(produtos_router, dependencies=protected)
-app.include_router(matrizes_router, dependencies=protected)
-app.include_router(veiculacoes_router, dependencies=protected)
+# Executivo acessa: PI, veiculações, entregas, produtos (somente leitura), executivos (somente leitura), matrizes (filtro),
+# Admin acessa tudo (override no require_roles).
+app.include_router(
+    pis_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo"))],  # admin sempre entra
+)
 
-# ✅ faturamentos protegido
-app.include_router(faturamentos_router, dependencies=protected)
+app.include_router(
+    veiculacoes_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo", "opec"))],
+)
 
-# Admin
-app.include_router(admin_users_router, dependencies=protected)
+app.include_router(
+    entregas_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo", "opec"))],
+)
 
-app.include_router(vendas_router, dependencies=protected)
-app.include_router(me_router, dependencies=protected)
+# Produtos: executivo pode VER; escrita vai ser bloqueada por endpoint no router
+app.include_router(
+    produtos_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+)
+
+# Executivos: executivo pode VER; edição vai ser bloqueada por endpoint no router
+app.include_router(
+    executivos_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+)
+
+# Matrizes: executivo pode ver somente as dele (checagem/filtro no router)
+app.include_router(
+    matrizes_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+)
+
+# Financeiro: financeiro + opec (admin override)
+app.include_router(
+    faturamentos_router,
+    dependencies=auth_dep + [Depends(require_roles("financeiro", "opec"))],
+)
+
+# Admin (gestão de usuários)
+app.include_router(
+    admin_users_router,
+    dependencies=auth_dep + [Depends(require_roles("admin"))],
+)
+
+# Rotas que NÃO entraram na sua matriz (deixo como ADMIN por segurança)
+app.include_router(
+    agencias_router,
+    dependencies=auth_dep + [Depends(require_roles("admin"))],
+)
+app.include_router(
+    anunciantes_router,
+    dependencies=auth_dep + [Depends(require_roles("admin"))],
+)
+app.include_router(
+    vendas_router,
+    dependencies=auth_dep + [Depends(require_roles("admin"))],
+)
+
+# /me: executivo e admin (opec/financeiro não precisam)
+app.include_router(
+    me_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

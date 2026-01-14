@@ -26,10 +26,13 @@ function hasRole(userRole: string, required?: RoleLike) {
 function getDefaultDeniedRedirect(role?: string) {
   const r = norm(role)
 
-  // Ajuste fino: cada role cai numa "home" natural
-  if (r === "executivo") return "/meu-perfil" // quando criarmos
+  // “Home natural” por perfil
   if (r === "financeiro") return "/faturamentos"
-  return "/pis"
+  if (r === "opec") return "/veiculacoes"
+  if (r === "executivo") return "/pis"
+  if (r === "admin") return "/admin/usuarios"
+
+  return "/login"
 }
 
 export default function ProtectedRoute({

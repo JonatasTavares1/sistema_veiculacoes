@@ -31,8 +31,12 @@ def get_current_user(
     return user
 
 
+def _role_of(user) -> str:
+    return (getattr(user, "role", "") or "").lower().strip()
+
+
 def require_admin(user=Depends(get_current_user)):
-    if (getattr(user, "role", "") or "").lower().strip() != "admin":
+    if _role_of(user) != "admin":
         raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
     return user
 
@@ -43,15 +47,14 @@ def require_roles(*roles: str):
     ✅ Admin sempre é permitido (override).
     """
     def _dep(user=Depends(get_current_user)):
-        role = (getattr(user, "role", "") or "").lower().strip()
+        role = _role_of(user)
 
         # ✅ admin sempre pode tudo
         if role == "admin":
             return user
 
-        allowed = { (r or "").lower().strip() for r in roles if (r or "").strip() }
+        allowed = {(r or "").lower().strip() for r in roles if (r or "").strip()}
         if not allowed:
-            # se ninguém passou roles, não deveria acontecer; mas evita liberar por acidente
             raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação.")
 
         if role not in allowed:
@@ -60,3 +63,22 @@ def require_roles(*roles: str):
         return user
 
     return _dep
+
+
+def ensure_executivo_vinculado(user):
+    """
+    Garante que o usuário tem executivo_nome quando role=executivo.
+    Útil para endpoints com filtro por 'carteira do executivo'.
+    """
+    role = _role_of(user)
+    if role != "admin" and role != "executivo":
+        raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação.")
+
+    if role == "executivo":
+        nome = (getattr(user, "executivo_nome", None) or "").strip()
+        if not nome:
+            raise HTTPException(
+                status_code=403,
+                detail="Usuário não vinculado a executivo. Solicite ao administrador o vínculo do seu perfil.",
+            )
+    return user
