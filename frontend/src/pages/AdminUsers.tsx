@@ -62,7 +62,8 @@ export default function AdminUsers() {
   // UX: salva por linha
   const [savingId, setSavingId] = useState<number | null>(null)
 
-  const rolesDisponiveis = useMemo(() => ["user", "executivo", "financeiro", "admin"], [])
+  // ✅ AQUI: inclui opec
+  const rolesDisponiveis = useMemo(() => ["user", "executivo", "opec", "financeiro", "admin"], [])
 
   function initEdits(rows: AdminUser[]) {
     const rolesInit: Record<number, string> = {}
@@ -87,7 +88,7 @@ export default function AdminUsers() {
     try {
       const [pend, users, execs] = await Promise.all([
         apiGet<AdminUser[]>(`/admin/users/pending`),
-        apiGet<AdminUser[]>(`/admin/users`), // ⚠️ precisa existir no backend
+        apiGet<AdminUser[]>(`/admin/users`),
         apiGet<string[]>(`/executivos`),
       ])
 
@@ -126,7 +127,7 @@ export default function AdminUsers() {
     setLoading(true)
     setErro(null)
     try {
-      const users = await apiGet<AdminUser[]>(`/admin/users`) // ⚠️ precisa existir no backend
+      const users = await apiGet<AdminUser[]>(`/admin/users`)
       const userArr = Array.isArray(users) ? users : []
       setUsuarios(userArr)
       initEdits(userArr)
@@ -199,7 +200,7 @@ export default function AdminUsers() {
 
     try {
       setSavingId(user.id)
-      await apiPost(`/admin/users/${user.id}/update`, payload) // ⚠️ precisa existir no backend
+      await apiPost(`/admin/users/${user.id}/update`, payload)
       alert("Alterações salvas.")
       await carregarUsuarios()
       await carregarPendentes()
@@ -621,8 +622,9 @@ export default function AdminUsers() {
 
               <div className="border-t border-zinc-800/80 bg-zinc-950/20 px-5 py-4">
                 <div className="text-xs text-zinc-500">
-                  Observação: esta tela assume os endpoints <span className="font-mono text-zinc-300">GET /admin/users</span>{" "}
-                  e <span className="font-mono text-zinc-300">POST /admin/users/:id/update</span>. Se sua API for diferente,
+                  Observação: esta tela assume os endpoints{" "}
+                  <span className="font-mono text-zinc-300">GET /admin/users</span> e{" "}
+                  <span className="font-mono text-zinc-300">POST /admin/users/:id/update</span>. Se sua API for diferente,
                   ajuste as rotas no topo.
                 </div>
               </div>

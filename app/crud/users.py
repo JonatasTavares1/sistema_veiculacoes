@@ -45,12 +45,13 @@ def create_user(
     is_approved: bool = False,
 ) -> User:
     email_norm = normalize_email(email)
+    role_norm = (role or "user").strip().lower()
 
     u = User(
         nome=(nome or None),
         email=email_norm,
         password_hash=hash_password(senha),
-        role=role,
+        role=role_norm,
         is_approved=bool(is_approved),
         status=("APROVADO" if is_approved else "PENDENTE"),
         approved_at=(datetime.utcnow() if is_approved else None),
@@ -144,6 +145,28 @@ def clear_reset_token(db: Session, user: User) -> User:
 
 def update_password(db: Session, user: User, nova_senha: str) -> User:
     user.password_hash = hash_password(nova_senha)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# =========================
+# ✅ NOVOS HELPERS p/ AdminUsers.tsx (GET /admin/users + POST /admin/users/:id/update)
+# =========================
+
+def list_all_users(db: Session) -> list[User]:
+    """
+    Retorna todos os usuários (admin) ordenando do mais novo para o mais antigo.
+    """
+    # pode reaproveitar list_users sem filtro
+    return list_users(db, status=None)
+
+
+def update_user_fields(db: Session, user: User) -> User:
+    """
+    Persiste alterações em um usuário já carregado (role, executivo_nome, ativo, is_approved, etc).
+    """
+    db.add(user)
     db.commit()
     db.refresh(user)
     return user

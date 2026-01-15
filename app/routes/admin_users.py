@@ -8,17 +8,15 @@ from app.deps_auth import require_admin
 from app.core.email import send_email
 from app.core.config import FRONTEND_BASE_URL
 
-# CRUD existente
 from app.crud.users import (
     list_pending_users,
     get_user_by_id,
     approve_user,
     set_user_role,
+    # ✅ novos (adicione no crud/users.py)
+    list_all_users,
+    update_user_fields,
 )
-
-# ✅ AJUSTE ESTE IMPORT PARA O SEU MODEL REAL
-# Ex.: from app.models import User
-from app.models import User  # <- ajuste se necessário
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
@@ -28,7 +26,6 @@ router = APIRouter(prefix="/admin/users", tags=["admin"])
 # =========================
 class ApproveIn(BaseModel):
     role: str = "user"
-    # se role=executivo, precisa vir preenchido
     executivo_nome: str | None = None
 
 
@@ -54,14 +51,15 @@ class UserItem(BaseModel):
 # Helpers
 # =========================
 def _allowed_roles():
-    return {"user", "admin", "executivo", "financeiro"}
+    # ✅ agora inclui opec
+    return {"user", "admin", "executivo", "financeiro", "opec"}
 
 
 def _to_item(u) -> UserItem:
     return UserItem(
         id=u.id,
         email=u.email,
-        role=u.role,
+        role=getattr(u, "role", "user") or "user",
         status=getattr(u, "status", None),
         is_approved=bool(getattr(u, "is_approved", False)),
         executivo_nome=getattr(u, "executivo_nome", None),
@@ -71,12 +69,12 @@ def _to_item(u) -> UserItem:
 
 
 # =========================
-# Rotas existentes
+# Rotas
 # =========================
 @router.get("/pending", response_model=list[UserItem])
 def pending(
     db: Session = Depends(get_db),
-    current_user=Depends(require_admin),
+    _current_user=Depends(require_admin),
 ):
     users = list_pending_users(db)
     return [_to_item(u) for u in users]
@@ -93,11 +91,10 @@ def approve(
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
-    if user.is_approved:
+    if getattr(user, "is_approved", False):
         return {"ok": True, "message": "Usuário já está aprovado."}
 
     role = (data.role or "user").strip().lower()
-
     allowed_roles = _allowed_roles()
     if role not in allowed_roles:
         raise HTTPException(
@@ -105,26 +102,27 @@ def approve(
             detail=f"Role inválida. Use: {', '.join(sorted(allowed_roles))}",
         )
 
-    # se for executivo, executivo_nome é obrigatório
+    # regra: executivo_nome obrigatório se role=executivo
     if role == "executivo":
         exec_nome = (data.executivo_nome or "").strip()
         if not exec_nome:
             raise HTTPException(status_code=422, detail="Para role=executivo, informe executivo_nome.")
-        user.executivo_nome = exec_nome
+        setattr(user, "executivo_nome", exec_nome)
     else:
-        user.executivo_nome = None
+        # para opec/financeiro/admin/user, não mantém vínculo
+        setattr(user, "executivo_nome", None)
 
-    # Ajusta role
+    # Ajusta role (via CRUD)
     set_user_role(db, user_id=user.id, role=role)
 
-    # aprova
+    # Aprova (via CRUD)
     approve_user(db, user_id=user.id, approved_by=current_user.id)
 
+    # garante persistência do executivo_nome (se o crud não fizer commit disso)
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    # Notifica por e-mail
     send_email(
         to_email=user.email,
         subject="Cadastro aprovado - Sistema de Veiculações",
@@ -137,25 +135,23 @@ def approve(
     return {"ok": True, "message": "Usuário aprovado e notificado por e-mail."}
 
 
-# =========================
-# ✅ NOVAS ROTAS (para corrigir o 404 do front)
-# =========================
+# ✅ GET /admin/users  -> corrige o 404 do front
 @router.get("", response_model=list[UserItem])
-def list_all_users(
+def list_users(
     db: Session = Depends(get_db),
-    current_user=Depends(require_admin),
+    _current_user=Depends(require_admin),
 ):
-    # lista todos (você pode ordenar como quiser)
-    users = db.query(User).order_by(User.id.desc()).all()
+    users = list_all_users(db)  # ✅ não depende de User no route
     return [_to_item(u) for u in users]
 
 
+# ✅ POST /admin/users/{id}/update -> corrige o 404 do front
 @router.post("/{user_id}/update", response_model=UserItem)
 def update_user(
     user_id: int,
     data: UpdateIn,
     db: Session = Depends(get_db),
-    current_user=Depends(require_admin),
+    _current_user=Depends(require_admin),
 ):
     user = get_user_by_id(db, user_id)
     if not user:
@@ -163,51 +159,50 @@ def update_user(
 
     allowed_roles = _allowed_roles()
 
-    # role
+    # valida role (se vier)
     if data.role is not None:
-        role = (data.role or "user").strip().lower()
-        if role not in allowed_roles:
+        new_role = (data.role or "user").strip().lower()
+        if new_role not in allowed_roles:
             raise HTTPException(
                 status_code=422,
                 detail=f"Role inválida. Use: {', '.join(sorted(allowed_roles))}",
             )
 
-        # aplica role via crud (se quiser manter padrão)
-        set_user_role(db, user_id=user.id, role=role)
-
-        # regra: executivo_nome obrigatório se role=executivo
-        if role == "executivo":
+        # se for executivo, precisa de executivo_nome
+        if new_role == "executivo":
             exec_nome = (data.executivo_nome or "").strip()
             if not exec_nome:
                 raise HTTPException(status_code=422, detail="Para role=executivo, informe executivo_nome.")
-            user.executivo_nome = exec_nome
-        else:
-            # se não for executivo, remove vínculo
-            user.executivo_nome = None
 
-    # executivo_nome (permitir atualizar sem trocar role, mas só se já for executivo)
+        # aplica role via CRUD
+        set_user_role(db, user_id=user.id, role=new_role)
+
+        # aplica vínculo
+        if new_role == "executivo":
+            setattr(user, "executivo_nome", (data.executivo_nome or "").strip())
+        else:
+            setattr(user, "executivo_nome", None)
+
+    # se não mudou role, mas quer mudar executivo_nome, só permite se já for executivo
     if data.role is None and data.executivo_nome is not None:
         current_role = (getattr(user, "role", "user") or "user").strip().lower()
         if current_role == "executivo":
             exec_nome = (data.executivo_nome or "").strip()
             if not exec_nome:
                 raise HTTPException(status_code=422, detail="Para role=executivo, informe executivo_nome.")
-            user.executivo_nome = exec_nome
+            setattr(user, "executivo_nome", exec_nome)
         else:
-            # se não é executivo, ignora/zera
-            user.executivo_nome = None
+            setattr(user, "executivo_nome", None)
 
-    # ativo
+    # ativo (se existir no model)
     if data.ativo is not None:
-        # se seu model não tiver "ativo", isso precisa existir no model/DB
         setattr(user, "ativo", bool(data.ativo))
 
-    # is_approved (revogar / reaprovar)
+    # is_approved
     if data.is_approved is not None:
-        user.is_approved = bool(data.is_approved)
+        setattr(user, "is_approved", bool(data.is_approved))
 
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    # ✅ persiste (via CRUD helper)
+    user = update_user_fields(db, user)
 
     return _to_item(user)
