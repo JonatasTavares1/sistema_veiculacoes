@@ -1,4 +1,3 @@
-# app/models.py
 from datetime import datetime
 from sqlalchemy.orm import relationship, foreign, remote
 from sqlalchemy import (
@@ -109,7 +108,12 @@ class PI(Base):
     nome_campanha = Column(String)
     mes_venda = Column(String)
     dia_venda = Column(String)
+
+    # ✅ Canal continua no PI (se vocês ainda quiserem filtrar/mostrar)
     canal = Column(String)
+
+    # ⚠️ no seu front você usa perfil_anunciante/subperfil_anunciante;
+    # aqui no model estavam "perfil" e "subperfil". Mantive como está no teu model atual.
     perfil = Column(String)
     subperfil = Column(String)
 
@@ -196,7 +200,7 @@ class Produto(Base):
     base_segundos = Column(Integer, nullable=True)
     unidade_rotulo = Column(String, nullable=True)
 
-    # ✅ VOLTA: preço de tabela no catálogo
+    # ✅ preço de tabela no catálogo
     valor_unitario = Column(Float, nullable=True)
 
     pi = relationship("PI", back_populates="produtos")
@@ -213,12 +217,11 @@ class Veiculacao(Base):
     produto_id = Column(Integer, ForeignKey("produtos.id"))
     pi_id = Column(Integer, ForeignKey("pis_cadastro.id"))
 
-    canal = Column(String, nullable=True)
-    formato = Column(String, nullable=True)
-
+    # ✅ Sem canal e sem formato
     data_inicio = Column(String)
     data_fim = Column(String)
 
+    # aqui vira "dias" (você está enviando dias como quantidade no front)
     quantidade = Column(Integer)
 
     valor_bruto = Column(Float, nullable=True)

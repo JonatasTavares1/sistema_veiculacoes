@@ -2,7 +2,9 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, date
 from sqlalchemy.orm import Session, joinedload
+
 from app.models import Veiculacao, Produto, PI
+
 
 # ---------- utils ----------
 def _parse_date(s: Optional[str]) -> Optional[date]:
@@ -16,18 +18,18 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
             pass
     return None
 
+
 def _overlaps(win_start: date, win_end: date, s: Optional[str], f: Optional[str]) -> bool:
     ds = _parse_date(s)
     df = _parse_date(f)
     if ds and df:
-        # [ds, df] intersect [win_start, win_end] ?
         return not (df < win_start or ds > win_end)
     if ds:
         return win_start <= ds <= win_end
     if df:
         return win_start <= df <= win_end
-    # sem datas → considerar na janela
     return True
+
 
 def _today_between(s: Optional[str], f: Optional[str]) -> bool:
     """True se hoje está dentro do intervalo [data_inicio, data_fim] (nulos contam como aberto)."""
@@ -40,15 +42,14 @@ def _today_between(s: Optional[str], f: Optional[str]) -> bool:
         return ds <= today
     if not ds and df:
         return today <= df
-    return True  # sem datas, tratamos como veiculando
+    return True
+
 
 def _norm_desconto_percent(v: Optional[float]) -> float:
     """
     Normaliza entrada para PERCENTUAL 0..100.
       - 10   -> 10%
       - 0.1  -> 10%
-      - "10%", "10" -> 10%
-      - "0,1" -> 0.1 => 10%
     """
     if v is None:
         return 0.0
@@ -56,20 +57,22 @@ def _norm_desconto_percent(v: Optional[float]) -> float:
         x = float(v)
     except (TypeError, ValueError):
         return 0.0
-    # se veio em fração (0..1), converte para %
+
     if 0.0 <= x <= 1.0:
-        return x * 100.0
-    # clamp
+        x = x * 100.0
+
     if x < 0:
         x = 0.0
     if x > 100.0:
         x = 100.0
     return x
 
+
 def _calc_liquido(valor_bruto: Optional[float], desconto_percent: Optional[float]) -> float:
     b = float(valor_bruto or 0.0)
-    d = _norm_desconto_percent(desconto_percent) / 100.0  # percentual -> fração
+    d = _norm_desconto_percent(desconto_percent) / 100.0
     return round(b * (1.0 - d), 2)
+
 
 def _get_produto_pi_or_fail(db: Session, produto_id: int, pi_id: int) -> Tuple[Produto, PI]:
     prod = db.get(Produto, produto_id)
@@ -80,6 +83,7 @@ def _get_produto_pi_or_fail(db: Session, produto_id: int, pi_id: int) -> Tuple[P
         raise ValueError("PI não encontrada.")
     return prod, pi
 
+
 # ---------- queries ----------
 def get_by_id(db: Session, veic_id: int) -> Optional[Veiculacao]:
     return (
@@ -89,6 +93,7 @@ def get_by_id(db: Session, veic_id: int) -> Optional[Veiculacao]:
         .first()
     )
 
+
 def list_all(db: Session) -> List[Veiculacao]:
     return (
         db.query(Veiculacao)
@@ -96,6 +101,7 @@ def list_all(db: Session) -> List[Veiculacao]:
         .order_by(Veiculacao.id.desc())
         .all()
     )
+
 
 def list_by_pi(db: Session, pi_id: int) -> List[Veiculacao]:
     return (
@@ -106,6 +112,7 @@ def list_by_pi(db: Session, pi_id: int) -> List[Veiculacao]:
         .all()
     )
 
+
 def list_by_produto(db: Session, produto_id: int) -> List[Veiculacao]:
     return (
         db.query(Veiculacao)
@@ -115,13 +122,13 @@ def list_by_produto(db: Session, produto_id: int) -> List[Veiculacao]:
         .all()
     )
 
+
 def list_agenda(
     db: Session,
     inicio: date,
     fim: date,
     *,
     canal: Optional[str] = None,
-    formato: Optional[str] = None,
     executivo: Optional[str] = None,
     diretoria: Optional[str] = None,
     uf_cliente: Optional[str] = None,
@@ -130,7 +137,7 @@ def list_agenda(
     Busca veiculações na janela e aplica filtros (com fallbacks compatíveis com o teu PI):
       - cliente: PI.nome_anunciante || PI.razao_social_anunciante
       - campanha: PI.nome_campanha
-      - canal: Veiculacao.canal || PI.canal
+      - canal: PI.canal  (veiculação NÃO tem mais canal/formato)
     """
     rows: List[Veiculacao] = (
         db.query(Veiculacao)
@@ -143,20 +150,12 @@ def list_agenda(
         pi = v.pi
         prod = v.produto
 
-        # janela
         if not _overlaps(inicio, fim, v.data_inicio, v.data_fim):
             continue
 
-        # canal efetivo (veiculação > PI)
-        v_canal = getattr(v, "canal", None)
         pi_canal = getattr(pi, "canal", None)
-        effective_canal = v_canal or pi_canal
 
-        # filtros
-        if canal and (effective_canal or "") != canal:
-            continue
-        v_formato = getattr(v, "formato", None)
-        if formato and (v_formato or "") != formato:
+        if canal and (pi_canal or "") != canal:
             continue
         if executivo and (getattr(pi, "executivo", None) or "") != executivo:
             continue
@@ -165,38 +164,34 @@ def list_agenda(
         if uf_cliente and (getattr(pi, "uf_cliente", None) or "") != uf_cliente:
             continue
 
-        # status calculado (p/ alerta na UI)
         em_veiculacao = _today_between(v.data_inicio, v.data_fim)
 
-        out.append({
-            "id": v.id,
-            "produto_id": getattr(prod, "id", None),
-            "pi_id": getattr(pi, "id", None),
-            "numero_pi": getattr(pi, "numero_pi", None),
-
-            # mapeamento alinhado ao PI schema
-            "cliente": getattr(pi, "nome_anunciante", None) or getattr(pi, "razao_social_anunciante", None),
-            "campanha": getattr(pi, "nome_campanha", None),
-
-            "produto_nome": getattr(prod, "nome", None),
-            "canal": effective_canal,
-            "formato": v_formato,
-            "data_inicio": v.data_inicio,
-            "data_fim": v.data_fim,
-            "quantidade": v.quantidade,
-
-            "valor_bruto": v.valor_bruto,
-            "desconto": v.desconto,          # percentual 0..100
-            "valor_liquido": v.valor_liquido,
-            "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
-
-            "executivo": getattr(pi, "executivo", None),
-            "diretoria": getattr(pi, "diretoria", None),
-            "uf_cliente": getattr(pi, "uf_cliente", None),
-
-            "em_veiculacao": em_veiculacao,
-        })
+        out.append(
+            {
+                "id": v.id,
+                "produto_id": getattr(prod, "id", None),
+                "pi_id": getattr(pi, "id", None),
+                "numero_pi": getattr(pi, "numero_pi", None),
+                "cliente": getattr(pi, "nome_anunciante", None)
+                or getattr(pi, "razao_social_anunciante", None),
+                "campanha": getattr(pi, "nome_campanha", None),
+                "produto_nome": getattr(prod, "nome", None),
+                "canal": pi_canal,
+                "data_inicio": v.data_inicio,
+                "data_fim": v.data_fim,
+                "quantidade": v.quantidade,
+                "valor_bruto": v.valor_bruto,
+                "desconto": v.desconto,
+                "valor_liquido": v.valor_liquido,
+                "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
+                "executivo": getattr(pi, "executivo", None),
+                "diretoria": getattr(pi, "diretoria", None),
+                "uf_cliente": getattr(pi, "uf_cliente", None),
+                "em_veiculacao": em_veiculacao,
+            }
+        )
     return out
+
 
 # ---------- CRUD ----------
 def create(db: Session, dados: Dict[str, Any]) -> Veiculacao:
@@ -214,18 +209,15 @@ def create(db: Session, dados: Dict[str, Any]) -> Veiculacao:
         data_fim=dados.get("data_fim"),
         quantidade=qtd,
         valor_bruto=bruto,
-        desconto=desc_percent,     # armazenado como percentual (0..100)
+        desconto=desc_percent,
         valor_liquido=liquido,
     )
-    if "canal" in dados:
-        setattr(novo, "canal", dados.get("canal"))
-    if "formato" in dados:
-        setattr(novo, "formato", dados.get("formato"))
 
     db.add(novo)
     db.commit()
     db.refresh(novo)
     return novo
+
 
 def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
     veic = db.get(Veiculacao, veic_id)
@@ -255,16 +247,12 @@ def update(db: Session, veic_id: int, dados: Dict[str, Any]) -> Veiculacao:
     if "desconto" in dados:
         veic.desconto = _norm_desconto_percent(dados["desconto"])
 
-    if "canal" in dados and hasattr(veic, "canal"):
-        veic.canal = dados.get("canal")
-    if "formato" in dados and hasattr(veic, "formato"):
-        veic.formato = dados.get("formato")
-
     veic.valor_liquido = _calc_liquido(veic.valor_bruto, veic.desconto)
 
     db.commit()
     db.refresh(veic)
     return veic
+
 
 def delete(db: Session, veic_id: int) -> None:
     veic = db.get(Veiculacao, veic_id)

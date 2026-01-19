@@ -5,14 +5,17 @@ from typing import List, Optional, Dict, Any
 
 from app.database import SessionLocal
 from app.schemas.veiculacao import (
-    VeiculacaoCreate, VeiculacaoUpdate,
-    VeiculacaoOut, VeiculacaoAgendaOut,
+    VeiculacaoCreate,
+    VeiculacaoUpdate,
+    VeiculacaoOut,
+    VeiculacaoAgendaOut,
     VeiculacaoCreateIn,
 )
 from app.crud import veiculacao_crud
 from app.models import Veiculacao, Produto, PI
 
 router = APIRouter(prefix="/veiculacoes", tags=["veiculacoes"])
+
 
 def get_db():
     db = SessionLocal()
@@ -21,8 +24,10 @@ def get_db():
     finally:
         db.close()
 
+
 def _parse_date(s: Optional[str]) -> Optional[date]:
-    if not s: return None
+    if not s:
+        return None
     s = s.strip()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
         try:
@@ -30,6 +35,7 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         except ValueError:
             pass
     return None
+
 
 def _first_non_empty(*vals):
     for v in vals:
@@ -40,27 +46,38 @@ def _first_non_empty(*vals):
         return v
     return None
 
+
 def _today_between(s: Optional[str], f: Optional[str]) -> bool:
     today = date.today()
+
     def _p(x):
-        if not x: return None
+        if not x:
+            return None
         for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
-            try: return datetime.strptime(x[:10], fmt).date()
-            except ValueError: pass
+            try:
+                return datetime.strptime(x[:10], fmt).date()
+            except ValueError:
+                pass
         return None
-    ds = _p(s); df = _p(f)
-    if ds and df: return ds <= today <= df
-    if ds and not df: return ds <= today
-    if not ds and df: return today <= df
+
+    ds = _p(s)
+    df = _p(f)
+    if ds and df:
+        return ds <= today <= df
+    if ds and not df:
+        return ds <= today
+    if not ds and df:
+        return today <= df
     return True
+
 
 def _to_out(v: Veiculacao) -> VeiculacaoOut:
     prod = getattr(v, "produto", None)
     pi = getattr(v, "pi", None)
 
-    effective_canal = getattr(v, "canal", None) or getattr(pi, "canal", None)
+    # ✅ canal vem do PI (veiculação não tem canal/formato)
+    effective_canal = getattr(pi, "canal", None)
 
-    # nomes corretos conforme teu PI schema
     cliente = _first_non_empty(
         getattr(v, "cliente", None),
         getattr(v, "anunciante", None),
@@ -83,26 +100,22 @@ def _to_out(v: Veiculacao) -> VeiculacaoOut:
         "data_inicio": v.data_inicio,
         "data_fim": v.data_fim,
         "quantidade": v.quantidade,
-
         "valor_bruto": v.valor_bruto,
         "desconto": v.desconto,
         "valor_liquido": v.valor_liquido,
         "valor": (v.valor_liquido if v.valor_liquido is not None else v.valor_bruto),
-
         "produto_nome": getattr(prod, "nome", None),
         "numero_pi": getattr(pi, "numero_pi", None),
-
         "cliente": cliente,
         "campanha": campanha,
         "canal": effective_canal,
-        "formato": getattr(v, "formato", None),
         "executivo": getattr(pi, "executivo", None),
         "diretoria": getattr(pi, "diretoria", None),
         "uf_cliente": uf_cliente,
-
         "em_veiculacao": _today_between(v.data_inicio, v.data_fim),
     }
     return VeiculacaoOut(**data)
+
 
 # ---------- CRUD ----------
 @router.get("", response_model=List[VeiculacaoOut])
@@ -110,15 +123,18 @@ def listar_todas(db: Session = Depends(get_db)):
     rows = veiculacao_crud.list_all(db)
     return [_to_out(r) for r in rows]
 
+
 @router.get("/por-pi/{pi_id:int}", response_model=List[VeiculacaoOut])
 def listar_por_pi(pi_id: int, db: Session = Depends(get_db)):
     rows = veiculacao_crud.list_by_pi(db, pi_id)
     return [_to_out(r) for r in rows]
 
+
 @router.get("/por-produto/{produto_id:int}", response_model=List[VeiculacaoOut])
 def listar_por_produto(produto_id: int, db: Session = Depends(get_db)):
     rows = veiculacao_crud.list_by_produto(db, produto_id)
     return [_to_out(r) for r in rows]
+
 
 @router.get("/{veic_id:int}", response_model=VeiculacaoOut)
 def obter(veic_id: int, db: Session = Depends(get_db)):
@@ -127,7 +143,7 @@ def obter(veic_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Veiculação não encontrada.")
     return _to_out(v)
 
-# ====== Create: aceitar ID ou nome/numero e resolver ======
+
 @router.post("", response_model=VeiculacaoOut, status_code=status.HTTP_201_CREATED)
 def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
     # produto
@@ -159,8 +175,6 @@ def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
         "valor_bruto": body.valor_bruto,
         "desconto": body.desconto,
         "valor_liquido": body.valor_liquido,
-        "canal": getattr(body, "canal", None),
-        "formato": getattr(body, "formato", None),
     }
 
     try:
@@ -174,6 +188,7 @@ def criar(body: VeiculacaoCreateIn, db: Session = Depends(get_db)):
         return _to_out(v)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
 
 @router.put("/{veic_id:int}", response_model=VeiculacaoOut)
 def atualizar(veic_id: int, body: VeiculacaoUpdate, db: Session = Depends(get_db)):
@@ -189,6 +204,7 @@ def atualizar(veic_id: int, body: VeiculacaoUpdate, db: Session = Depends(get_db
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.delete("/{veic_id:int}")
 def deletar(veic_id: int, db: Session = Depends(get_db)):
     try:
@@ -197,13 +213,12 @@ def deletar(veic_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-# ---------- Agenda ----------
+
 @router.get("/agenda", response_model=List[VeiculacaoAgendaOut])
 def listar_agenda(
     inicio: Optional[str] = Query(None, description="YYYY-MM-DD ou dd/mm/aaaa; default: hoje"),
     fim: Optional[str] = Query(None, description="YYYY-MM-DD ou dd/mm/aaaa; default: hoje"),
     canal: Optional[str] = None,
-    formato: Optional[str] = None,
     executivo: Optional[str] = None,
     diretoria: Optional[str] = None,
     uf_cliente: Optional[str] = None,
@@ -212,9 +227,14 @@ def listar_agenda(
     today = date.today()
     di = _parse_date(inicio) or today
     df = _parse_date(fim) or today
+
     rows = veiculacao_crud.list_agenda(
-        db, di, df,
-        canal=canal, formato=formato,
-        executivo=executivo, diretoria=diretoria, uf_cliente=uf_cliente
+        db,
+        di,
+        df,
+        canal=canal,
+        executivo=executivo,
+        diretoria=diretoria,
+        uf_cliente=uf_cliente,
     )
     return [VeiculacaoAgendaOut(**r) for r in rows]
