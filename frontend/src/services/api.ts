@@ -8,8 +8,6 @@ type RequestOptions = RequestInit & {
   auth?: boolean; // default true
 };
 
-// ✅ IMPORTANTE: como você usa Bearer Token, NÃO use include por padrão.
-// Isso evita quebrar CORS quando o backend responde com ACAO: *
 const DEFAULT_CREDENTIALS: RequestCredentials = "omit";
 
 function withTs(path: string) {

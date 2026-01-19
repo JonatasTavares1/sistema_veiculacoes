@@ -20,6 +20,18 @@ function norm(v?: string | null) {
   return (v || "").toLowerCase().trim()
 }
 
+function moedaBR(v?: number | null) {
+  if (v == null || Number.isNaN(v)) return "—"
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
+
+function numOrNull(s: string) {
+  const t = (s ?? "").trim()
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
 /* ========= Página ========= */
 export default function Produtos() {
   const user = getUser()
@@ -46,6 +58,8 @@ export default function Produtos() {
     base_segundos: null,
     valor_unitario: null,
   })
+
+  const isSpot = (form.modalidade_preco || "PACOTE") === "SPOT"
 
   function campo<K extends keyof Produto>(k: K, v: Produto[K]) {
     setForm((f) => ({ ...f, [k]: v }))
@@ -80,6 +94,14 @@ export default function Produtos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca])
 
+  // ✅ regra de UI: se modalidade != SPOT, limpa base_segundos
+  useEffect(() => {
+    if (!isSpot && form.base_segundos != null) {
+      setForm((f) => ({ ...f, base_segundos: null }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.modalidade_preco])
+
   const filtrada = useMemo(() => lista, [lista])
 
   function novo() {
@@ -106,6 +128,8 @@ export default function Produtos() {
     setForm({
       ...p,
       modalidade_preco: (p.modalidade_preco || "PACOTE") as Modalidade,
+      base_segundos:
+        (p.modalidade_preco || "PACOTE") === "SPOT" ? (p.base_segundos ?? null) : null,
     })
     setOpen(true)
   }
@@ -115,21 +139,29 @@ export default function Produtos() {
       alert("Seu perfil não tem permissão para criar/editar produtos.")
       return
     }
-
     if (saving) return
 
+    const modalidade = (form.modalidade_preco || null) as Modalidade | null
     const payload = {
       nome: (form.nome || "").trim(),
       descricao: form.descricao ? String(form.descricao).trim() : null,
       categoria: form.categoria ? String(form.categoria).trim() : null,
-      modalidade_preco: form.modalidade_preco || null,
+      modalidade_preco: modalidade,
       unidade_rotulo: form.unidade_rotulo ? String(form.unidade_rotulo).trim() : null,
-      base_segundos: form.base_segundos ?? null,
+      base_segundos: modalidade === "SPOT" ? (form.base_segundos ?? null) : null,
       valor_unitario: form.valor_unitario ?? null,
     }
 
     if (!payload.nome) {
       alert("Informe o nome do produto.")
+      return
+    }
+    if (payload.valor_unitario != null && payload.valor_unitario < 0) {
+      alert("Valor unitário não pode ser negativo.")
+      return
+    }
+    if (payload.base_segundos != null && payload.base_segundos < 0) {
+      alert("Base segundos não pode ser negativa.")
       return
     }
 
@@ -258,15 +290,10 @@ export default function Produtos() {
                       <td className="px-6 py-3">{p.categoria || "—"}</td>
                       <td className="px-6 py-3">{p.modalidade_preco || "—"}</td>
                       <td className="px-6 py-3">{p.unidade_rotulo || "—"}</td>
-                      <td className="px-6 py-3">{p.base_segundos ?? "—"}</td>
                       <td className="px-6 py-3">
-                        {p.valor_unitario != null
-                          ? p.valor_unitario.toLocaleString("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            })
-                          : "—"}
+                        {p.modalidade_preco === "SPOT" ? (p.base_segundos ?? "—") : "—"}
                       </td>
+                      <td className="px-6 py-3">{moedaBR(p.valor_unitario)}</td>
 
                       {isAdmin && (
                         <td className="px-6 py-3">
@@ -371,6 +398,7 @@ export default function Produtos() {
                     className="w-full rounded-xl border px-3 py-2"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold mb-1">
                     Base segundos (SPOT)
@@ -378,16 +406,25 @@ export default function Produtos() {
                   <input
                     type="number"
                     min={0}
-                    value={form.base_segundos ?? ""}
+                    value={isSpot ? (form.base_segundos ?? "") : ""}
+                    disabled={!isSpot}
                     onChange={(e) =>
                       campo(
                         "base_segundos",
                         e.target.value ? Number(e.target.value) : null
                       )
                     }
-                    className="w-full rounded-xl border px-3 py-2"
+                    className={`w-full rounded-xl border px-3 py-2 ${
+                      !isSpot ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""
+                    }`}
                   />
+                  {!isSpot && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      Disponível apenas para modalidade <span className="font-semibold">SPOT</span>.
+                    </div>
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold mb-1">
                     Valor unitário
@@ -398,13 +435,13 @@ export default function Produtos() {
                     step="0.01"
                     value={form.valor_unitario ?? ""}
                     onChange={(e) =>
-                      campo(
-                        "valor_unitario",
-                        e.target.value ? Number(e.target.value) : null
-                      )
+                      campo("valor_unitario", numOrNull(e.target.value))
                     }
                     className="w-full rounded-xl border px-3 py-2"
                   />
+                  <div className="mt-1 text-xs text-slate-500">
+                    Preview: <span className="font-semibold">{moedaBR(form.valor_unitario)}</span>
+                  </div>
                 </div>
               </div>
 
