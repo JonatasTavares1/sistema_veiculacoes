@@ -119,7 +119,7 @@ function fmtMoney(v?: number | null) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
 /** Aceita "1.234,56", "1234,56", "1234.56" e retorna número JS */
-function parseMoney(input: string): number | null {
+/*function parseMoney(input: string): number | null {
   const t = (input ?? "").toString().trim().replace(/\s+/g, "")
   if (!t) return null
   if (t.includes(",")) {
@@ -129,7 +129,7 @@ function parseMoney(input: string): number | null {
   }
   const n = Number(t)
   return Number.isFinite(n) ? n : null
-}
+}*/
 function nearEq(a: number, b: number, tol = 0.01) {
   return Math.abs(a - b) <= tol
 }
@@ -254,7 +254,7 @@ export default function CadastroPI() {
 
       try {
         const norms = await apiGet<PISimple[]>("/pis/normal/ativos")
-        setNormaisAtivas(norms || [])
+        setNormaisAtivos(norms || [])
       } catch {
         // ignore
       }
