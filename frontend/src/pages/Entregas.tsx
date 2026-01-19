@@ -386,7 +386,7 @@ export default function Entregas() {
       byPI.get(piStr)!.push(v)
     }
 
-    for (const [piStr, veicsDoPI] of byPI.entries()) {
+    for (const [, veicsDoPI] of byPI.entries()) {
       if (!veicsDoPI.length) continue
 
       const veicsComEntrega = veicsDoPI.filter(v => !!ultimaEntregaPorVeic.get(v.id))

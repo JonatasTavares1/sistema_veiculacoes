@@ -38,9 +38,9 @@ type ProdutoCatalogo = {
   valor_unitario?: number | null
 }
 
-function norm(v?: string | null) {
+/*function norm(v?: string | null) {
   return (v || "").toLowerCase().trim()
-}
+}*/
 
 // ====== Constantes UI ======
 const UFS = [
