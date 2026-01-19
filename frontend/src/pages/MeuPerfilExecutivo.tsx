@@ -1,5 +1,5 @@
 // C:\Users\danie\sistema_veiculacoes\frontend\src\pages\MeuPerfilExecutivo.tsx
-import React, { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { getUser } from "../services/auth"
 import { apiGet } from "../services/api"
 
