@@ -2,6 +2,12 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# ✅ Carrega o .env na raiz do projeto (ou no CWD atual)
+# Se seu .env está em C:\Users\danie\sistema_veiculacoes\.env, isso resolve.
+load_dotenv()
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

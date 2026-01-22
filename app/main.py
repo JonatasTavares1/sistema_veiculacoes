@@ -2,8 +2,9 @@ from dotenv import load_dotenv
 load_dotenv()  # carrega .env antes de qualquer import que dependa de variáveis
 
 import os
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
@@ -58,6 +59,20 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 
+# ✅ evita “falso CORS” quando ocorre ValueError de NaN
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    msg = str(exc)
+    if "Out of range float values are not JSON compliant" in msg or "nan" in msg.lower():
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Erro ao serializar resposta (NaN no banco). Corrija valores NaN para NULL.",
+            },
+        )
+    return JSONResponse(status_code=500, content={"detail": msg})
+
+
 # Static: garantir que a pasta exista antes de montar
 uploads_dir = os.getenv("PI_UPLOAD_DIR", "uploads")
 os.makedirs(uploads_dir, exist_ok=True)
@@ -104,8 +119,6 @@ def healthcheck():
 # ==========================================================
 auth_dep = [Depends(get_current_user)]
 
-# Executivo acessa: PI, veiculações, entregas, produtos (somente leitura), executivos (somente leitura), matrizes (filtro),
-# Admin acessa tudo (override no require_roles).
 app.include_router(
     pis_router,
     dependencies=auth_dep + [Depends(require_roles("executivo"))],  # admin sempre entra
