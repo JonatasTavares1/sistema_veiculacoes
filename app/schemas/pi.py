@@ -8,6 +8,7 @@ TipoPI = Literal["Matriz", "Normal", "CS", "Abatimento", "Veiculação"]
 
 class PISimpleOut(BaseModel):
     numero_pi: str
+    nome_anunciante: Optional[str] = None
     nome_campanha: Optional[str] = None
 
 class PIBase(BaseModel):
@@ -105,9 +106,6 @@ class PIOut(BaseModel):
     observacoes: Optional[str] = None
     eh_matriz: Optional[bool] = None
 
-    # opcional expor anexos
-    # anexos: List[PIAnexoOut] = []
-
     class Config:
         from_attributes = True  # Pydantic v2
 
@@ -146,8 +144,6 @@ class VeiculacaoOut(BaseModel):
     # >>> NOVOS: contadores de entregas por veiculação (para badges no front)
     entregas_total: int = 0
     entregas_pendentes: int = 0
-    # opcional:
-    # entregas_concluidas: int = 0
 
     class Config:
         from_attributes = True
@@ -168,7 +164,6 @@ class ProdutoOut(BaseModel):
     class Config:
         from_attributes = True
 
-# criar produto pela página Produtos (vinculando ao PI)
 class ProdutoCreateIn(BaseModel):
     pi_id: Optional[int] = None
     numero_pi: Optional[str] = None  # alternativa ao pi_id
@@ -196,18 +191,13 @@ class PiDetalheOut(BaseModel):
     id: int
     numero_pi: str
 
-    # mapeia nomes do modelo para os nomes usados na API de detalhe
     anunciante: Optional[str] = Field(None, validation_alias="nome_anunciante")
     campanha: Optional[str] = Field(None, validation_alias="nome_campanha")
     emissao: Optional[date] = Field(None, validation_alias="data_emissao")
 
     total_pi: float = 0.0
-
-    # lê da lista transitória criada no CRUD (_attach_produtos_to_pi)
     produtos: List[ProdutoOut] = Field(default_factory=list, validation_alias="produtos_agg")
 
-    # >>> NOVOS: status geral de entregas para o topo do detalhe
-    # "sem-registro" | "pendente" | "parcial" | "entregue"
     status_entregas: str = "sem-registro"
     entregas_total: int = 0
     entregas_pendentes: int = 0
@@ -236,6 +226,5 @@ class VeiculacaoAgendaOut(BaseModel):
     diretoria: Optional[str] = None
     uf_cliente: Optional[str] = None
 
-    # >>> NOVOS (úteis caso mostre badges também na agenda)
     entregas_total: int = 0
     entregas_pendentes: int = 0

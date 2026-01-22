@@ -5,14 +5,20 @@ import { apiGet, apiPost, apiRequest } from "../services/api"
 // ====== Tipos ======
 // eslint-disable-next-line @typescript-eslint/no-type-alias
 type TipoPI = "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação"
+
+// ✅ agora traz anunciante também
 // eslint-disable-next-line @typescript-eslint/no-type-alias
-type PISimple = { numero_pi: string; nome_campanha?: string | null }
+type PISimple = {
+  numero_pi: string
+  nome_anunciante?: string | null
+  nome_campanha?: string | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-type-alias
 type VeicDraft = {
   data_inicio?: string // yyyy-mm-dd
   data_fim?: string // yyyy-mm-dd
-  dias?: number | null // ✅ quantidade de dias
+  dias?: number | null // quantidade de dias
   desconto?: number | null // em %
   valor_liquido?: number | null // informado
 }
@@ -21,7 +27,7 @@ type VeicDraft = {
 type ProdutoDraft = {
   produto_id?: number | null
   nome: string
-  valor_unitario?: number | null // ✅ puxa do catálogo ao escolher
+  valor_unitario?: number | null // puxa do catálogo ao escolher
   veiculacoes: VeicDraft[]
 }
 
@@ -37,10 +43,6 @@ type ProdutoCatalogo = {
   base_segundos?: number | null
   valor_unitario?: number | null
 }
-
-/*function norm(v?: string | null) {
-  return (v || "").toLowerCase().trim()
-}*/
 
 // ====== Constantes UI ======
 const UFS = [
@@ -118,18 +120,28 @@ function fmtMoney(v?: number | null) {
   if (v == null || Number.isNaN(v)) return "R$ 0,00"
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
-/** Aceita "1.234,56", "1234,56", "1234.56" e retorna número JS */
-/*function parseMoney(input: string): number | null {
-  const t = (input ?? "").toString().trim().replace(/\s+/g, "")
-  if (!t) return null
-  if (t.includes(",")) {
-    const normed = t.replace(/\./g, "").replace(",", ".")
+
+/**
+ * Parse BRL digitado como:
+ * - "1.234,56"
+ * - "1234,56"
+ * - "1234.56"
+ * - "R$ 1.234,56"
+ */
+function parseBRL(input?: string | null): number | null {
+  const raw = (input ?? "").toString().trim()
+  if (!raw) return null
+  const cleaned = raw.replace(/[R$\s]/g, "").trim()
+  if (!cleaned) return null
+  if (cleaned.includes(",")) {
+    const normed = cleaned.replace(/\./g, "").replace(",", ".")
     const n = Number(normed)
     return Number.isFinite(n) ? n : null
   }
-  const n = Number(t)
+  const n = Number(cleaned)
   return Number.isFinite(n) ? n : null
-}*/
+}
+
 function nearEq(a: number, b: number, tol = 0.01) {
   return Math.abs(a - b) <= tol
 }
@@ -138,6 +150,16 @@ function calcBrutoUnitDias(valorUnit: number | null | undefined, dias: number | 
   const u = valorUnit ?? 0
   const d = dias ?? 0
   return Number((u * d).toFixed(2))
+}
+
+// ✅ monta "NUMERO - ANUNCIANTE - CAMPANHA" sem ficar feio se faltar algo
+function formatPIOption(pi: PISimple) {
+  const parts = [pi.numero_pi]
+  const anunc = (pi.nome_anunciante || "").trim()
+  const camp = (pi.nome_campanha || "").trim()
+  if (anunc) parts.push(anunc)
+  if (camp) parts.push(camp)
+  return parts.join(" - ")
 }
 
 export default function CadastroPI() {
@@ -180,13 +202,16 @@ export default function CadastroPI() {
   const [executivo, setExecutivo] = useState(EXECUTIVOS_FALLBACK[0])
   const [diretoria, setDiretoria] = useState(DIRETORIAS[0])
 
-  // ✅ agora os campos do PI viram "somatório" (read-only) mas mantive string p/ compatibilidade visual
   const [valorBruto, setValorBruto] = useState<string>("")
   const [valorLiquido, setValorLiquido] = useState<string>("")
+  const [valorBrutoManual, setValorBrutoManual] = useState<string>("")
+  const [valorLiquidoManual, setValorLiquidoManual] = useState<string>("")
   const [observacoes, setObservacoes] = useState<string>("")
 
+  // ===== Controle: PI possui produtos/veiculações?
+  const [temItens, setTemItens] = useState(true)
+
   // ===== Produtos & Veiculações
-  // (Agora: escolhe o produto e já leva o valor_unitario)
   const [produtos, setProdutos] = useState<ProdutoDraft[]>([])
 
   // Estado do autocomplete por produto (idx)
@@ -221,6 +246,7 @@ export default function CadastroPI() {
 
   // Debounce de busca por produto (quando nome muda)
   useEffect(() => {
+    if (!temItens) return
     const timers: number[] = []
     produtos.forEach((p, idx) => {
       const termo = p.nome || ""
@@ -231,7 +257,7 @@ export default function CadastroPI() {
     })
     return () => timers.forEach((t) => clearTimeout(t))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [produtos.map((p) => p.nome).join("|")])
+  }, [temItens, produtos.map((p) => p.nome).join("|")])
 
   // ===== Anexos (PI e Proposta)
   const [arquivoPi, setArquivoPi] = useState<File | null>(null)
@@ -241,6 +267,14 @@ export default function CadastroPI() {
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+
+  function limparBlocoProdutos() {
+    setProdutos([])
+    setProdutoOpenIdx(null)
+    setProdutoOptions({})
+    setProdutoLoading({})
+    setProdutoErro({})
+  }
 
   // ===== Loads iniciais
   useEffect(() => {
@@ -273,13 +307,29 @@ export default function CadastroPI() {
     if (executivos.length) setExecutivo(executivos[0])
   }, [executivos])
 
-  // alterna seções condicionais
+  // alterna seções condicionais + regra: Matriz começa sem itens
   useEffect(() => {
     setErro(null)
     setMsg(null)
     if (tipoPI !== "Abatimento" && tipoPI !== "Veiculação") setNumeroPIMatriz("")
     if (tipoPI !== "CS") setNumeroPINormal("")
+
+    // Matriz por padrão NÃO tem itens
+    if (tipoPI === "Matriz") {
+      setTemItens(false)
+      limparBlocoProdutos()
+    }
   }, [tipoPI])
+
+  // se usuário desliga itens, limpar bloco e deixar valores manuais
+  useEffect(() => {
+    if (!temItens) {
+      limparBlocoProdutos()
+    } else {
+      setValorBrutoManual("")
+      setValorLiquidoManual("")
+    }
+  }, [temItens])
 
   // ===== Buscar por CNPJ (BD -> BrasilAPI fallback)
   async function buscarAnunciante() {
@@ -422,7 +472,6 @@ export default function CadastroPI() {
         const lcalc = liquidoCalcDaVeic(p, v)
         b += bruto
         lc += lcalc
-        // se informou líquido, soma o informado; senão soma o calculado
         l += v.valor_liquido != null ? Number(v.valor_liquido) : lcalc
       }
     }
@@ -431,14 +480,18 @@ export default function CadastroPI() {
       somaLiquidoVeics: Number(l.toFixed(2)),
       liquidoCalcVeics: Number(lc.toFixed(2)),
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtos])
 
-  // mantém campos do PI sincronizados (read-only visual)
+  // mantém campos do PI sincronizados
   useEffect(() => {
-    setValorBruto(somaBrutoVeics ? somaBrutoVeics.toFixed(2).replace(".", ",") : "")
-    setValorLiquido(somaLiquidoVeics ? somaLiquidoVeics.toFixed(2).replace(".", ",") : "")
-  }, [somaBrutoVeics, somaLiquidoVeics])
+    if (temItens) {
+      setValorBruto(somaBrutoVeics ? somaBrutoVeics.toFixed(2).replace(".", ",") : "")
+      setValorLiquido(somaLiquidoVeics ? somaLiquidoVeics.toFixed(2).replace(".", ",") : "")
+    } else {
+      setValorBruto(valorBrutoManual || "")
+      setValorLiquido(valorLiquidoManual || "")
+    }
+  }, [temItens, somaBrutoVeics, somaLiquidoVeics, valorBrutoManual, valorLiquidoManual])
 
   // ===== Regras de envio
   const podeEnviar = useMemo(() => {
@@ -446,35 +499,35 @@ export default function CadastroPI() {
     if (tipoPI === "CS" && !numeroPINormal) return false
     if ((tipoPI === "Abatimento" || tipoPI === "Veiculação") && !numeroPIMatriz) return false
 
-    // precisa ter ao menos 1 produto
-    if (produtos.length === 0) return false
+    if (temItens) {
+      if (produtos.length === 0) return false
+      const totalVeics = produtos.reduce((acc, p) => acc + p.veiculacoes.length, 0)
+      if (totalVeics === 0) return false
 
-    // precisa ter ao menos 1 veiculação
-    const totalVeics = produtos.reduce((acc, p) => acc + p.veiculacoes.length, 0)
-    if (totalVeics === 0) return false
+      const algumSemUnit = produtos.some((p) => !p.nome.trim() || p.valor_unitario == null)
+      if (algumSemUnit) return false
 
-    // cada produto selecionado deve ter valor_unitario
-    const algumSemUnit = produtos.some((p) => !p.nome.trim() || p.valor_unitario == null)
-    if (algumSemUnit) return false
-
-    // veiculação: dias obrigatório e líquido obrigatório
-    const veicInvalida = produtos.some((p) =>
-      p.veiculacoes.some(
-        (v) =>
-          v.dias == null ||
-          v.dias <= 0 ||
-          v.valor_liquido == null ||
-          v.valor_liquido < 0 ||
-          (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
+      const veicInvalida = produtos.some((p) =>
+        p.veiculacoes.some(
+          (v) =>
+            v.dias == null ||
+            v.dias <= 0 ||
+            v.valor_liquido == null ||
+            v.valor_liquido < 0 ||
+            (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
+        )
       )
-    )
-    if (veicInvalida) return false
+      if (veicInvalida) return false
+    } else {
+      const vb = parseBRL(valorBrutoManual) ?? 0
+      const vl = parseBRL(valorLiquidoManual)
+      if (vl == null || vl <= 0) return false
+      if (!Number.isFinite(vb) || vb < 0) return false
+    }
 
-    // mês de venda (se informado) precisa estar em MM/AAAA
     if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) return false
-
     return true
-  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, produtos, mesVenda])
+  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, temItens, produtos, mesVenda, valorBrutoManual, valorLiquidoManual])
 
   // ===== Upload de anexos após criar PI
   async function uploadAnexos(pi: { id: number; numero_pi: string }) {
@@ -507,29 +560,37 @@ export default function CadastroPI() {
     setMsg(null)
 
     try {
-      // validações explícitas
-      if (produtos.length === 0) throw new Error("Adicione ao menos um produto.")
-      const totalVeics = produtos.reduce((acc, p) => acc + p.veiculacoes.length, 0)
-      if (totalVeics === 0) throw new Error("Adicione ao menos uma veiculação.")
+      if (temItens) {
+        if (produtos.length === 0) throw new Error("Adicione ao menos um produto.")
+        const totalVeics = produtos.reduce((acc, p) => acc + p.veiculacoes.length, 0)
+        if (totalVeics === 0) throw new Error("Adicione ao menos uma veiculação.")
 
-      const algumSemUnit = produtos.some((p) => !p.nome.trim() || p.valor_unitario == null)
-      if (algumSemUnit) throw new Error("Selecione um produto do catálogo (com valor unitário) para cada item.")
+        const algumSemUnit = produtos.some((p) => !p.nome.trim() || p.valor_unitario == null)
+        if (algumSemUnit) throw new Error("Selecione um produto do catálogo (com valor unitário) para cada item.")
 
-      const veicInvalida = produtos.some((p) =>
-        p.veiculacoes.some(
-          (v) =>
-            v.dias == null ||
-            v.dias <= 0 ||
-            v.valor_liquido == null ||
-            v.valor_liquido < 0 ||
-            (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
+        const veicInvalida = produtos.some((p) =>
+          p.veiculacoes.some(
+            (v) =>
+              v.dias == null ||
+              v.dias <= 0 ||
+              v.valor_liquido == null ||
+              v.valor_liquido < 0 ||
+              (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
+          )
         )
-      )
-      if (veicInvalida) throw new Error("Preencha Dias, % Desconto (0–100) e Valor Líquido em todas as veiculações.")
+        if (veicInvalida) throw new Error("Preencha Dias, % Desconto (0–100) e Valor Líquido em todas as veiculações.")
+      } else {
+        const vb = parseBRL(valorBrutoManual) ?? 0
+        const vl = parseBRL(valorLiquidoManual)
+        if (vl == null || vl <= 0) throw new Error("Informe o Valor Líquido (manual) maior que zero.")
+        if (!Number.isFinite(vb) || vb < 0) throw new Error("Valor Bruto (manual) inválido.")
+      }
 
       if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) throw new Error("Mês da venda deve estar no formato MM/AAAA.")
 
-      // 1) cria o PI (valores agora são somatórios)
+      const brutoFinal = temItens ? Number(somaBrutoVeics.toFixed(2)) : Number((parseBRL(valorBrutoManual) ?? 0).toFixed(2))
+      const liquidoFinal = temItens ? Number(somaLiquidoVeics.toFixed(2)) : Number((parseBRL(valorLiquidoManual) ?? 0).toFixed(2))
+
       const payload: any = {
         numero_pi: numeroPI.trim(),
         tipo_pi: tipoPI,
@@ -559,39 +620,39 @@ export default function CadastroPI() {
         executivo: executivo || undefined,
         diretoria: diretoria || undefined,
 
-        valor_bruto: Number(somaBrutoVeics.toFixed(2)),
-        valor_liquido: Number(somaLiquidoVeics.toFixed(2)),
+        valor_bruto: brutoFinal,
+        valor_liquido: liquidoFinal,
+
         observacoes: (observacoes || "").trim(),
       }
 
       const pi = await apiPost<any>("/pis", payload)
 
-      // 2) cria veiculações — bruto = unitário * dias; líquido vem do campo; desconto vem do campo
-      const chamadas: Promise<any>[] = []
-      for (const p of produtos) {
-        for (const v of p.veiculacoes) {
-          const bruto = brutoDaVeic(p, v)
-          const body: any = {
-            numero_pi: pi.numero_pi,
-            produto_id: p.produto_id ?? undefined, // ✅ preferencial
-            produto_nome: (p.nome || "").trim() || undefined, // fallback
+      if (temItens) {
+        const chamadas: Promise<any>[] = []
+        for (const p of produtos) {
+          for (const v of p.veiculacoes) {
+            const bruto = calcBrutoUnitDias(p.valor_unitario ?? 0, v.dias ?? 0)
+            const body: any = {
+              numero_pi: pi.numero_pi,
+              produto_id: p.produto_id ?? undefined,
+              produto_nome: (p.nome || "").trim() || undefined,
 
-            data_inicio: (v.data_inicio || "").trim() || undefined,
-            data_fim: (v.data_fim || "").trim() || undefined,
+              data_inicio: (v.data_inicio || "").trim() || undefined,
+              data_fim: (v.data_fim || "").trim() || undefined,
 
-            // ⚠️ backend ainda espera "quantidade" -> enviamos dias como quantidade
-            quantidade: v.dias == null ? undefined : Number(v.dias),
+              quantidade: v.dias == null ? undefined : Number(v.dias),
 
-            valor_bruto: Number(bruto.toFixed(2)),
-            desconto: v.desconto == null ? 0 : Number(v.desconto),
-            valor_liquido: v.valor_liquido == null ? undefined : Number(v.valor_liquido),
+              valor_bruto: Number(bruto.toFixed(2)),
+              desconto: v.desconto == null ? 0 : Number(v.desconto),
+              valor_liquido: v.valor_liquido == null ? undefined : Number(v.valor_liquido),
+            }
+            chamadas.push(apiPost("/veiculacoes", body))
           }
-          chamadas.push(apiPost("/veiculacoes", body))
         }
+        if (chamadas.length) await Promise.all(chamadas)
       }
-      if (chamadas.length) await Promise.all(chamadas)
 
-      // 3) envia anexos
       const anexosOk = await uploadAnexos(pi)
 
       setMsg(`PI criada: ${pi.numero_pi} (${pi.tipo_pi})` + (anexosOk.length ? `\nAnexos enviados: ${anexosOk.join(", ")}` : ""))
@@ -621,12 +682,11 @@ export default function CadastroPI() {
       setDiretoria(DIRETORIAS[0])
       setValorBruto("")
       setValorLiquido("")
+      setValorBrutoManual("")
+      setValorLiquidoManual("")
       setObservacoes("")
-      setProdutos([])
-      setProdutoOpenIdx(null)
-      setProdutoOptions({})
-      setProdutoLoading({})
-      setProdutoErro({})
+      setTemItens(true)
+      limparBlocoProdutos()
       setArquivoPi(null)
       setArquivoProposta(null)
     } catch (err: any) {
@@ -639,7 +699,6 @@ export default function CadastroPI() {
   // ===== UI
   return (
     <div className="max-w-6xl mx-auto p-6">
-      {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900">Cadastro de Pedido de Inserção</h1>
         <span className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700 border border-red-200">
@@ -687,6 +746,36 @@ export default function CadastroPI() {
             </div>
           </div>
 
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <div className="font-medium text-slate-900">Este PI possui produtos/veiculações?</div>
+              <div className="text-xs text-slate-600">Se “Não”, você informa os valores manualmente e não precisa cadastrar produtos nem veiculações.</div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setTemItens(true)}
+                className={[
+                  "px-3 py-2 rounded-full border text-sm transition",
+                  temItens ? "bg-red-600 text-white border-red-600 shadow" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                Sim
+              </button>
+              <button
+                type="button"
+                onClick={() => setTemItens(false)}
+                className={[
+                  "px-3 py-2 rounded-full border text-sm transition",
+                  !temItens ? "bg-red-600 text-white border-red-600 shadow" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                Não
+              </button>
+            </div>
+          </div>
+
           {/* vínculos condicionais */}
           {(tipoPI === "Abatimento" || tipoPI === "Veiculação") && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
@@ -700,8 +789,7 @@ export default function CadastroPI() {
                   <option value="">-- escolha --</option>
                   {matrizesAtivas.map((m) => (
                     <option key={m.numero_pi} value={m.numero_pi}>
-                      {m.numero_pi}
-                      {m.nome_campanha ? ` — ${m.nome_campanha}` : ""}
+                      {formatPIOption(m)}
                     </option>
                   ))}
                 </select>
@@ -720,8 +808,7 @@ export default function CadastroPI() {
                 <option value="">-- escolha --</option>
                 {normaisAtivos.map((n) => (
                   <option key={n.numero_pi} value={n.numero_pi}>
-                    {n.numero_pi}
-                    {n.nome_campanha ? ` — ${n.nome_campanha}` : ""}
+                    {formatPIOption(n)}
                   </option>
                 ))}
               </select>
@@ -750,15 +837,29 @@ export default function CadastroPI() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Anunciante</label>
-              <input type="text" className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" value={nomeAnunciante} onChange={(e) => setNomeAnunciante(e.target.value)} />
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={nomeAnunciante}
+                onChange={(e) => setNomeAnunciante(e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Razão Social</label>
-              <input type="text" className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" value={razaoAnunciante} onChange={(e) => setRazaoAnunciante(e.target.value)} />
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={razaoAnunciante}
+                onChange={(e) => setRazaoAnunciante(e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">UF do Cliente</label>
-              <select className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" value={ufCliente} onChange={(e) => setUfCliente(e.target.value)}>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={ufCliente}
+                onChange={(e) => setUfCliente(e.target.value)}
+              >
                 {UFS.map((uf) => (
                   <option key={uf} value={uf}>
                     {uf}
@@ -783,7 +884,13 @@ export default function CadastroPI() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">CNPJ da Agência</label>
               <div className="flex gap-2">
-                <input type="text" className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" placeholder="Somente números" value={cnpjAgencia} onChange={(e) => setCnpjAgencia(e.target.value)} />
+                <input
+                  type="text"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  placeholder="Somente números"
+                  value={cnpjAgencia}
+                  onChange={(e) => setCnpjAgencia(e.target.value)}
+                />
                 <button type="button" onClick={buscarAgencia} className="px-3 py-2 rounded-xl border border-red-600 text-red-700 hover:bg-red-50 transition">
                   Buscar
                 </button>
@@ -816,7 +923,12 @@ export default function CadastroPI() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Campanha</label>
-              <input type="text" className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" value={nomeCampanha} onChange={(e) => setNomeCampanha(e.target.value)} />
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                value={nomeCampanha}
+                onChange={(e) => setNomeCampanha(e.target.value)}
+              />
             </div>
 
             <div>
@@ -866,235 +978,264 @@ export default function CadastroPI() {
         </section>
 
         {/* >>> Produtos & Veiculações <<< */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Produtos & Veiculações</h2>
-            <button type="button" onClick={addProduto} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50">
-              ➕ Adicionar produto
-            </button>
-          </div>
+        {temItens && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">Produtos & Veiculações</h2>
+              <button type="button" onClick={addProduto} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50">
+                ➕ Adicionar produto
+              </button>
+            </div>
 
-          {produtos.length === 0 ? (
-            <div className="text-slate-600">Nenhum produto adicionado.</div>
-          ) : (
-            <div className="space-y-6">
-              {produtos.map((p, idx) => {
-                const opts = produtoOptions[idx] || []
-                const isLoading = Boolean(produtoLoading[idx])
-                const err = produtoErro[idx]
-                const showDropdown = produtoOpenIdx === idx
+            {produtos.length === 0 ? (
+              <div className="text-slate-600">Nenhum produto adicionado.</div>
+            ) : (
+              <div className="space-y-6">
+                {produtos.map((p, idx) => {
+                  const opts = produtoOptions[idx] || []
+                  const isLoading = Boolean(produtoLoading[idx])
+                  const err = produtoErro[idx]
+                  const showDropdown = produtoOpenIdx === idx
 
-                return (
-                  <div key={idx} className="rounded-xl border border-slate-200">
-                    {/* Cabeçalho do produto */}
-                    <div className="flex items-start justify-between px-4 py-3 border-b bg-slate-50 gap-4">
-                      <div className="flex-1 grid grid-cols-1 md:grid-cols-6 gap-3">
-                        <div className="md:col-span-3">
-                          <div className="relative">
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Produto</label>
+                  return (
+                    <div key={idx} className="rounded-xl border border-slate-200">
+                      {/* Cabeçalho do produto */}
+                      <div className="flex items-start justify-between px-4 py-3 border-b bg-slate-50 gap-4">
+                        <div className="flex-1 grid grid-cols-1 md:grid-cols-6 gap-3">
+                          <div className="md:col-span-3">
+                            <div className="relative">
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Produto</label>
 
-                            <input
-                              value={p.nome}
-                              onChange={(e) => {
-                                // se o usuário editar "na mão", a gente limpa o valor unitário até selecionar do dropdown
-                                setProduto(idx, { nome: e.target.value, produto_id: null, valor_unitario: null })
-                                setProdutoOpenIdx(idx)
-                              }}
-                              onFocus={() => setProdutoOpenIdx(idx)}
-                              onBlur={() => {
-                                setTimeout(() => {
-                                  setProdutoOpenIdx((cur) => (cur === idx ? null : cur))
-                                }, 150)
-                              }}
-                              placeholder="Digite para buscar no catálogo..."
-                              className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                            />
+                              <input
+                                value={p.nome}
+                                onChange={(e) => {
+                                  // se o usuário editar "na mão", a gente limpa o valor unitário até selecionar do dropdown
+                                  setProduto(idx, { nome: e.target.value, produto_id: null, valor_unitario: null })
+                                  setProdutoOpenIdx(idx)
+                                }}
+                                onFocus={() => setProdutoOpenIdx(idx)}
+                                onBlur={() => {
+                                  setTimeout(() => {
+                                    setProdutoOpenIdx((cur) => (cur === idx ? null : cur))
+                                  }, 150)
+                                }}
+                                placeholder="Digite para buscar no catálogo..."
+                                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                              />
 
-                            {/* Dropdown (lista que desce) */}
-                            {showDropdown && (
-                              <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                                <div className="px-3 py-2 text-xs text-slate-500 border-b bg-slate-50 flex items-center justify-between">
-                                  <span>{isLoading ? "Buscando..." : `Resultados: ${opts.length}`}</span>
-                                  {err && <span className="text-red-600">{err}</span>}
+                              {/* Dropdown (lista que desce) */}
+                              {showDropdown && (
+                                <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                                  <div className="px-3 py-2 text-xs text-slate-500 border-b bg-slate-50 flex items-center justify-between">
+                                    <span>{isLoading ? "Buscando..." : `Resultados: ${opts.length}`}</span>
+                                    {err && <span className="text-red-600">{err}</span>}
+                                  </div>
+
+                                  <div className="max-h-64 overflow-y-auto">
+                                    {opts.length === 0 ? (
+                                      <div className="px-3 py-3 text-sm text-slate-600">{p.nome?.trim() ? "Nenhum produto encontrado." : "Digite para buscar."}</div>
+                                    ) : (
+                                      opts.map((opt) => (
+                                        <button
+                                          key={opt.id}
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()} // evita blur antes do click
+                                          onClick={() => {
+                                            setProduto(idx, {
+                                              produto_id: opt.id,
+                                              nome: opt.nome,
+                                              valor_unitario: opt.valor_unitario ?? null,
+                                            })
+                                            setProdutoOpenIdx(null)
+                                          }}
+                                          className="w-full text-left px-3 py-2 hover:bg-red-50"
+                                        >
+                                          <div className="font-medium text-slate-900">{opt.nome}</div>
+                                          <div className="text-xs text-slate-600">
+                                            {opt.categoria ? <span className="mr-2">Categoria: {opt.categoria}</span> : null}
+                                            {opt.modalidade_preco ? <span className="mr-2">Modalidade: {opt.modalidade_preco}</span> : null}
+                                            {opt.valor_unitario != null ? (
+                                              <span className="mr-2">Valor unitário: {opt.valor_unitario.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+                                            ) : (
+                                              <span className="mr-2 text-amber-700">Sem valor unitário (cadastre no catálogo)</span>
+                                            )}
+                                          </div>
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
                                 </div>
+                              )}
+                            </div>
 
-                                <div className="max-h-64 overflow-y-auto">
-                                  {opts.length === 0 ? (
-                                    <div className="px-3 py-3 text-sm text-slate-600">{p.nome?.trim() ? "Nenhum produto encontrado." : "Digite para buscar."}</div>
-                                  ) : (
-                                    opts.map((opt) => (
-                                      <button
-                                        key={opt.id}
-                                        type="button"
-                                        onMouseDown={(e) => e.preventDefault()} // evita blur antes do click
-                                        onClick={() => {
-                                          setProduto(idx, {
-                                            produto_id: opt.id,
-                                            nome: opt.nome,
-                                            valor_unitario: opt.valor_unitario ?? null,
-                                          })
-                                          setProdutoOpenIdx(null)
-                                        }}
-                                        className="w-full text-left px-3 py-2 hover:bg-red-50"
-                                      >
-                                        <div className="font-medium text-slate-900">{opt.nome}</div>
-                                        <div className="text-xs text-slate-600">
-                                          {opt.categoria ? <span className="mr-2">Categoria: {opt.categoria}</span> : null}
-                                          {opt.modalidade_preco ? <span className="mr-2">Modalidade: {opt.modalidade_preco}</span> : null}
-                                          {opt.valor_unitario != null ? (
-                                            <span className="mr-2">Valor unitário: {opt.valor_unitario.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
-                                          ) : (
-                                            <span className="mr-2 text-amber-700">Sem valor unitário (cadastre no catálogo)</span>
-                                          )}
-                                        </div>
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
+                            {p.nome?.trim() && !isLoading && !err && opts.length === 0 && (
+                              <div className="text-xs text-slate-500 mt-1">
+                                Dica: o catálogo busca por <strong>nome/categoria</strong>. Se não aparecer, confirme se o backend aceita <code>?termo=</code>.
                               </div>
                             )}
                           </div>
 
-                          {p.nome?.trim() && !isLoading && !err && opts.length === 0 && (
-                            <div className="text-xs text-slate-500 mt-1">
-                              Dica: o catálogo busca por <strong>nome/categoria</strong>. Se não aparecer, confirme se o backend aceita <code>?termo=</code>.
+                          <div className="md:col-span-3">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Valor unitário (do catálogo)</label>
+                            <div className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white">
+                              {p.valor_unitario == null ? <span className="text-slate-500">Selecione um produto para carregar o valor unitário.</span> : <span className="font-semibold text-slate-900">{fmtMoney(p.valor_unitario)}</span>}
                             </div>
-                          )}
-                        </div>
-
-                        <div className="md:col-span-3">
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Valor unitário (do catálogo)</label>
-                          <div className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white">
-                            {p.valor_unitario == null ? <span className="text-slate-500">Selecione um produto para carregar o valor unitário.</span> : <span className="font-semibold text-slate-900">{fmtMoney(p.valor_unitario)}</span>}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-1">
-                            O valor bruto da veiculação será: <strong>valor unitário × dias</strong>.
+                            <div className="text-xs text-slate-500 mt-1">
+                              O valor bruto da veiculação será: <strong>valor unitário × dias</strong>.
+                            </div>
                           </div>
                         </div>
+
+                        <div className="pl-1">
+                          <button type="button" onClick={() => rmProduto(idx)} className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                            ✖ Remover
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="pl-1">
-                        <button type="button" onClick={() => rmProduto(idx)} className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                          ✖ Remover
-                        </button>
-                      </div>
-                    </div>
+                      {/* Veiculações do produto */}
+                      <div className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-sm text-slate-600">Veiculações deste produto</div>
+                          <button type="button" onClick={() => addVeic(idx)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                            ➕ Adicionar veiculação
+                          </button>
+                        </div>
 
-                    {/* Veiculações do produto */}
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm text-slate-600">Veiculações deste produto</div>
-                        <button type="button" onClick={() => addVeic(idx)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                          ➕ Adicionar veiculação
-                        </button>
-                      </div>
+                        {p.veiculacoes.length === 0 ? (
+                          <div className="text-slate-500 text-sm">Nenhuma veiculação.</div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full">
+                              <thead>
+                                <tr className="bg-red-600/90 text-white">
+                                  {["Início", "Fim", "Dias", "Bruto (auto)", "Desc %", "Líquido", "Ações"].map((h) => (
+                                    <th key={h} className="px-3 py-2 text-left text-sm font-semibold">
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {p.veiculacoes.map((v, vIdx) => {
+                                  const bruto = brutoDaVeic(p, v)
+                                  const lCalc = liquidoCalcDaVeic(p, v)
+                                  const mismatch =
+                                    v.valor_liquido != null && p.valor_unitario != null && v.dias != null ? !nearEq(Number(v.valor_liquido), lCalc) : false
 
-                      {p.veiculacoes.length === 0 ? (
-                        <div className="text-slate-500 text-sm">Nenhuma veiculação.</div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full">
-                            <thead>
-                              <tr className="bg-red-600/90 text-white">
-                                {["Início", "Fim", "Dias", "Bruto (auto)", "Desc %", "Líquido", "Ações"].map((h) => (
-                                  <th key={h} className="px-3 py-2 text-left text-sm font-semibold">
-                                    {h}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {p.veiculacoes.map((v, vIdx) => {
-                                const bruto = brutoDaVeic(p, v)
-                                const lCalc = liquidoCalcDaVeic(p, v)
-                                const mismatch = v.valor_liquido != null && p.valor_unitario != null && v.dias != null ? !nearEq(Number(v.valor_liquido), lCalc) : false
+                                  return (
+                                    <tr key={vIdx} className="border-b last:border-0 align-top">
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="date"
+                                          value={v.data_inicio || ""}
+                                          onChange={(e) => setVeic(idx, vIdx, { data_inicio: e.target.value })}
+                                          className="rounded-lg border border-slate-300 px-2 py-1"
+                                        />
+                                      </td>
 
-                                return (
-                                  <tr key={vIdx} className="border-b last:border-0 align-top">
-                                    <td className="px-3 py-2">
-                                      <input type="date" value={v.data_inicio || ""} onChange={(e) => setVeic(idx, vIdx, { data_inicio: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1" />
-                                    </td>
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="date"
+                                          value={v.data_fim || ""}
+                                          onChange={(e) => setVeic(idx, vIdx, { data_fim: e.target.value })}
+                                          className="rounded-lg border border-slate-300 px-2 py-1"
+                                        />
+                                      </td>
 
-                                    <td className="px-3 py-2">
-                                      <input type="date" value={v.data_fim || ""} onChange={(e) => setVeic(idx, vIdx, { data_fim: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1" />
-                                    </td>
+                                      {/* Dias */}
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={v.dias ?? ""}
+                                          onChange={(e) => setVeic(idx, vIdx, { dias: e.target.value === "" ? null : Number(e.target.value) })}
+                                          className="w-24 rounded-lg border border-slate-300 px-2 py-1"
+                                        />
+                                      </td>
 
-                                    {/* Dias */}
-                                    <td className="px-3 py-2">
-                                      <input type="number" min={0} value={v.dias ?? ""} onChange={(e) => setVeic(idx, vIdx, { dias: e.target.value === "" ? null : Number(e.target.value) })} className="w-24 rounded-lg border border-slate-300 px-2 py-1" />
-                                    </td>
+                                      {/* Bruto auto */}
+                                      <td className="px-3 py-2">
+                                        <div className="w-36 rounded-lg border border-slate-300 px-2 py-1 bg-slate-50 text-slate-900">
+                                          {p.valor_unitario == null || v.dias == null ? <span className="text-slate-500">—</span> : fmtMoney(bruto)}
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-1">{p.valor_unitario != null ? `Unit: ${fmtMoney(p.valor_unitario)}` : "Selecione produto"}</div>
+                                      </td>
 
-                                    {/* Bruto auto */}
-                                    <td className="px-3 py-2">
-                                      <div className="w-36 rounded-lg border border-slate-300 px-2 py-1 bg-slate-50 text-slate-900">{p.valor_unitario == null || v.dias == null ? <span className="text-slate-500">—</span> : fmtMoney(bruto)}</div>
-                                      <div className="text-xs text-slate-500 mt-1">{p.valor_unitario != null ? `Unit: ${fmtMoney(p.valor_unitario)}` : "Selecione produto"}</div>
-                                    </td>
+                                      {/* Desconto % */}
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          min={0}
+                                          max={100}
+                                          value={v.desconto ?? 0}
+                                          onChange={(e) => setVeic(idx, vIdx, { desconto: e.target.value === "" ? null : Number(e.target.value) })}
+                                          className="w-24 rounded-lg border border-slate-300 px-2 py-1"
+                                        />
+                                      </td>
 
-                                    {/* Desconto % */}
-                                    <td className="px-3 py-2">
-                                      <input type="number" step="0.1" min={0} max={100} value={v.desconto ?? 0} onChange={(e) => setVeic(idx, vIdx, { desconto: e.target.value === "" ? null : Number(e.target.value) })} className="w-24 rounded-lg border border-slate-300 px-2 py-1" />
-                                    </td>
-
-                                    {/* Líquido */}
-                                    <td className="px-3 py-2">
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min={0}
-                                        value={v.valor_liquido ?? ""}
-                                        onChange={(e) => setVeic(idx, vIdx, { valor_liquido: e.target.value === "" ? null : Number(e.target.value) })}
-                                        className={["w-32 rounded-lg border px-2 py-1", mismatch ? "border-red-400 bg-red-50/40" : "border-slate-300"].join(" ")}
-                                      />
-                                      <div className="text-xs mt-1">
-                                        {p.valor_unitario != null && v.dias != null ? (
-                                          mismatch ? (
-                                            <span className="text-amber-700">
-                                              Cálculo sugere: <strong>{fmtMoney(lCalc)}</strong> (confira desconto)
-                                            </span>
+                                      {/* Líquido */}
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min={0}
+                                          value={v.valor_liquido ?? ""}
+                                          onChange={(e) => setVeic(idx, vIdx, { valor_liquido: e.target.value === "" ? null : Number(e.target.value) })}
+                                          className={["w-32 rounded-lg border px-2 py-1", mismatch ? "border-red-400 bg-red-50/40" : "border-slate-300"].join(" ")}
+                                        />
+                                        <div className="text-xs mt-1">
+                                          {p.valor_unitario != null && v.dias != null ? (
+                                            mismatch ? (
+                                              <span className="text-amber-700">
+                                                Cálculo sugere: <strong>{fmtMoney(lCalc)}</strong> (confira desconto)
+                                              </span>
+                                            ) : (
+                                              <span className="text-green-700">
+                                                ✓ confere com cálculo: <strong>{fmtMoney(lCalc)}</strong>
+                                              </span>
+                                            )
                                           ) : (
-                                            <span className="text-green-700">
-                                              ✓ confere com cálculo: <strong>{fmtMoney(lCalc)}</strong>
-                                            </span>
-                                          )
-                                        ) : (
-                                          <span className="text-slate-500">Selecione produto e informe dias.</span>
-                                        )}
-                                      </div>
-                                    </td>
+                                            <span className="text-slate-500">Selecione produto e informe dias.</span>
+                                          )}
+                                        </div>
+                                      </td>
 
-                                    <td className="px-3 py-2">
-                                      <button type="button" onClick={() => rmVeic(idx, vIdx)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                                        Remover
-                                      </button>
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
+                                      <td className="px-3 py-2">
+                                        <button type="button" onClick={() => rmVeic(idx, vIdx)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                                          Remover
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
 
-              {/* Totais e conferência geral */}
-              <div className="flex flex-col items-end gap-1 text-lg">
-                <div>
-                  Total Bruto (auto): <span className="ml-2 font-semibold">{fmtMoney(somaBrutoVeics)}</span>
-                </div>
-                <div className="flex items-center gap-2">
+                {/* Totais e conferência geral */}
+                <div className="flex flex-col items-end gap-1 text-lg">
                   <div>
-                    Total Líquido (soma informada): <span className="ml-2 font-semibold">{fmtMoney(somaLiquidoVeics)}</span>
+                    Total Bruto (auto): <span className="ml-2 font-semibold">{fmtMoney(somaBrutoVeics)}</span>
                   </div>
-                  {!nearEq(somaLiquidoVeics, liquidoCalcVeics) && <span className="text-xs text-amber-700">(pelo cálculo seria {fmtMoney(liquidoCalcVeics)} — confira descontos)</span>}
+                  <div className="flex items-center gap-2">
+                    <div>
+                      Total Líquido (soma informada): <span className="ml-2 font-semibold">{fmtMoney(somaLiquidoVeics)}</span>
+                    </div>
+                    {!nearEq(somaLiquidoVeics, liquidoCalcVeics) && <span className="text-xs text-amber-700">(pelo cálculo seria {fmtMoney(liquidoCalcVeics)} — confira descontos)</span>}
+                  </div>
+                  <div className="text-xs text-slate-500">No envio, o PI será salvo com os totais acima.</div>
                 </div>
-                <div className="text-xs text-slate-500">No envio, o PI será salvo com os totais acima.</div>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        )}
 
         {/* Responsáveis & Valores do PI */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1122,17 +1263,54 @@ export default function CadastroPI() {
               </select>
             </div>
 
-            {/* ✅ agora são read-only (calculados do bloco de veiculações) */}
+            {/* Valor Bruto */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Bruto (PI) — automático</label>
-              <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorBruto ? `R$ ${valorBruto}` : ""} onChange={(e) => setValorBruto(e.target.value)} />
-              <div className="text-xs text-slate-500 mt-1">Somatório de (valor unitário × dias).</div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Valor Bruto (PI) — {temItens ? "automático" : "manual"}
+              </label>
+
+              {temItens ? (
+                <>
+                  <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorBruto ? `R$ ${valorBruto}` : ""} />
+                  <div className="text-xs text-slate-500 mt-1">Somatório de (valor unitário × dias).</div>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Ex: 120.000,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                    value={valorBrutoManual}
+                    onChange={(e) => setValorBrutoManual(e.target.value)}
+                  />
+                  <div className="text-xs text-slate-500 mt-1">Aceita: 120000,00 | 120.000,00 | 120000.00</div>
+                </>
+              )}
             </div>
 
+            {/* Valor Líquido */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Líquido (PI) — automático</label>
-              <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorLiquido ? `R$ ${valorLiquido}` : ""} onChange={(e) => setValorLiquido(e.target.value)} />
-              <div className="text-xs text-slate-500 mt-1">Somatório dos líquidos informados em cada veiculação.</div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Valor Líquido (PI) — {temItens ? "automático" : "manual"}
+              </label>
+
+              {temItens ? (
+                <>
+                  <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorLiquido ? `R$ ${valorLiquido}` : ""} />
+                  <div className="text-xs text-slate-500 mt-1">Somatório dos líquidos informados em cada veiculação.</div>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Ex: 98.500,00"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                    value={valorLiquidoManual}
+                    onChange={(e) => setValorLiquidoManual(e.target.value)}
+                  />
+                  <div className="text-xs text-slate-500 mt-1">Obrigatório quando “Não” tem itens.</div>
+                </>
+              )}
             </div>
 
             <div className="md:col-span-3">

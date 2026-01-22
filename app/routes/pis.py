@@ -139,12 +139,26 @@ def _get_latest_anexo(db: Session, pi_id: int, tipo_query: str):
 @router.get("/matriz/ativos", response_model=List[PISimpleOut])
 def listar_matriz_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_matriz_ativos(db)
-    return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
+    return [
+        PISimpleOut(
+            numero_pi=r.numero_pi,
+            nome_anunciante=getattr(r, "nome_anunciante", None),
+            nome_campanha=r.nome_campanha
+        )
+        for r in regs
+    ]
 
 @router.get("/normal/ativos", response_model=List[PISimpleOut])
 def listar_normal_ativos(db: Session = Depends(get_db)):
     regs = pi_crud.list_normal_ativos(db)
-    return [PISimpleOut(numero_pi=r.numero_pi, nome_campanha=r.nome_campanha) for r in regs]
+    return [
+        PISimpleOut(
+            numero_pi=r.numero_pi,
+            nome_anunciante=getattr(r, "nome_anunciante", None),
+            nome_campanha=r.nome_campanha
+        )
+        for r in regs
+    ]
 
 @router.get("/{numero_pi}/saldo")
 def saldo_matriz(numero_pi: str, db: Session = Depends(get_db)):
@@ -416,10 +430,8 @@ def listar_anexos_alias(pi_id: int, db: Session = Depends(get_db)):
 @router.post("/{pi_id:int}/anexos")
 async def subir_anexos_alias(
     pi_id: int,
-    # novo formato (usado no front atual): 1 arquivo + tipo
     arquivo: UploadFile | None = File(None, description="PDF"),
     tipo: Optional[str] = Form(default="pi_pdf"),
-    # compat legado: lista de arquivos via "files"
     files: List[UploadFile] | None = File(None, description="um ou mais PDFs"),
     db: Session = Depends(get_db),
 ):
@@ -432,7 +444,6 @@ async def subir_anexos_alias(
     if arquivo is None and not files:
         raise HTTPException(status_code=400, detail="Envie 'arquivo' (novo) ou 'files' (legado).")
 
-    # normaliza tipo
     tipo_raw = (tipo or "pi_pdf").strip().lower()
     if tipo_raw in {"pi", "pi_pdf"}:
         tipo_db = "pi_pdf"
@@ -502,7 +513,6 @@ def obter_arquivo_mais_recente(
 
     path = (anexo.path or "").strip()
 
-    # Se for arquivo em Google Drive
     if path.startswith("gdrive://"):
         file_id = path.split("://", 1)[1]
 
@@ -511,17 +521,15 @@ def obter_arquivo_mais_recente(
             headers = {"Content-Disposition": f'attachment; filename="{name}"'}
             return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
 
-        # redirect (padrão): enviar ao link do Drive
         meta = get_drive_file_meta(file_id)
         url = meta.get("webViewLink") or meta.get("webContentLink")
         if url:
             return RedirectResponse(url)
-        # fallback: se não houver link, faz download
+
         data, name, mime = download_drive_file_bytes(file_id)
         headers = {"Content-Disposition": f'attachment; filename="{name}"'}
         return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
 
-    # Fallback: anexo legado salvo em disco local
     if os.path.exists(path):
         return FileResponse(path, filename=anexo.filename or os.path.basename(path))
 
