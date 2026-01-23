@@ -42,22 +42,34 @@ app = FastAPI(title="Sistema de Veiculações - API", version="2.0")
 # - Auth por Authorization: Bearer <token>
 # - Não precisa cookies -> allow_credentials=False
 # ==========================================================
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5174",
-        "https://golive-veiculacoes.vercel.app",
-    ],
-    allow_origin_regex=r"^https:\/\/golive-veiculacoes(-[a-z0-9-]+)?\.vercel\.app$",
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
-)
+DEV_ALLOW_ALL = True  # troque para False quando quiser restringir
+
+if DEV_ALLOW_ALL:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5174",
+            "https://golive-veiculacoes.vercel.app",
+        ],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+
 
 # ✅ evita “falso CORS” quando ocorre ValueError de NaN
 @app.exception_handler(ValueError)
@@ -71,6 +83,14 @@ async def value_error_handler(request: Request, exc: ValueError):
             },
         )
     return JSONResponse(status_code=500, content={"detail": msg})
+
+
+# (Opcional, mas recomendado) garante JSON em erros inesperados
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    # não vaza stacktrace pro front; log fica no console do uvicorn
+    print("❌ Erro inesperado:", repr(exc))
+    return JSONResponse(status_code=500, content={"detail": "Erro interno no servidor."})
 
 
 # Static: garantir que a pasta exista antes de montar
@@ -106,7 +126,9 @@ def _startup():
             print("⚠️ Falha no seed admin:", e)
 
 
+# ==========================================================
 # ROTAS PÚBLICAS
+# ==========================================================
 app.include_router(auth_router)
 
 @app.get("/")
@@ -119,52 +141,55 @@ def healthcheck():
 # ==========================================================
 auth_dep = [Depends(get_current_user)]
 
+# PIs: executivo + admin
 app.include_router(
     pis_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo"))],  # admin sempre entra
+    dependencies=auth_dep + [Depends(require_roles("executivo", "admin"))],
 )
 
+# Veiculações: executivo + opec + admin
 app.include_router(
     veiculacoes_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo", "opec"))],
+    dependencies=auth_dep + [Depends(require_roles("executivo", "opec", "admin"))],
 )
 
+# Entregas: executivo + opec + admin
 app.include_router(
     entregas_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo", "opec"))],
+    dependencies=auth_dep + [Depends(require_roles("executivo", "opec", "admin"))],
 )
 
-# Produtos: executivo pode VER; escrita vai ser bloqueada por endpoint no router
+# Produtos: executivo + admin (admin precisa ver também)
 app.include_router(
     produtos_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+    dependencies=auth_dep + [Depends(require_roles("executivo", "admin"))],
 )
 
-# Executivos: executivo pode VER; edição vai ser bloqueada por endpoint no router
+# Executivos: executivo + admin (admin precisa listar para o painel de vendas)
 app.include_router(
     executivos_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+    dependencies=auth_dep + [Depends(require_roles("executivo", "admin"))],
 )
 
-# Matrizes: executivo pode ver somente as dele (checagem/filtro no router)
+# Matrizes: executivo + admin
 app.include_router(
     matrizes_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+    dependencies=auth_dep + [Depends(require_roles("executivo", "admin"))],
 )
 
-# Financeiro: financeiro + opec (admin override)
+# Financeiro: financeiro + opec + admin
 app.include_router(
     faturamentos_router,
-    dependencies=auth_dep + [Depends(require_roles("financeiro", "opec"))],
+    dependencies=auth_dep + [Depends(require_roles("financeiro", "opec", "admin"))],
 )
 
-# Admin (gestão de usuários)
+# Admin (gestão de usuários): só admin
 app.include_router(
     admin_users_router,
     dependencies=auth_dep + [Depends(require_roles("admin"))],
 )
 
-# Rotas que NÃO entraram na sua matriz (deixo como ADMIN por segurança)
+# Agências e Anunciantes: por segurança, só admin
 app.include_router(
     agencias_router,
     dependencies=auth_dep + [Depends(require_roles("admin"))],
@@ -173,15 +198,18 @@ app.include_router(
     anunciantes_router,
     dependencies=auth_dep + [Depends(require_roles("admin"))],
 )
+
+# ✅ Vendas: só admin (como você pediu)
 app.include_router(
     vendas_router,
     dependencies=auth_dep + [Depends(require_roles("admin"))],
 )
 
-# /me: executivo e admin (opec/financeiro não precisam)
+# ✅ /me: qualquer usuário logado
+# (cada endpoint dentro de /me decide o papel, ex.: /me/executivo exige executivo|admin)
 app.include_router(
     me_router,
-    dependencies=auth_dep + [Depends(require_roles("executivo"))],
+    dependencies=auth_dep,
 )
 
 if __name__ == "__main__":

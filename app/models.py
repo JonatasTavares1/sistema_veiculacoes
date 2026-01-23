@@ -106,8 +106,9 @@ class PI(Base):
     diretoria = Column(String)
 
     nome_campanha = Column(String)
-    mes_venda = Column(String)
-    dia_venda = Column(String)
+
+    # ✅ UNIFICADO: data da venda (define PI como "vendido" quando não é nula)
+    data_venda = Column(Date, nullable=True, index=True)
 
     # ✅ Canal continua no PI (se vocês ainda quiserem filtrar/mostrar)
     canal = Column(String)
@@ -173,7 +174,11 @@ class PIAnexo(Base):
     __tablename__ = "pi_anexos"
 
     id = Column(Integer, primary_key=True)
-    pi_id = Column(Integer, ForeignKey("pis_cadastro.id", ondelete="CASCADE"), nullable=False)
+    pi_id = Column(
+        Integer,
+        ForeignKey("pis_cadastro.id", ondelete="CASCADE"),
+        nullable=False
+    )
 
     tipo = Column(String, nullable=False)
     filename = Column(String, nullable=False)
@@ -191,7 +196,11 @@ class Produto(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False, unique=True)
 
-    pi_id = Column(Integer, ForeignKey("pis_cadastro.id", ondelete="SET NULL"), nullable=True)
+    pi_id = Column(
+        Integer,
+        ForeignKey("pis_cadastro.id", ondelete="SET NULL"),
+        nullable=True
+    )
 
     descricao = Column(String, nullable=True)
 
@@ -217,11 +226,9 @@ class Veiculacao(Base):
     produto_id = Column(Integer, ForeignKey("produtos.id"))
     pi_id = Column(Integer, ForeignKey("pis_cadastro.id"))
 
-    # ✅ Sem canal e sem formato
     data_inicio = Column(String)
     data_fim = Column(String)
 
-    # aqui vira "dias" (você está enviando dias como quantidade no front)
     quantidade = Column(Integer)
 
     valor_bruto = Column(Float, nullable=True)
@@ -265,7 +272,11 @@ class Faturamento(Base):
 
     id = Column(Integer, primary_key=True)
 
-    entrega_id = Column(Integer, ForeignKey("entregas.id", ondelete="CASCADE"), nullable=False)
+    entrega_id = Column(
+        Integer,
+        ForeignKey("entregas.id", ondelete="CASCADE"),
+        nullable=False
+    )
 
     status = Column(String, nullable=False, default="ENVIADO")
 
@@ -293,7 +304,11 @@ class FaturamentoAnexo(Base):
     __tablename__ = "faturamento_anexos"
 
     id = Column(Integer, primary_key=True)
-    faturamento_id = Column(Integer, ForeignKey("faturamentos.id", ondelete="CASCADE"), nullable=False)
+    faturamento_id = Column(
+        Integer,
+        ForeignKey("faturamentos.id", ondelete="CASCADE"),
+        nullable=False
+    )
 
     tipo = Column(String, nullable=False)
 

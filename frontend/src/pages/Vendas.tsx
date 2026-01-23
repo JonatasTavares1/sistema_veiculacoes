@@ -79,6 +79,14 @@ type DetalheOut = {
 // /executivos pode devolver [{nome:"..."}, ...] ou ["..."]
 type ExecOption = { value: string; label: string }
 
+// /me (ajuste conforme seu backend devolve)
+type MeOut = {
+  email?: string
+  role?: string
+  nome?: string
+  executivo?: string
+}
+
 function fmtBRL(v: number) {
   try {
     return (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -103,6 +111,10 @@ function labelFromTopItem(it: TopItem) {
   return it.anunciante || it.agencia || it.campanha || it.canal || it.tipo_pi || "N/A"
 }
 
+function norm(v?: string | null) {
+  return String(v || "").toLowerCase().trim()
+}
+
 export default function Vendas() {
   const now = new Date()
   const [mes, setMes] = useState<number>(now.getMonth() + 1)
@@ -123,6 +135,10 @@ export default function Vendas() {
 
   const [execOptions, setExecOptions] = useState<ExecOption[]>([])
   const [loadingExecs, setLoadingExecs] = useState(false)
+
+  // Auth gate
+  const [checkingAuth, setCheckingAuth] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // Meta modal
   const [metaOpen, setMetaOpen] = useState(false)
@@ -153,6 +169,19 @@ export default function Vendas() {
     qs.set("top_n", "10")
     return `?${qs.toString()}`
   }, [mes, ano, executivo, diretoria, tipoPI])
+
+  async function checarAdmin() {
+    setCheckingAuth(true)
+    try {
+      const me = await apiGet<MeOut>("/me")
+      const role = norm(me?.role)
+      setIsAdmin(role === "admin")
+    } catch {
+      setIsAdmin(false)
+    } finally {
+      setCheckingAuth(false)
+    }
+  }
 
   async function carregarExecutivos() {
     setLoadingExecs(true)
@@ -187,6 +216,9 @@ export default function Vendas() {
   }
 
   async function carregarPainel() {
+    // Gate hard: não chama API se não for admin
+    if (!isAdmin) return
+
     setLoading(true)
     setPainel(null)
     setSelectedExec("")
@@ -196,7 +228,11 @@ export default function Vendas() {
       const data = await apiGet<PainelOut>(`/vendas/resumo${qPainel}`)
       setPainel(data)
     } catch (e: any) {
-      alert(`Falha ao carregar resumo: ${e?.message || e}`)
+      // Se for 403, não alerta como "erro", é esperado para não-admin (mas aqui já gateamos)
+      const msg = String(e?.message || e || "")
+      if (!msg.includes("403")) {
+        alert(`Falha ao carregar resumo: ${e?.message || e}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -204,6 +240,8 @@ export default function Vendas() {
 
   async function carregarDetalhe(execName: string) {
     if (!execName) return
+    if (!isAdmin) return
+
     setSelectedExec(execName)
     setDetalhe(null)
     setLoadingDetalhe(true)
@@ -214,10 +252,14 @@ export default function Vendas() {
       qs.set("ano", String(ano))
       qs.set("executivo", execName)
       if (tipoPI.trim()) qs.set("tipo_pi", tipoPI.trim())
+
       const data = await apiGet<DetalheOut>(`/vendas/executivo/pis?${qs.toString()}`)
       setDetalhe(data)
     } catch (e: any) {
-      alert(`Falha ao carregar PIs do executivo: ${e?.message || e}`)
+      const msg = String(e?.message || e || "")
+      if (!msg.includes("403")) {
+        alert(`Falha ao carregar PIs do executivo: ${e?.message || e}`)
+      }
     } finally {
       setLoadingDetalhe(false)
     }
@@ -237,6 +279,8 @@ export default function Vendas() {
   }
 
   async function salvarMeta() {
+    if (!isAdmin) return
+
     if (!metaChave.trim()) {
       alert("Selecione um nome para a meta (executivo/diretoria).")
       return
@@ -265,10 +309,20 @@ export default function Vendas() {
   }
 
   useEffect(() => {
-    carregarExecutivos()
-    carregarPainel()
+    ;(async () => {
+      await checarAdmin()
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    // só carrega dados se for admin
+    if (!checkingAuth && isAdmin) {
+      carregarExecutivos()
+      carregarPainel()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkingAuth, isAdmin])
 
   const metaOptions = useMemo(() => {
     if (metaEscopo === "EXECUTIVO") {
@@ -276,6 +330,30 @@ export default function Vendas() {
     }
     return diretoriasOptions.filter(v => v)
   }, [metaEscopo, execOptions, diretoriasOptions])
+
+  // ========= UI: Bloqueio elegante =========
+  if (checkingAuth) {
+    return (
+      <div className="p-6 text-zinc-100">
+        <div className={cardShell() + " p-6"}>
+          <div className="text-sm text-zinc-400">Verificando permissões...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6 text-zinc-100">
+        <div className={cardShell() + " p-6"}>
+          <h1 className="text-xl font-bold">Vendas</h1>
+          <p className="text-sm text-zinc-400 mt-2">
+            Acesso restrito. Esta página é exclusiva para administradores.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 text-zinc-100">
@@ -608,9 +686,7 @@ export default function Vendas() {
       {/* Detalhe */}
       <div className="mt-8">
         <h2 className="text-lg font-semibold">Detalhe por PI</h2>
-        <p className="text-sm text-zinc-400 mt-1">
-          Selecionado: {selectedExec ? selectedExec : "nenhum"}
-        </p>
+        <p className="text-sm text-zinc-400 mt-1">Selecionado: {selectedExec ? selectedExec : "nenhum"}</p>
 
         {loadingDetalhe && <div className="mt-3 text-sm text-zinc-400">Carregando PIs...</div>}
 
@@ -709,7 +785,9 @@ export default function Vendas() {
               </div>
 
               <div>
-                <label className="text-xs text-zinc-400">{metaEscopo === "EXECUTIVO" ? "Executivo" : "Diretoria"}</label>
+                <label className="text-xs text-zinc-400">
+                  {metaEscopo === "EXECUTIVO" ? "Executivo" : "Diretoria"}
+                </label>
                 <select
                   value={metaChave}
                   onChange={e => setMetaChave(e.target.value)}
