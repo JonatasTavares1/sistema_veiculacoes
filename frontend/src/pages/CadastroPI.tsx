@@ -191,9 +191,9 @@ export default function CadastroPI() {
   const [perfilAnunciante, setPerfilAnunciante] = useState("Privado")
   const [subperfilAnunciante, setSubperfilAnunciante] = useState("Privado")
 
-  // ===== Datas & Período de venda
-  const [mesVenda, setMesVenda] = useState("") // "07/2025"
-  const [diaVenda, setDiaVenda] = useState("") // "23"
+  // ===== Datas
+  // ✅ agora: Data da Venda única (yyyy-mm-dd)
+  const [dataVenda, setDataVenda] = useState<string>("") // yyyy-mm-dd
   const [vencimento, setVencimento] = useState<string>("") // yyyy-mm-dd
   const [dataEmissao, setDataEmissao] = useState<string>("") // yyyy-mm-dd
 
@@ -525,9 +525,9 @@ export default function CadastroPI() {
       if (!Number.isFinite(vb) || vb < 0) return false
     }
 
-    if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) return false
+    // dataVenda vem de <input type="date">, então já é yyyy-mm-dd (ou vazio)
     return true
-  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, temItens, produtos, mesVenda, valorBrutoManual, valorLiquidoManual])
+  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, temItens, produtos, valorBrutoManual, valorLiquidoManual])
 
   // ===== Upload de anexos após criar PI
   async function uploadAnexos(pi: { id: number; numero_pi: string }) {
@@ -586,8 +586,6 @@ export default function CadastroPI() {
         if (!Number.isFinite(vb) || vb < 0) throw new Error("Valor Bruto (manual) inválido.")
       }
 
-      if (mesVenda && !/^\d{2}\/\d{4}$/.test(mesVenda)) throw new Error("Mês da venda deve estar no formato MM/AAAA.")
-
       const brutoFinal = temItens ? Number(somaBrutoVeics.toFixed(2)) : Number((parseBRL(valorBrutoManual) ?? 0).toFixed(2))
       const liquidoFinal = temItens ? Number(somaLiquidoVeics.toFixed(2)) : Number((parseBRL(valorLiquidoManual) ?? 0).toFixed(2))
 
@@ -612,8 +610,8 @@ export default function CadastroPI() {
         perfil_anunciante: perfilAnunciante || undefined,
         subperfil_anunciante: subperfilAnunciante || undefined,
 
-        mes_venda: mesVenda || undefined,
-        dia_venda: diaVenda || undefined,
+        // ✅ novo campo unificado
+        data_venda: dataVenda || undefined,
         vencimento: vencimento || undefined,
         data_emissao: dataEmissao || undefined,
 
@@ -674,10 +672,12 @@ export default function CadastroPI() {
       setNomeCampanha("")
       setPerfilAnunciante("Privado")
       setSubperfilAnunciante("Privado")
-      setMesVenda("")
-      setDiaVenda("")
+
+      // ✅ reset datas
+      setDataVenda("")
       setVencimento("")
       setDataEmissao("")
+
       setExecutivo(executivos[0] ?? EXECUTIVOS_FALLBACK[0])
       setDiretoria(DIRETORIAS[0])
       setValorBruto("")
@@ -954,22 +954,21 @@ export default function CadastroPI() {
           </div>
         </section>
 
-        {/* Datas & Período de Venda */}
+        {/* Datas */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Datas e Período de Venda</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Datas</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Mês da Venda (MM/AAAA)</label>
-              <input type="text" placeholder="07/2025" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={mesVenda} onChange={(e) => setMesVenda(e.target.value)} />
+              <label className="block text-sm font-medium text-slate-700 mb-1">Data da Venda</label>
+              <input type="date" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={dataVenda} onChange={(e) => setDataVenda(e.target.value)} />
+              <div className="text-xs text-slate-500 mt-1">Campo novo (substitui mês/dia).</div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Dia da Venda (DD)</label>
-              <input type="text" placeholder="23" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={diaVenda} onChange={(e) => setDiaVenda(e.target.value)} />
-            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Vencimento</label>
               <input type="date" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Data de Emissão</label>
               <input type="date" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={dataEmissao} onChange={(e) => setDataEmissao(e.target.value)} />
