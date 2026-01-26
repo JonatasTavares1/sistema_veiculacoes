@@ -12,6 +12,10 @@ type PIItem = {
   nome_agencia?: string | null
   cnpj_agencia?: string | null
   data_emissao?: string | null
+
+  // >>> NOVO: data_venda (substitui dia_venda + mes_venda)
+  data_venda?: string | null // esperado: "YYYY-MM-DD" (ou "DD/MM/YYYY" se seu back aceitar)
+
   valor_bruto?: number | null
   valor_liquido?: number | null
   uf_cliente?: string | null
@@ -19,8 +23,6 @@ type PIItem = {
   nome_campanha?: string | null
   diretoria?: string | null
   executivo?: string | null
-  dia_venda?: string | number | null
-  mes_venda?: string | null
   observacoes?: string | null
   _statusEntregaAgg?: "Pendente" | "Parcial" | "Entregue"
 }
@@ -79,8 +81,8 @@ type EntregaAPI = {
   id?: number
   pi_id?: number
   veiculacao_id?: number | string | null
-  status?: string | null // "Entregue", "Pendente", etc.
-  entregue?: boolean | number | string | null // 1/0, true/false, "1"/"0"
+  status?: string | null
+  entregue?: boolean | number | string | null
 }
 
 type AnexoMap = Record<number, { pi: boolean; proposta: boolean }>
@@ -107,6 +109,7 @@ function fmtMoney(v?: number | null) {
   if (v == null || Number.isNaN(v)) return "R$ 0,00"
   return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
+
 function parseISODateToBR(s?: string | null) {
   if (!s) return ""
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
@@ -114,6 +117,7 @@ function parseISODateToBR(s?: string | null) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
   return s
 }
+
 function BRtoISODate(s?: string | null) {
   if (!s) return ""
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s.trim())
@@ -121,28 +125,22 @@ function BRtoISODate(s?: string | null) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(s.trim())) return s.trim()
   return ""
 }
+
 function ISOtoBRDate(s?: string | null) {
   if (!s) return ""
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim())
   if (m) return `${m[3]}/${m[2]}/${m[1]}`
   return s || ""
 }
-function mesToYM(s?: string | null): string {
+
+// >>> NOVO: normaliza data para ISO (YYYY-MM-DD) aceitando ISO ou BR
+function normalizeToISODate(s?: string | null) {
   if (!s) return ""
-  const t = s.trim()
-  const m1 = /^(\d{2})\/(\d{4})$/.exec(t)
-  if (m1) return `${m1[2]}-${m1[1]}`
-  const m2 = /^(\d{4})-(\d{2})$/.exec(t)
-  if (m2) return t
-  return ""
-}
-function YMtoBRMonth(s?: string | null) {
-  if (!s) return ""
-  const m = /^(\d{4})-(\d{2})$/.exec(s.trim())
-  if (m) return `${m[2]}/${m[1]}`
-  const m2 = /^(\d{2})\/(\d{4})$/.exec(s.trim())
-  if (m2) return s.trim()
-  return ""
+  const t = String(s).trim()
+  if (!t) return ""
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+  const br = BRtoISODate(t)
+  return br || ""
 }
 
 function coalesceValor(v?: { valor?: number | null; valor_liquido?: number | null; valor_bruto?: number | null }) {
@@ -241,8 +239,6 @@ function mostraPIMatriz(tipo: string) {
 
 async function baixarArquivo(pi: PIItem, qual: "pi" | "proposta") {
   const endpoint = `/pis/${pi.id}/arquivo?tipo=${qual}&modo=download`
-
-  // apiDownloadBlob pode retornar Blob direto, ou Response-like (depende do seu services/api).
   const resp: any = await apiDownloadBlob(endpoint)
   const blob: Blob = resp instanceof Blob ? resp : await resp.blob()
 
@@ -268,9 +264,10 @@ export default function PIs() {
   const [tipo, setTipo] = useState<"Todos" | "Matriz" | "Normal" | "CS" | "Abatimento" | "Veiculação">("Todos")
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
-  const [mesVendaFiltro, setMesVendaFiltro] = useState<string>("")
-  const [diaVendaDe, setDiaVendaDe] = useState<string>("")
-  const [diaVendaAte, setDiaVendaAte] = useState<string>("")
+
+  // >>> NOVO: filtro por intervalo de data_venda
+  const [dataVendaDe, setDataVendaDe] = useState<string>("") // YYYY-MM-DD
+  const [dataVendaAte, setDataVendaAte] = useState<string>("") // YYYY-MM-DD
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
 
@@ -336,12 +333,11 @@ export default function PIs() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    const ymFiltro = mesVendaFiltro
-    const deNum = diaVendaDe ? Math.max(1, Math.min(31, parseInt(diaVendaDe, 10))) : null
-    const ateNum = diaVendaAte ? Math.max(1, Math.min(31, parseInt(diaVendaAte, 10))) : null
-    const haveDiaFiltro = deNum != null || ateNum != null
-    const minDia = deNum ?? ateNum ?? null
-    const maxDia = ateNum ?? deNum ?? null
+
+    // >>> intervalo data_venda
+    const deISO = dataVendaDe ? normalizeToISODate(dataVendaDe) : ""
+    const ateISO = dataVendaAte ? normalizeToISODate(dataVendaAte) : ""
+    const haveDataVendaFiltro = !!deISO || !!ateISO
 
     return lista.filter((p) => {
       const okBusca =
@@ -359,21 +355,20 @@ export default function PIs() {
 
       const okDir = diretoria === "Todos" || (p.diretoria || "") === diretoria
       const okExec = executivo === "Todos" || (p.executivo || "") === executivo
-      const okMes = !ymFiltro || mesToYM(p.mes_venda) === ymFiltro
 
-      let okDia = true
-      if (haveDiaFiltro) {
-        const diaRaw = p.dia_venda
-        const dia = Number(String(diaRaw ?? "").trim())
-        if (!Number.isFinite(dia)) okDia = false
+      let okDataVenda = true
+      if (haveDataVendaFiltro) {
+        const pv = normalizeToISODate(p.data_venda || "")
+        if (!pv) okDataVenda = false
         else {
-          if (minDia != null && dia < minDia) okDia = false
-          if (maxDia != null && dia > maxDia) okDia = false
+          if (deISO && pv < deISO) okDataVenda = false
+          if (ateISO && pv > ateISO) okDataVenda = false
         }
       }
-      return okBusca && okTipo && okDir && okExec && okMes && okDia
+
+      return okBusca && okTipo && okDir && okExec && okDataVenda
     })
-  }, [lista, busca, tipo, diretoria, executivo, mesVendaFiltro, diaVendaDe, diaVendaAte])
+  }, [lista, busca, tipo, diretoria, executivo, dataVendaDe, dataVendaAte])
 
   async function exportarXLSX() {
     const rows = filtrada.map((pi) => ({
@@ -392,7 +387,7 @@ export default function PIs() {
       Campanha: pi.nome_campanha || "",
       Diretoria: pi.diretoria || "",
       Executivo: pi.executivo || "",
-      "Data da Venda": pi.dia_venda && pi.mes_venda ? `${pi.dia_venda}/${pi.mes_venda}` : "",
+      "Data da Venda": parseISODateToBR(pi.data_venda),
       Observações: pi.observacoes || "",
     }))
 
@@ -443,7 +438,6 @@ export default function PIs() {
     return []
   }
 
-  // >>>>>> busca entregas
   async function carregarEntregasPorPI(pi_id: number): Promise<EntregaAPI[]> {
     try {
       const e1 = await apiGet<EntregaAPI[]>(`/pis/${pi_id}/entregas`)
@@ -456,7 +450,6 @@ export default function PIs() {
     return []
   }
 
-  // >>>>>> merge com fallback por PI
   function mesclarEntregas(veicsIn: VeiculacaoRow[], entregas: EntregaAPI[]) {
     if (!entregas?.length) return { rows: veicsIn, piLevelDelivered: false }
 
@@ -469,7 +462,6 @@ export default function PIs() {
 
       const raw = (e as any)?.veiculacao_id
       if (raw === null || raw === undefined || raw === "" || Number.isNaN(Number(raw))) {
-        // entrega marcada no nível do PI
         piLevelDelivered = true
       } else {
         const idNum = Number(raw)
@@ -503,13 +495,11 @@ export default function PIs() {
       const viaDetalhe = flattenVeicsFromDetalhe(det)
       let rows = viaEndpoints.length ? viaEndpoints : viaDetalhe
 
-      // merge de entregas (quando existir)
       const entregas = await carregarEntregasPorPI(pi_id).catch(() => [])
       if (entregas.length) {
         const merged = mesclarEntregas(rows, entregas)
         rows = merged.rows
 
-        // Se veio entrega em nível de PI, o agregado já é Entregue
         if (merged.piLevelDelivered) {
           setVeics(rows)
           setStatusEntregaAgg("Entregue")
@@ -522,7 +512,6 @@ export default function PIs() {
       setVeics(rows)
       if (rows.length === 0) setVeicsError(null)
 
-      // agregado padrão (ou reavaliado se houve entregas por item)
       const allDelivered = rows.length > 0 && rows.every((r) => isDelivered(r))
       const anyDelivered = rows.some((r) => isDelivered(r))
       const agg: "Pendente" | "Parcial" | "Entregue" = allDelivered ? "Entregue" : anyDelivered ? "Parcial" : "Pendente"
@@ -551,7 +540,8 @@ export default function PIs() {
     setEditDraft({
       ...pi,
       data_emissao: parseISODateToBR(pi.data_emissao),
-      mes_venda: YMtoBRMonth(pi.mes_venda || "") || pi.mes_venda || "",
+      // data_venda fica como vier (será editada em input type="date")
+      data_venda: pi.data_venda || null,
     })
     setEditOpen(true)
   }
@@ -573,16 +563,21 @@ export default function PIs() {
   function normalizaDataEmissaoParaAPI(s?: string | null) {
     if (!s) return null
     const t = s.trim()
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return ISOtoBRDate(t) // yyyy-mm-dd -> dd/mm/yyyy
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return ISOtoBRDate(t) // yyyy-mm-dd -> dd/mm/yyyy (mantém seu padrão atual)
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(t)) return t
     return t
   }
-  function normalizaMesVendaParaAPI(s?: string | null) {
+
+  // >>> NOVO: data_venda para API (preferencialmente ISO)
+  function normalizaDataVendaParaAPI(s?: string | null) {
     if (!s) return null
-    const t = s.trim()
-    if (/^\d{4}-\d{2}$/.test(t)) return YMtoBRMonth(t) // yyyy-mm -> mm/yyyy
-    if (/^\d{2}\/\d{4}$/.test(t)) return t
-    return t
+    const t = String(s).trim()
+    if (!t) return null
+    // se vier do input type="date" -> yyyy-mm-dd
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+    // se alguém colar dd/mm/yyyy
+    const iso = BRtoISODate(t)
+    return iso || t
   }
 
   async function salvarEditor() {
@@ -599,6 +594,10 @@ export default function PIs() {
         nome_agencia: editDraft.nome_agencia || null,
         cnpj_agencia: editDraft.cnpj_agencia || null,
         data_emissao: normalizaDataEmissaoParaAPI(editDraft.data_emissao),
+
+        // >>> NOVO: data_venda
+        data_venda: normalizaDataVendaParaAPI(editDraft.data_venda),
+
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -606,8 +605,6 @@ export default function PIs() {
         nome_campanha: editDraft.nome_campanha || null,
         diretoria: editDraft.diretoria || null,
         executivo: editDraft.executivo || null,
-        dia_venda: ((editDraft.dia_venda ?? "") as any) || null,
-        mes_venda: normalizaMesVendaParaAPI(editDraft.mes_venda),
         observacoes: editDraft.observacoes || null,
       }
 
@@ -730,47 +727,30 @@ export default function PIs() {
             </select>
           </div>
 
+          {/* >>> NOVO: filtro por Data da Venda (intervalo) */}
           <div className="xl:col-span-2">
-            <label className="block text-base md:text-xl font-semibold text-slate-800 mb-2">Venda</label>
-            <div className="grid grid-cols-3 gap-2 md:gap-3">
+            <label className="block text-base md:text-xl font-semibold text-slate-800 mb-2">Data da Venda</label>
+            <div className="grid grid-cols-2 gap-2 md:gap-3">
               <div>
-                <div className="text-xs md:text-sm text-slate-600 mb-1">Mês</div>
+                <div className="text-xs md:text-sm text-slate-600 mb-1">De</div>
                 <input
-                  type="month"
-                  value={mesVendaFiltro}
-                  onChange={(e) => setMesVendaFiltro(e.target.value)}
+                  type="date"
+                  value={dataVendaDe}
+                  onChange={(e) => setDataVendaDe(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-2.5 md:px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 />
               </div>
               <div>
-                <div className="text-xs md:text-sm text-slate-600 mb-1">Dia — De</div>
+                <div className="text-xs md:text-sm text-slate-600 mb-1">Até</div>
                 <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={diaVendaDe}
-                  onChange={(e) => setDiaVendaDe(e.target.value)}
-                  placeholder="1"
-                  className="w-full rounded-xl border border-slate-300 px-2.5 md:px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                />
-              </div>
-              <div>
-                <div className="text-xs md:text-sm text-slate-600 mb-1">Dia — Até</div>
-                <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={diaVendaAte}
-                  onChange={(e) => setDiaVendaAte(e.target.value)}
-                  placeholder="31"
+                  type="date"
+                  value={dataVendaAte}
+                  onChange={(e) => setDataVendaAte(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-2.5 md:px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
                 />
               </div>
             </div>
+            <div className="text-xs text-slate-500 mt-1">Filtra usando <code>data_venda</code>.</div>
           </div>
         </div>
       </section>
@@ -824,7 +804,7 @@ export default function PIs() {
                 </thead>
                 <tbody className="divide-y divide-red-100">
                   {filtrada.map((pi, idx) => {
-                    const dataVenda = pi.dia_venda && pi.mes_venda ? `${pi.dia_venda}/${pi.mes_venda}` : ""
+                    const dataVenda = parseISODateToBR(pi.data_venda) || ""
                     const piMatriz = mostraPIMatriz(pi.tipo_pi) ? pi.numero_pi_matriz || "" : ""
                     const temPi = anexos[pi.id]?.pi ?? false
                     const temProp = anexos[pi.id]?.proposta ?? false
@@ -954,7 +934,7 @@ export default function PIs() {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
               {filtrada.map((pi) => {
                 const piMatriz = mostraPIMatriz(pi.tipo_pi) ? pi.numero_pi_matriz || "" : ""
-                const dataVenda = pi.dia_venda && pi.mes_venda ? `${pi.dia_venda}/${pi.mes_venda}` : ""
+                const dataVenda = parseISODateToBR(pi.data_venda) || ""
                 const excluindo = deletingIds.has(pi.id)
                 const temPi = anexos[pi.id]?.pi ?? false
                 const temProp = anexos[pi.id]?.proposta ?? false
@@ -1174,14 +1154,7 @@ export default function PIs() {
                     <InfoRow label="Campanha" value={selectedPiMeta.nome_campanha || "—"} />
                     <InfoRow label="Diretoria" value={selectedPiMeta.diretoria || "—"} />
                     <InfoRow label="Executivo" value={selectedPiMeta.executivo || "—"} />
-                    <InfoRow
-                      label="Data da Venda"
-                      value={
-                        selectedPiMeta.dia_venda && selectedPiMeta.mes_venda
-                          ? `${selectedPiMeta.dia_venda}/${selectedPiMeta.mes_venda}`
-                          : "—"
-                      }
-                    />
+                    <InfoRow label="Data da Venda" value={parseISODateToBR(selectedPiMeta.data_venda) || "—"} />
                     <InfoRow label="Observações" value={selectedPiMeta.observacoes || "—"} full />
                   </div>
 
@@ -1321,7 +1294,10 @@ export default function PIs() {
                   <span className="font-mono">{editDraft.numero_pi}</span>
                 </div>
               </div>
-              <button onClick={fecharEditor} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+              <button
+                onClick={fecharEditor}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
                 ✖ Fechar
               </button>
             </div>
@@ -1427,6 +1403,20 @@ export default function PIs() {
                   </div>
                 </div>
 
+                {/* >>> NOVO: Data da Venda */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Data da Venda</label>
+                  <input
+                    type="date"
+                    value={normalizeToISODate(editDraft.data_venda) || ""}
+                    onChange={(e) => campo("data_venda", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                  <div className="text-xs text-slate-500 mt-1">
+                    Salva como <code>YYYY-MM-DD</code> em <code>data_venda</code>.
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Total (R$)</label>
                   <input
@@ -1497,34 +1487,6 @@ export default function PIs() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Dia da Venda</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={
-                      editDraft.dia_venda === null || editDraft.dia_venda === undefined || editDraft.dia_venda === ""
-                        ? ""
-                        : Number(editDraft.dia_venda)
-                    }
-                    onChange={(e) => campo("dia_venda", e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Mês da Venda</label>
-                  <input
-                    type="month"
-                    value={mesToYM(editDraft.mes_venda || "") || ""}
-                    onChange={(e) => campo("mes_venda", e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                  <div className="text-xs text-slate-500 mt-1">
-                    Salva como <code>MM/YYYY</code>.
-                  </div>
-                </div>
-
                 <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Observações</label>
                   <textarea
@@ -1558,7 +1520,17 @@ export default function PIs() {
   )
 }
 
-function InfoRow({ label, value, mono = false, full = false }: { label: string; value: any; mono?: boolean; full?: boolean }) {
+function InfoRow({
+  label,
+  value,
+  mono = false,
+  full = false,
+}: {
+  label: string
+  value: any
+  mono?: boolean
+  full?: boolean
+}) {
   return (
     <div className={full ? "md:col-span-2" : ""}>
       <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>

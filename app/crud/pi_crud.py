@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, or_, asc, func, case
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from app.models import PI, Produto, Veiculacao, PIAnexo, Entrega
+from app.models import PI
+
 
 # =========================================================
 # Helpers
@@ -16,92 +15,103 @@ from app.models import PI, Produto, Veiculacao, PIAnexo, Entrega
 def _normalize_tipo(tipo: Optional[str]) -> str:
     if not tipo:
         return ""
-    t = str(tipo).strip()
-    if t.lower() == "cs":
+    t = tipo.strip().lower()
+    if t == "cs":
         return "CS"
-    if t.lower() in ("veiculação", "veiculacao"):
+    if t in ("veiculacao", "veiculação"):
         return "Veiculação"
     return t.capitalize()
+
 
 def _clean_empty_strings(d: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in list(d.items()):
         if isinstance(v, str):
-            t = v.strip()
-            d[k] = t if t != "" else None
+            v = v.strip()
+            d[k] = v if v else None
     return d
 
-def _parse_date_maybe(value: Optional[str]) -> Optional[date]:
+
+def _parse_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
-    v = value.strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
         try:
-            return datetime.strptime(v, fmt).date()
+            return datetime.strptime(value, fmt).date()
         except ValueError:
             pass
     return None
 
-def _money_or_zero(*vals: Optional[float]) -> float:
-    for v in vals:
-        if v is not None:
-            return float(v)
-    return 0.0
 
 # =========================================================
-# Consultas básicas
+# Consultas
 # =========================================================
 
 def get_by_id(db: Session, pi_id: int) -> Optional[PI]:
     return db.get(PI, pi_id)
 
-def get_by_numero(db: Session, numero: str) -> Optional[PI]:
-    return db.query(PI).filter(PI.numero_pi == numero).first()
+
+def get_by_numero(db: Session, numero_pi: str) -> Optional[PI]:
+    return db.query(PI).filter(PI.numero_pi == numero_pi).first()
+
 
 def list_all(db: Session) -> List[PI]:
-    return db.query(PI).order_by(PI.numero_pi.desc()).all()
+    return db.query(PI).order_by(PI.id.desc()).all()
 
-def list_by_tipo(db: Session, tipo: str) -> List[PI]:
-    return db.query(PI).filter(PI.tipo_pi == tipo).order_by(PI.numero_pi.desc()).all()
 
-def list_matriz(db: Session) -> List[PI]:
-    return list_by_tipo(db, "Matriz")
+def list_matriz_ativos(db: Session) -> List[PI]:
+    return db.query(PI).filter(PI.tipo_pi == "Matriz").all()
 
-def list_normal(db: Session) -> List[PI]:
-    return list_by_tipo(db, "Normal")
+
+def list_normal_ativos(db: Session) -> List[PI]:
+    return db.query(PI).filter(PI.tipo_pi == "Normal").all()
+
 
 # =========================================================
 # Regras de negócio
 # =========================================================
 
-def calcular_saldo_restante(db: Session, numero_pi_matriz: str, *, ignorar_pi_id: Optional[int] = None) -> float:
+def calcular_saldo_restante(
+    db: Session,
+    numero_pi_matriz: str,
+    *,
+    ignorar_pi_id: Optional[int] = None,
+) -> float:
     matriz = get_by_numero(db, numero_pi_matriz)
     if not matriz or matriz.tipo_pi != "Matriz":
         return 0.0
-    abatimentos = db.query(PI).filter(
-        PI.numero_pi_matriz == numero_pi_matriz,
-        PI.tipo_pi == "Abatimento"
-    ).all()
+
+    abatimentos = (
+        db.query(PI)
+        .filter(
+            PI.tipo_pi == "Abatimento",
+            PI.numero_pi_matriz == numero_pi_matriz,
+        )
+        .all()
+    )
+
     total = 0.0
-    for f in abatimentos:
-        if ignorar_pi_id and f.id == ignorar_pi_id:
+    for a in abatimentos:
+        if ignorar_pi_id and a.id == ignorar_pi_id:
             continue
-        total += (f.valor_bruto or 0.0)
+        total += a.valor_bruto or 0.0
+
     return (matriz.valor_bruto or 0.0) - total
 
+
 # =========================================================
-# CRUD PI
+# CRUD
 # =========================================================
 
 def create(db: Session, dados: Dict[str, Any]) -> PI:
     dados = _clean_empty_strings(dados)
     dados["tipo_pi"] = _normalize_tipo(dados.get("tipo_pi"))
 
-    dados["vencimento"] = _parse_date_maybe(dados.get("vencimento"))
-    dados["data_emissao"] = _parse_date_maybe(dados.get("data_emissao"))
-    dados["data_venda"] = _parse_date_maybe(dados.get("data_venda"))
+    dados["data_venda"] = _parse_date(dados.get("data_venda"))
+    dados["vencimento"] = _parse_date(dados.get("vencimento"))
+    dados["data_emissao"] = _parse_date(dados.get("data_emissao"))
 
     if get_by_numero(db, dados["numero_pi"]):
-        raise ValueError(f"O PI '{dados['numero_pi']}' já está cadastrado.")
+        raise ValueError(f"PI '{dados['numero_pi']}' já cadastrado.")
 
     tipo = dados["tipo_pi"]
 
@@ -109,8 +119,8 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
         if not dados.get("numero_pi_matriz"):
             raise ValueError("Abatimento exige PI Matriz.")
         saldo = calcular_saldo_restante(db, dados["numero_pi_matriz"])
-        if float(dados.get("valor_bruto") or 0) > saldo:
-            raise ValueError("Valor do abatimento excede saldo do Matriz.")
+        if (dados.get("valor_bruto") or 0) > saldo:
+            raise ValueError("Valor do abatimento excede saldo.")
         dados["numero_pi_normal"] = None
 
     elif tipo == "CS":
@@ -154,3 +164,40 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
     db.commit()
     db.refresh(pi)
     return pi
+
+
+def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
+    pi = get_by_id(db, pi_id)
+    if not pi:
+        raise ValueError("PI não encontrado.")
+
+    dados = _clean_empty_strings(dados)
+
+    if "data_venda" in dados:
+        dados["data_venda"] = _parse_date(dados.get("data_venda"))
+    if "vencimento" in dados:
+        dados["vencimento"] = _parse_date(dados.get("vencimento"))
+    if "data_emissao" in dados:
+        dados["data_emissao"] = _parse_date(dados.get("data_emissao"))
+
+    if "tipo_pi" in dados:
+        dados["tipo_pi"] = _normalize_tipo(dados["tipo_pi"])
+
+    for campo, valor in dados.items():
+        if hasattr(pi, campo):
+            setattr(pi, campo, valor)
+
+    pi.eh_matriz = pi.tipo_pi == "Matriz"
+
+    db.commit()
+    db.refresh(pi)
+    return pi
+
+
+def delete(db: Session, pi_id: int) -> None:
+    pi = get_by_id(db, pi_id)
+    if not pi:
+        raise ValueError("PI não encontrado.")
+
+    db.delete(pi)
+    db.commit()
