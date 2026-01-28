@@ -1,3 +1,4 @@
+# app/routes/vendas.py
 from __future__ import annotations
 
 from typing import Optional, Literal
@@ -8,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.deps import get_db
 from app.deps_auth import require_roles
 from app.crud import vendas_crud
+
+# ✅ NOVO: consolidado por setor (Privado / Gov. Estadual / Gov. Federal / Gestão Executiva)
+from app.crud.vendas_consolidado_crud import obter_consolidado
+from app.schemas.vendas_consolidado import VendasConsolidadoOut
 
 router = APIRouter(prefix="/vendas", tags=["vendas"])
 
@@ -56,3 +61,19 @@ def get_pis_executivo(
         tipo_pi=tipo_pi,
         fonte=fonte,
     )
+
+
+# ==========================================================
+# ✅ NOVO: CONSOLIDADO GERAL POR SETOR (o “vermelho”)
+# GET /vendas/consolidado?mes=1&ano=2026
+# (opcional) &executivo=Fulano
+# ==========================================================
+@router.get("/consolidado", response_model=VendasConsolidadoOut)
+def get_consolidado_setores(
+    mes: int = Query(..., ge=1, le=12),
+    ano: int = Query(..., ge=2000, le=2100),
+    executivo: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _user=Depends(require_roles("admin")),
+):
+    return obter_consolidado(db, mes=mes, ano=ano, executivo=executivo)

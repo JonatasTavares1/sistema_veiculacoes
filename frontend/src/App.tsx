@@ -30,7 +30,7 @@ import AdminUsers from "./pages/AdminUsers"
 // ✅ Meu Perfil (Executivo)
 import MeuPerfilExecutivo from "./pages/MeuPerfilExecutivo"
 import { getUser } from "./services/auth"
-
+import DetalhesPI from "./pages/DetalhesPI"
 function Home() {
   const me = getUser()
   const role = (me?.role || "").toLowerCase()
@@ -223,6 +223,8 @@ export default function App() {
       </Route>
 
       <Route path="*" element={<NotFound />} />
+    <Route path="/pis/:id" element={<DetalhesPI />} />
     </Routes>
+    
   )
 }

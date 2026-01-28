@@ -31,6 +31,9 @@ from app.routes.veiculacoes import router as veiculacoes_router
 from app.routes.vendas import router as vendas_router
 from app.routes.me import router as me_router
 
+# ✅ Detalhes agregados do PI (PI + Veiculações + Financeiro)
+from app.routes.pi_detalhes import router as pi_detalhes_router
+
 # ✅ faturamentos
 from app.routes.faturamentos import router as faturamentos_router
 
@@ -145,6 +148,13 @@ auth_dep = [Depends(get_current_user)]
 app.include_router(
     pis_router,
     dependencies=auth_dep + [Depends(require_roles("executivo", "admin"))],
+)
+
+# ✅ Detalhes do PI (PI + Veiculações + Financeiro)
+# Recomendado: executivo + opec + financeiro + admin
+app.include_router(
+    pi_detalhes_router,
+    dependencies=auth_dep + [Depends(require_roles("executivo", "opec", "financeiro", "admin"))],
 )
 
 # Veiculações: executivo + opec + admin

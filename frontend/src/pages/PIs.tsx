@@ -1,5 +1,6 @@
 // src/pages/PIs.tsx
 import { useEffect, useMemo, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { apiDelete, apiDownloadBlob, apiGet, apiPut } from "../services/api"
 
 type PIItem = {
@@ -13,8 +14,8 @@ type PIItem = {
   cnpj_agencia?: string | null
   data_emissao?: string | null
 
-  // >>> NOVO: data_venda (substitui dia_venda + mes_venda)
-  data_venda?: string | null // esperado: "YYYY-MM-DD" (ou "DD/MM/YYYY" se seu back aceitar)
+  // data_venda (YYYY-MM-DD ou DD/MM/YYYY se o back aceitar)
+  data_venda?: string | null
 
   valor_bruto?: number | null
   valor_liquido?: number | null
@@ -24,65 +25,6 @@ type PIItem = {
   diretoria?: string | null
   executivo?: string | null
   observacoes?: string | null
-  _statusEntregaAgg?: "Pendente" | "Parcial" | "Entregue"
-}
-
-type PiDetalhe = {
-  id: number
-  numero_pi: string
-  anunciante?: string | null
-  campanha?: string | null
-  emissao?: string | null
-  total_pi: number
-  produtos?: Array<{
-    id: number
-    nome: string
-    descricao?: string | null
-    total_produto: number
-    veiculacoes: Array<{
-      id: number
-      canal?: string | null
-      formato?: string | null
-      data_inicio?: string | null
-      data_fim?: string | null
-      quantidade?: number | null
-      valor?: number | null
-      valor_liquido?: number | null
-      valor_bruto?: number | null
-      desconto?: number | null
-      entregue?: boolean | string | number | null
-      status_entrega?: string | null
-    }>
-  }>
-}
-
-type VeiculacaoRow = {
-  id: number
-  produto_id: number
-  pi_id: number
-  numero_pi: string
-  cliente?: string | null
-  campanha?: string | null
-  canal?: string | null
-  formato?: string | null
-  data_inicio?: string | null
-  data_fim?: string | null
-  quantidade?: number | null
-  valor?: number | null
-  produto_nome?: string | null
-  executivo?: string | null
-  diretoria?: string | null
-  uf_cliente?: string | null
-  entregue?: boolean | string | number | null
-  status_entrega?: string | null
-}
-
-type EntregaAPI = {
-  id?: number
-  pi_id?: number
-  veiculacao_id?: number | string | null
-  status?: string | null
-  entregue?: boolean | number | string | null
 }
 
 type AnexoMap = Record<number, { pi: boolean; proposta: boolean }>
@@ -102,6 +44,7 @@ const DEFAULT_EXECUTIVOS = [
   "Jessica Ribeiro",
   "Paula Campos",
 ]
+
 const DIRETORIAS = ["Governo Federal", "Governo Estadual", "Rafael Augusto"]
 
 // ===== helpers =====
@@ -133,7 +76,7 @@ function ISOtoBRDate(s?: string | null) {
   return s || ""
 }
 
-// >>> NOVO: normaliza data para ISO (YYYY-MM-DD) aceitando ISO ou BR
+// normaliza data para ISO (YYYY-MM-DD) aceitando ISO ou BR
 function normalizeToISODate(s?: string | null) {
   if (!s) return ""
   const t = String(s).trim()
@@ -143,95 +86,10 @@ function normalizeToISODate(s?: string | null) {
   return br || ""
 }
 
-function coalesceValor(v?: { valor?: number | null; valor_liquido?: number | null; valor_bruto?: number | null }) {
-  if (!v) return null
-  return v.valor_liquido ?? v.valor ?? v.valor_bruto ?? null
-}
-
-// >>>>>>> FIX PRINCIPAL: helpers tolerantes
-const normalize = (s?: any) => String(s ?? "").trim().toLowerCase()
-
-function truthy(val: any): boolean {
-  const t = normalize(val)
-  return (
-    val === true ||
-    val === 1 ||
-    t === "1" ||
-    t === "true" ||
-    t === "y" ||
-    t === "yes" ||
-    t === "sim" ||
-    t === "s" ||
-    t === "ok" ||
-    t === "feito" ||
-    t === "feita" ||
-    t === "done" ||
-    t === "finalizado" ||
-    t === "finalizada" ||
-    t === "concluido" ||
-    t === "concluído" ||
-    t === "concluida" ||
-    t === "concluída"
-  )
-}
-
-function statusEntregue(status?: string | null): boolean {
-  const t = normalize(status)
-  return (
-    t === "entregue" ||
-    t === "entregado" ||
-    t === "concluido" ||
-    t === "concluído" ||
-    t === "concluida" ||
-    t === "concluída" ||
-    t === "finalizado" ||
-    t === "finalizada" ||
-    t === "realizado" ||
-    t === "realizada" ||
-    t === "comprovado" ||
-    t === "comprovada" ||
-    t === "ok"
-  )
-}
-
-function isDelivered(v: { entregue?: any; status_entrega?: any } | null | undefined) {
-  if (!v) return false
-  return truthy(v.entregue) || statusEntregue(v.status_entrega)
-}
-
-function flattenVeicsFromDetalhe(det: PiDetalhe | null): VeiculacaoRow[] {
-  if (!det?.produtos || det.produtos.length === 0) return []
-  const out: VeiculacaoRow[] = []
-  for (const p of det.produtos) {
-    for (const v of p.veiculacoes || []) {
-      out.push({
-        id: v.id,
-        produto_id: p.id,
-        pi_id: det.id,
-        numero_pi: det.numero_pi,
-        cliente: det.anunciante || null,
-        campanha: det.campanha || null,
-        canal: v.canal || null,
-        formato: v.formato || null,
-        data_inicio: v.data_inicio || null,
-        data_fim: v.data_fim || null,
-        quantidade: v.quantidade ?? null,
-        valor: coalesceValor(v),
-        produto_nome: p.nome || null,
-        executivo: null,
-        diretoria: null,
-        uf_cliente: null,
-        entregue: (v as any)?.entregue ?? null,
-        status_entrega: (v as any)?.status_entrega ?? null,
-      })
-    }
-  }
-  return out
-}
-
 function normalizeTipo(tipo: string) {
   return (tipo || "").toLowerCase()
 }
+
 function mostraPIMatriz(tipo: string) {
   const t = normalizeTipo(tipo)
   return t === "cs" || t === "abatimento" || t === "veiculação" || t === "veiculacao"
@@ -253,6 +111,8 @@ async function baixarArquivo(pi: PIItem, qual: "pi" | "proposta") {
 }
 
 export default function PIs() {
+  const navigate = useNavigate()
+
   const [lista, setLista] = useState<PIItem[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -265,19 +125,11 @@ export default function PIs() {
   const [diretoria, setDiretoria] = useState<string>("Todos")
   const [executivo, setExecutivo] = useState<string>("Todos")
 
-  // >>> NOVO: filtro por intervalo de data_venda
+  // filtro por intervalo de data_venda
   const [dataVendaDe, setDataVendaDe] = useState<string>("") // YYYY-MM-DD
   const [dataVendaAte, setDataVendaAte] = useState<string>("") // YYYY-MM-DD
 
   const [executivos, setExecutivos] = useState<string[]>([...DEFAULT_EXECUTIVOS])
-
-  // detalhe
-  const [detalhePI, setDetalhePI] = useState<PiDetalhe | null>(null)
-  const [detalheLoading, setDetalheLoading] = useState(false)
-  const [veics, setVeics] = useState<VeiculacaoRow[]>([])
-  const [veicsError, setVeicsError] = useState<string | null>(null)
-  const [selectedPiMeta, setSelectedPiMeta] = useState<PIItem | null>(null)
-  const [statusEntregaAgg, setStatusEntregaAgg] = useState<"Pendente" | "Parcial" | "Entregue">("Pendente")
 
   // editor
   const [editOpen, setEditOpen] = useState(false)
@@ -334,7 +186,7 @@ export default function PIs() {
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
 
-    // >>> intervalo data_venda
+    // intervalo data_venda
     const deISO = dataVendaDe ? normalizeToISODate(dataVendaDe) : ""
     const ateISO = dataVendaAte ? normalizeToISODate(dataVendaAte) : ""
     const haveDataVendaFiltro = !!deISO || !!ateISO
@@ -377,12 +229,12 @@ export default function PIs() {
       "Tipo de PI": pi.tipo_pi,
       "PI Matriz": mostraPIMatriz(pi.tipo_pi) ? pi.numero_pi_matriz || "" : "",
       Cliente: pi.nome_anunciante || "",
-      "Agência": pi.nome_agencia || "",
+      Agência: pi.nome_agencia || "",
       "CNPJ Agência": pi.cnpj_agencia || "",
       "Data de Emissão": parseISODateToBR(pi.data_emissao),
       "Valor Total (R$)": pi.valor_bruto ?? 0,
       "Valor Líquido (R$)": pi.valor_liquido ?? 0,
-      "Praça": pi.uf_cliente || "",
+      Praça: pi.uf_cliente || "",
       Meio: pi.canal || "",
       Campanha: pi.nome_campanha || "",
       Diretoria: pi.diretoria || "",
@@ -393,6 +245,7 @@ export default function PIs() {
 
     const xlsx = await import("xlsx")
     const ws = xlsx.utils.json_to_sheet(rows, { header: Object.keys(rows[0] || {}) })
+
     const colMoney = ["Valor Total (R$)", "Valor Líquido (R$)"]
     rows.forEach((r, i) => {
       colMoney.forEach((k) => {
@@ -407,131 +260,10 @@ export default function PIs() {
 
     const wb = xlsx.utils.book_new()
     xlsx.utils.book_append_sheet(wb, ws, "PIs")
+
     const now = new Date()
     const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, "-")
     xlsx.writeFile(wb, `pis_${stamp}.xlsx`)
-  }
-
-  async function carregarVeiculacoesPorPI(pi_id: number, numero_pi?: string): Promise<VeiculacaoRow[]> {
-    try {
-      const v1 = await apiGet<VeiculacaoRow[]>(`/pis/${pi_id}/veiculacoes`)
-      if (Array.isArray(v1) && v1.length) {
-        return v1.filter((r) => r.pi_id === pi_id || r.numero_pi === numero_pi)
-      }
-    } catch (_) {}
-
-    try {
-      const v2 = await apiGet<VeiculacaoRow[]>(`/veiculacoes?pi_id=${encodeURIComponent(String(pi_id))}`)
-      if (Array.isArray(v2) && v2.length) {
-        return v2.filter((r) => r.pi_id === pi_id)
-      }
-    } catch (_) {}
-
-    if (numero_pi) {
-      try {
-        const v3 = await apiGet<VeiculacaoRow[]>(`/veiculacoes?numero_pi=${encodeURIComponent(numero_pi)}`)
-        if (Array.isArray(v3) && v3.length) {
-          return v3.filter((r) => r.numero_pi === numero_pi)
-        }
-      } catch (_) {}
-    }
-    return []
-  }
-
-  async function carregarEntregasPorPI(pi_id: number): Promise<EntregaAPI[]> {
-    try {
-      const e1 = await apiGet<EntregaAPI[]>(`/pis/${pi_id}/entregas`)
-      if (Array.isArray(e1)) return e1
-    } catch (_) {}
-    try {
-      const e2 = await apiGet<EntregaAPI[]>(`/entregas?pi_id=${encodeURIComponent(String(pi_id))}`)
-      if (Array.isArray(e2)) return e2
-    } catch (_) {}
-    return []
-  }
-
-  function mesclarEntregas(veicsIn: VeiculacaoRow[], entregas: EntregaAPI[]) {
-    if (!entregas?.length) return { rows: veicsIn, piLevelDelivered: false }
-
-    const deliveredById = new Set<number>()
-    let piLevelDelivered = false
-
-    for (const e of entregas) {
-      const isOk = truthy(e?.entregue) || statusEntregue(e?.status || undefined)
-      if (!isOk) continue
-
-      const raw = (e as any)?.veiculacao_id
-      if (raw === null || raw === undefined || raw === "" || Number.isNaN(Number(raw))) {
-        piLevelDelivered = true
-      } else {
-        const idNum = Number(raw)
-        if (Number.isFinite(idNum)) deliveredById.add(idNum)
-      }
-    }
-
-    let rows = veicsIn.map((v) =>
-      deliveredById.has(Number(v.id)) ? { ...v, entregue: true, status_entrega: "Entregue" } : v
-    )
-
-    if (piLevelDelivered) {
-      rows = rows.map((v) => ({ ...v, entregue: true, status_entrega: "Entregue" }))
-    }
-
-    return { rows, piLevelDelivered }
-  }
-
-  async function abrirDetalhesPorId(pi_id: number) {
-    setDetalheLoading(true)
-    setVeics([])
-    setVeicsError(null)
-    setSelectedPiMeta(lista.find((p) => p.id === pi_id) || null)
-    setStatusEntregaAgg("Pendente")
-
-    try {
-      const det = await apiGet<PiDetalhe>(`/pis/${pi_id}/detalhe`)
-      setDetalhePI(det)
-
-      const viaEndpoints = await carregarVeiculacoesPorPI(pi_id, det?.numero_pi)
-      const viaDetalhe = flattenVeicsFromDetalhe(det)
-      let rows = viaEndpoints.length ? viaEndpoints : viaDetalhe
-
-      const entregas = await carregarEntregasPorPI(pi_id).catch(() => [])
-      if (entregas.length) {
-        const merged = mesclarEntregas(rows, entregas)
-        rows = merged.rows
-
-        if (merged.piLevelDelivered) {
-          setVeics(rows)
-          setStatusEntregaAgg("Entregue")
-          setSelectedPiMeta((prev) => (prev ? { ...prev, _statusEntregaAgg: "Entregue" } : prev))
-          setDetalheLoading(false)
-          return
-        }
-      }
-
-      setVeics(rows)
-      if (rows.length === 0) setVeicsError(null)
-
-      const allDelivered = rows.length > 0 && rows.every((r) => isDelivered(r))
-      const anyDelivered = rows.some((r) => isDelivered(r))
-      const agg: "Pendente" | "Parcial" | "Entregue" = allDelivered ? "Entregue" : anyDelivered ? "Parcial" : "Pendente"
-      setStatusEntregaAgg(agg)
-      setSelectedPiMeta((prev) => (prev ? { ...prev, _statusEntregaAgg: agg } : prev))
-    } catch (e: any) {
-      setDetalhePI(null)
-      setVeics([])
-      setVeicsError(e?.message || "Falha ao carregar veiculações.")
-    } finally {
-      setDetalheLoading(false)
-    }
-  }
-
-  function fecharDetalhes() {
-    setDetalhePI(null)
-    setVeics([])
-    setVeicsError(null)
-    setSelectedPiMeta(null)
-    setStatusEntregaAgg("Pendente")
   }
 
   // editor
@@ -540,42 +272,42 @@ export default function PIs() {
     setEditDraft({
       ...pi,
       data_emissao: parseISODateToBR(pi.data_emissao),
-      // data_venda fica como vier (será editada em input type="date")
       data_venda: pi.data_venda || null,
     })
     setEditOpen(true)
   }
+
   function fecharEditor() {
     setEditOpen(false)
     setEditDraft(null)
     setEditError(null)
   }
+
   function campo(k: keyof PIItem, v: any) {
     if (!editDraft) return
     setEditDraft({ ...editDraft, [k]: v })
   }
+
   function trataNumero(s: string): number | null {
     const t = (s || "").trim()
     if (!t) return null
     const n = Number(t.replace(/\./g, "").replace(",", "."))
     return Number.isFinite(n) ? n : null
   }
+
   function normalizaDataEmissaoParaAPI(s?: string | null) {
     if (!s) return null
     const t = s.trim()
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return ISOtoBRDate(t) // yyyy-mm-dd -> dd/mm/yyyy (mantém seu padrão atual)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return ISOtoBRDate(t) // mantém seu padrão atual
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(t)) return t
     return t
   }
 
-  // >>> NOVO: data_venda para API (preferencialmente ISO)
   function normalizaDataVendaParaAPI(s?: string | null) {
     if (!s) return null
     const t = String(s).trim()
     if (!t) return null
-    // se vier do input type="date" -> yyyy-mm-dd
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
-    // se alguém colar dd/mm/yyyy
     const iso = BRtoISODate(t)
     return iso || t
   }
@@ -594,10 +326,7 @@ export default function PIs() {
         nome_agencia: editDraft.nome_agencia || null,
         cnpj_agencia: editDraft.cnpj_agencia || null,
         data_emissao: normalizaDataEmissaoParaAPI(editDraft.data_emissao),
-
-        // >>> NOVO: data_venda
         data_venda: normalizaDataVendaParaAPI(editDraft.data_venda),
-
         valor_bruto: trataNumero(String(editDraft.valor_bruto ?? "")),
         valor_liquido: trataNumero(String(editDraft.valor_liquido ?? "")),
         uf_cliente: editDraft.uf_cliente || null,
@@ -611,7 +340,6 @@ export default function PIs() {
       await apiPut<PIItem>(`/pis/${editDraft.id}`, payload)
       fecharEditor()
       await carregar()
-      if (detalhePI && detalhePI.id === editDraft.id) abrirDetalhesPorId(editDraft.id)
     } catch (e: any) {
       setEditError(e?.message || "Falha ao salvar.")
     } finally {
@@ -625,7 +353,6 @@ export default function PIs() {
     try {
       await apiDelete(`/pis/${pi.id}`)
       setLista((prev) => prev.filter((x) => x.id !== pi.id))
-      if (detalhePI?.id === pi.id) fecharDetalhes()
       if (editDraft?.id === pi.id) fecharEditor()
       alert("PI excluído com sucesso.")
     } catch (e: any) {
@@ -637,6 +364,11 @@ export default function PIs() {
         return n
       })
     }
+  }
+
+  // navega para a página de detalhes
+  function irParaDetalhes(piId: number) {
+    navigate(`/pis/${piId}`)
   }
 
   return (
@@ -651,6 +383,7 @@ export default function PIs() {
           >
             {view === "table" ? "🗂️ Ver como Cards" : "📋 Ver como Tabela"}
           </button>
+
           <button
             onClick={exportarXLSX}
             className="px-4 md:px-5 py-2.5 md:py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-base md:text-lg hover:bg-slate-50"
@@ -658,6 +391,7 @@ export default function PIs() {
           >
             📤 Exportar XLSX
           </button>
+
           <button
             onClick={carregar}
             className="px-4 md:px-5 py-2.5 md:py-3 rounded-2xl bg-red-600 text-white text-base md:text-lg font-semibold hover:bg-red-700 transition shadow-sm"
@@ -727,7 +461,7 @@ export default function PIs() {
             </select>
           </div>
 
-          {/* >>> NOVO: filtro por Data da Venda (intervalo) */}
+          {/* Data da Venda (intervalo) */}
           <div className="xl:col-span-2">
             <label className="block text-base md:text-xl font-semibold text-slate-800 mb-2">Data da Venda</label>
             <div className="grid grid-cols-2 gap-2 md:gap-3">
@@ -750,7 +484,9 @@ export default function PIs() {
                 />
               </div>
             </div>
-            <div className="text-xs text-slate-500 mt-1">Filtra usando <code>data_venda</code>.</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Filtra usando <code>data_venda</code>.
+            </div>
           </div>
         </div>
       </section>
@@ -770,6 +506,7 @@ export default function PIs() {
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-white border-b border-red-100">
               <div className="text-slate-700">{filtrada.length} registro(s)</div>
             </div>
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-red-200">
                 <thead className="bg-gradient-to-r from-red-700 to-red-600 text-white sticky top-0">
@@ -802,6 +539,7 @@ export default function PIs() {
                     ))}
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-red-100">
                   {filtrada.map((pi, idx) => {
                     const dataVenda = parseISODateToBR(pi.data_venda) || ""
@@ -819,45 +557,59 @@ export default function PIs() {
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-900 text-sm md:text-base font-medium">
                           {pi.id}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-900 text-sm md:text-base font-medium">
                           <span className="font-mono">{pi.numero_pi}</span>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">{pi.tipo_pi}</td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           <span className="font-mono">{piMatriz}</span>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           <div className="truncate max-w-[220px]">{pi.nome_anunciante || "—"}</div>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           <div className="truncate max-w-[220px]">{pi.nome_agencia || "—"}</div>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-700 text-xs md:text-sm">
                           {parseISODateToBR(pi.data_emissao) || "—"}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-900 text-sm md:text-base font-semibold">
                           {fmtMoney(pi.valor_bruto)}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-900 text-sm md:text-base font-semibold">
                           {fmtMoney(pi.valor_liquido)}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4">
                           <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-2.5 md:px-3 py-1 text-[10px] md:text-xs font-semibold">
                             {pi.uf_cliente || "—"}
                           </span>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           {pi.canal || "—"}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           <div className="truncate max-w-[260px]">{pi.nome_campanha || "—"}</div>
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           {pi.diretoria || "—"}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           {pi.executivo || "—"}
                         </td>
+
                         <td className="px-4 md:px-6 py-3 md:py-4 text-slate-800 text-sm md:text-base">
                           {dataVenda || "—"}
                         </td>
@@ -897,12 +649,13 @@ export default function PIs() {
                         <td className="px-4 md:px-6 py-3 md:py-4">
                           <div className="flex flex-wrap items-center gap-2">
                             <button
-                              onClick={() => abrirDetalhesPorId(pi.id)}
+                              onClick={() => irParaDetalhes(pi.id)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-                              title="Ver detalhes do PI"
+                              title="Ir para detalhes do PI"
                             >
                               🔎 Detalhes
                             </button>
+
                             <button
                               onClick={() => abrirEditor(pi)}
                               className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
@@ -910,6 +663,7 @@ export default function PIs() {
                             >
                               ✏️ Editar
                             </button>
+
                             <button
                               onClick={() => excluirPI(pi)}
                               disabled={deletingIds.has(pi.id)}
@@ -931,6 +685,7 @@ export default function PIs() {
           // GRID DE CARDS
           <div className="space-y-3">
             <div className="text-slate-700">{filtrada.length} registro(s)</div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
               {filtrada.map((pi) => {
                 const piMatriz = mostraPIMatriz(pi.tipo_pi) ? pi.numero_pi_matriz || "" : ""
@@ -957,6 +712,7 @@ export default function PIs() {
                             </div>
                           )}
                         </div>
+
                         <div className="text-right">
                           <div className="text-[10px] md:text-xs text-slate-500">Valor Líquido</div>
                           <div className="text-base md:text-lg font-bold text-slate-900">{fmtMoney(pi.valor_liquido)}</div>
@@ -971,6 +727,7 @@ export default function PIs() {
                         <span className="text-slate-500">Cliente:</span>{" "}
                         <span className="font-medium text-slate-900">{pi.nome_anunciante || "—"}</span>
                       </div>
+
                       <div className="text-sm">
                         <span className="text-slate-500">Campanha:</span>{" "}
                         <span className="font-medium text-slate-900">{pi.nome_campanha || "—"}</span>
@@ -1031,6 +788,7 @@ export default function PIs() {
                         >
                           📄 PI
                         </button>
+
                         <button
                           type="button"
                           onClick={() => baixarArquivo(pi, "proposta")}
@@ -1049,12 +807,13 @@ export default function PIs() {
 
                     <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
                       <button
-                        onClick={() => abrirDetalhesPorId(pi.id)}
+                        onClick={() => irParaDetalhes(pi.id)}
                         className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
-                        title="Ver detalhes do PI"
+                        title="Ir para detalhes do PI"
                       >
                         🔎 Detalhes
                       </button>
+
                       <button
                         onClick={() => abrirEditor(pi)}
                         className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 text-sm hover:bg-white"
@@ -1062,6 +821,7 @@ export default function PIs() {
                       >
                         ✏️ Editar
                       </button>
+
                       <button
                         onClick={() => excluirPI(pi)}
                         disabled={excluindo}
@@ -1079,209 +839,6 @@ export default function PIs() {
         )}
       </section>
 
-      {/* Detalhe */}
-      {detalhePI && (
-        <div className="fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/40" onClick={fecharDetalhes} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl overflow-y-auto">
-            <div className="p-4 md:p-6 border-b flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-xs md:text-sm uppercase tracking-wide text-red-700 font-semibold">Detalhe do PI</div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="font-mono truncate text-2xl md:text-3xl font-extrabold text-slate-900">
-                    {detalhePI.numero_pi}
-                  </span>
-                  {statusEntregaAgg === "Entregue" && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 text-xs font-semibold">
-                      ✓ Entregue
-                    </span>
-                  )}
-                  {statusEntregaAgg === "Parcial" && (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2.5 py-1 text-xs font-semibold">
-                      • Parcial
-                    </span>
-                  )}
-                  {statusEntregaAgg === "Pendente" && (
-                    <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-2.5 py-1 text-xs font-semibold">
-                      • Pendente
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 mt-1 truncate">
-                  {detalhePI.anunciante || "—"} • {detalhePI.campanha || "—"}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => abrirDetalhesPorId(detalhePI.id)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                  title="Recarregar detalhe"
-                >
-                  ↻ Atualizar
-                </button>
-                <button
-                  onClick={fecharDetalhes}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  ✖ Fechar
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 md:p-6 space-y-6">
-              {selectedPiMeta && (
-                <div className="rounded-2xl border border-slate-200">
-                  <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Informações do PI</div>
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    <InfoRow label="Tipo" value={selectedPiMeta.tipo_pi} />
-                    <InfoRow
-                      label="PI Matriz"
-                      value={mostraPIMatriz(selectedPiMeta.tipo_pi) ? selectedPiMeta.numero_pi_matriz || "—" : "—"}
-                      mono
-                    />
-                    <InfoRow
-                      label="PI Normal (CS)"
-                      value={normalizeTipo(selectedPiMeta.tipo_pi) === "cs" ? selectedPiMeta.numero_pi_normal || "—" : "—"}
-                      mono
-                    />
-                    <InfoRow label="Agência" value={selectedPiMeta.nome_agencia || "—"} />
-                    <InfoRow label="CNPJ Agência" value={selectedPiMeta.cnpj_agencia || "—"} mono />
-                    <InfoRow label="Data de Emissão" value={parseISODateToBR(selectedPiMeta.data_emissao) || "—"} />
-                    <InfoRow label="Valor Líquido" value={fmtMoney(selectedPiMeta.valor_liquido)} />
-                    <InfoRow label="Valor Total" value={fmtMoney(selectedPiMeta.valor_bruto)} />
-                    <InfoRow label="Praça" value={selectedPiMeta.uf_cliente || "—"} />
-                    <InfoRow label="Meio" value={selectedPiMeta.canal || "—"} />
-                    <InfoRow label="Campanha" value={selectedPiMeta.nome_campanha || "—"} />
-                    <InfoRow label="Diretoria" value={selectedPiMeta.diretoria || "—"} />
-                    <InfoRow label="Executivo" value={selectedPiMeta.executivo || "—"} />
-                    <InfoRow label="Data da Venda" value={parseISODateToBR(selectedPiMeta.data_venda) || "—"} />
-                    <InfoRow label="Observações" value={selectedPiMeta.observacoes || "—"} full />
-                  </div>
-
-                  <div className="px-4 pb-4">
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => baixarArquivo(selectedPiMeta, "pi")}
-                        disabled={!anexos[selectedPiMeta.id]?.pi}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          anexos[selectedPiMeta.id]?.pi
-                            ? "border-slate-300 text-slate-700 hover:bg-slate-50"
-                            : "border-slate-200 text-slate-400 cursor-not-allowed"
-                        }`}
-                      >
-                        📄 Baixar PI (PDF)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => baixarArquivo(selectedPiMeta, "proposta")}
-                        disabled={!anexos[selectedPiMeta.id]?.proposta}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          anexos[selectedPiMeta.id]?.proposta
-                            ? "border-slate-300 text-slate-700 hover:bg-slate-50"
-                            : "border-slate-200 text-slate-400 cursor-not-allowed"
-                        }`}
-                      >
-                        📎 Baixar Proposta (PDF)
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-2xl border border-slate-200 p-4 flex flex-wrap items-center gap-4">
-                <div>
-                  <div className="text-sm text-slate-500">Total do PI</div>
-                  <div className="text-2xl font-bold">{fmtMoney(detalhePI.total_pi)}</div>
-                </div>
-                <div className="ml-auto">
-                  {statusEntregaAgg === "Entregue" && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm font-semibold">
-                      ✓ Todas veiculações entregues
-                    </span>
-                  )}
-                  {statusEntregaAgg === "Parcial" && (
-                    <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 text-sm font-semibold">
-                      • Entrega parcial
-                    </span>
-                  )}
-                  {statusEntregaAgg === "Pendente" && (
-                    <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-3 py-1 text-sm font-semibold">
-                      • Entregas pendentes
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="px-4 py-3 border-b bg-slate-50 font-semibold">Veiculações cadastradas</div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full">
-                    <thead>
-                      <tr className="bg-red-600/90 text-white">
-                        {["Produto", "Veiculação", "Janela", "Qtde", "Valor", "Entrega"].map((h) => (
-                          <th key={h} className="px-4 py-2 text-left text-sm font-semibold">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detalheLoading ? (
-                        <tr>
-                          <td className="px-4 py-3 text-slate-600" colSpan={6}>
-                            Carregando…
-                          </td>
-                        </tr>
-                      ) : veicsError ? (
-                        <tr>
-                          <td className="px-4 py-3 text-red-700" colSpan={6}>
-                            {veicsError}
-                          </td>
-                        </tr>
-                      ) : veics.length === 0 ? (
-                        <tr>
-                          <td className="px-4 py-3 text-slate-600" colSpan={6}>
-                            Sem veiculações.
-                          </td>
-                        </tr>
-                      ) : (
-                        veics.map((v) => {
-                          const ok = isDelivered(v)
-                          return (
-                            <tr key={v.id} className="border-b last:border-none">
-                              <td className="px-4 py-2 font-semibold">{v.produto_nome || "—"}</td>
-                              <td className="px-4 py-2">{[v.canal, v.formato].filter(Boolean).join(" • ") || "—"}</td>
-                              <td className="px-4 py-2 text-sm">
-                                {parseISODateToBR(v.data_inicio)} — {parseISODateToBR(v.data_fim)}
-                              </td>
-                              <td className="px-4 py-2">{v.quantidade ?? "—"}</td>
-                              <td className="px-4 py-2">{fmtMoney(v.valor ?? 0)}</td>
-                              <td className="px-4 py-2">
-                                {ok ? (
-                                  <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">
-                                    ✓ Entregue
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 text-xs font-semibold">
-                                    Pendente
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Editor */}
       {editOpen && editDraft && (
         <div className="fixed inset-0 z-50">
@@ -1294,6 +851,7 @@ export default function PIs() {
                   <span className="font-mono">{editDraft.numero_pi}</span>
                 </div>
               </div>
+
               <button
                 onClick={fecharEditor}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
@@ -1364,6 +922,7 @@ export default function PIs() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">CNPJ da Agência</label>
                   <input
@@ -1381,6 +940,7 @@ export default function PIs() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Campanha</label>
                   <input
@@ -1403,7 +963,6 @@ export default function PIs() {
                   </div>
                 </div>
 
-                {/* >>> NOVO: Data da Venda */}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Data da Venda</label>
                   <input
@@ -1427,6 +986,7 @@ export default function PIs() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Valor Líquido (R$)</label>
                   <input
@@ -1447,6 +1007,7 @@ export default function PIs() {
                     placeholder="Ex: SP"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Meio</label>
                   <input
@@ -1471,6 +1032,7 @@ export default function PIs() {
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Executivo</label>
                   <select
@@ -1505,6 +1067,7 @@ export default function PIs() {
                 >
                   {savingEdit ? "Salvando..." : "Salvar alterações"}
                 </button>
+
                 <button
                   onClick={fecharEditor}
                   className="px-5 md:px-6 py-2.5 md:py-3 rounded-2xl bg-white border border-slate-300 text-slate-700 text-base md:text-lg hover:bg-slate-50"
@@ -1516,25 +1079,6 @@ export default function PIs() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function InfoRow({
-  label,
-  value,
-  mono = false,
-  full = false,
-}: {
-  label: string
-  value: any
-  mono?: boolean
-  full?: boolean
-}) {
-  return (
-    <div className={full ? "md:col-span-2" : ""}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-0.5 text-slate-900 ${mono ? "font-mono" : "font-medium"}`}>{String(value ?? "—")}</div>
     </div>
   )
 }

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+// src/pages/Vendas.tsx
+import React, { useEffect, useMemo, useState } from "react"
 import { apiGet, apiPost } from "../services/api"
 
 const monthOptions = [
@@ -115,6 +116,40 @@ function norm(v?: string | null) {
   return String(v || "").toLowerCase().trim()
 }
 
+// Card clicável (mantém o visual de card, mas vira botão)
+function CardButton({
+  title,
+  subtitle,
+  children,
+  onClick,
+  disabled,
+}: {
+  title?: string
+  subtitle?: string
+  children: React.ReactNode
+  onClick?: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        cardShell(),
+        "w-full text-left p-5 transition",
+        disabled
+          ? "opacity-60 cursor-not-allowed"
+          : "hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-white/30",
+      ].join(" ")}
+    >
+      {title && <div className="text-xs text-zinc-400">{title}</div>}
+      {subtitle && <div className="text-xs text-zinc-500 mt-2">{subtitle}</div>}
+      <div className={title ? "mt-2" : ""}>{children}</div>
+    </button>
+  )
+}
+
 export default function Vendas() {
   const now = new Date()
   const [mes, setMes] = useState<number>(now.getMonth() + 1)
@@ -146,6 +181,11 @@ export default function Vendas() {
   const [metaChave, setMetaChave] = useState<string>("")
   const [metaValor, setMetaValor] = useState<number>(0)
   const [savingMeta, setSavingMeta] = useState(false)
+
+  // ✅ Modal de Top (cards clicáveis)
+  const [topOpen, setTopOpen] = useState(false)
+  const [topTitle, setTopTitle] = useState<string>("")
+  const [topItems, setTopItems] = useState<TopItem[]>([])
 
   const diretoriasOptions = useMemo(() => {
     const set = new Set<string>()
@@ -194,18 +234,16 @@ export default function Vendas() {
           list = data as string[]
         } else {
           list = (data as any[])
-            .map(x => x?.nome ?? x?.executivo ?? x?.name ?? x?.email ?? "")
+            .map((x) => x?.nome ?? x?.executivo ?? x?.name ?? x?.email ?? "")
             .filter(Boolean)
         }
       } else if (data?.items && Array.isArray(data.items)) {
-        list = data.items
-          .map((x: any) => x?.nome ?? x?.executivo ?? x?.name ?? "")
-          .filter(Boolean)
+        list = data.items.map((x: any) => x?.nome ?? x?.executivo ?? x?.name ?? "").filter(Boolean)
       }
 
-      const opts = Array.from(new Set(list.map(s => String(s).trim()).filter(Boolean)))
+      const opts = Array.from(new Set(list.map((s) => String(s).trim()).filter(Boolean)))
         .sort((a, b) => a.localeCompare(b))
-        .map(v => ({ value: v, label: v }))
+        .map((v) => ({ value: v, label: v }))
 
       setExecOptions([{ value: "", label: "Todos" }, ...opts])
     } catch {
@@ -216,7 +254,6 @@ export default function Vendas() {
   }
 
   async function carregarPainel() {
-    // Gate hard: não chama API se não for admin
     if (!isAdmin) return
 
     setLoading(true)
@@ -228,7 +265,6 @@ export default function Vendas() {
       const data = await apiGet<PainelOut>(`/vendas/resumo${qPainel}`)
       setPainel(data)
     } catch (e: any) {
-      // Se for 403, não alerta como "erro", é esperado para não-admin (mas aqui já gateamos)
       const msg = String(e?.message || e || "")
       if (!msg.includes("403")) {
         alert(`Falha ao carregar resumo: ${e?.message || e}`)
@@ -308,6 +344,13 @@ export default function Vendas() {
     }
   }
 
+  // ✅ abrir modal de Top ao clicar no card
+  function abrirTopModal(titulo: string, items: TopItem[]) {
+    setTopTitle(titulo)
+    setTopItems(Array.isArray(items) ? items : [])
+    setTopOpen(true)
+  }
+
   useEffect(() => {
     ;(async () => {
       await checarAdmin()
@@ -316,7 +359,6 @@ export default function Vendas() {
   }, [])
 
   useEffect(() => {
-    // só carrega dados se for admin
     if (!checkingAuth && isAdmin) {
       carregarExecutivos()
       carregarPainel()
@@ -326,9 +368,9 @@ export default function Vendas() {
 
   const metaOptions = useMemo(() => {
     if (metaEscopo === "EXECUTIVO") {
-      return execOptions.filter(o => o.value !== "").map(o => o.value)
+      return execOptions.filter((o) => o.value !== "").map((o) => o.value)
     }
-    return diretoriasOptions.filter(v => v)
+    return diretoriasOptions.filter((v) => v)
   }, [metaEscopo, execOptions, diretoriasOptions])
 
   // ========= UI: Bloqueio elegante =========
@@ -347,9 +389,7 @@ export default function Vendas() {
       <div className="p-6 text-zinc-100">
         <div className={cardShell() + " p-6"}>
           <h1 className="text-xl font-bold">Vendas</h1>
-          <p className="text-sm text-zinc-400 mt-2">
-            Acesso restrito. Esta página é exclusiva para administradores.
-          </p>
+          <p className="text-sm text-zinc-400 mt-2">Acesso restrito. Esta página é exclusiva para administradores.</p>
         </div>
       </div>
     )
@@ -361,9 +401,7 @@ export default function Vendas() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Vendas • Painel da Empresa</h1>
-          <p className="text-sm text-zinc-400 mt-1">
-            Visão geral do período: ranking, top anunciantes/agências e detalhe por PI.
-          </p>
+          <p className="text-sm text-zinc-400 mt-1">Visão geral do período: ranking, top anunciantes/agências e detalhe por PI.</p>
         </div>
 
         <div className="flex gap-2">
@@ -401,36 +439,24 @@ export default function Vendas() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="font-semibold">Filtros</div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={limparFiltros}
-                className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm"
-              >
+              <button onClick={limparFiltros} className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm">
                 Limpar
               </button>
-              <button
-                onClick={carregarPainel}
-                className="px-4 py-2 rounded-xl bg-white text-zinc-900 font-semibold hover:bg-zinc-100 text-sm"
-              >
+              <button onClick={carregarPainel} className="px-4 py-2 rounded-xl bg-white text-zinc-900 font-semibold hover:bg-zinc-100 text-sm">
                 Aplicar
               </button>
             </div>
           </div>
 
-          <div className="mt-3 text-xs text-zinc-500">
-            Dica: clique em um executivo no ranking para abrir o detalhe por PI.
-          </div>
+          <div className="mt-3 text-xs text-zinc-500">Dica: clique em um executivo no ranking para abrir o detalhe por PI.</div>
         </div>
 
         <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Período */}
           <div className="md:col-span-3">
             <label className="text-xs text-zinc-400">Mês</label>
-            <select
-              value={mes}
-              onChange={e => setMes(Number(e.target.value))}
-              className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-            >
-              {monthOptions.map(m => (
+            <select value={mes} onChange={(e) => setMes(Number(e.target.value))} className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2">
+              {monthOptions.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
                 </option>
@@ -445,24 +471,18 @@ export default function Vendas() {
               min={2000}
               max={2100}
               value={ano}
-              onChange={e => setAno(Number(e.target.value))}
+              onChange={(e) => setAno(Number(e.target.value))}
               className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
             />
           </div>
 
           {/* Executivo */}
           <div className="md:col-span-6">
-            <label className="text-xs text-zinc-400">
-              Executivo {loadingExecs ? "(carregando...)" : ""}
-            </label>
+            <label className="text-xs text-zinc-400">Executivo {loadingExecs ? "(carregando...)" : ""}</label>
 
             {execOptions.length > 1 ? (
-              <select
-                value={executivo}
-                onChange={e => setExecutivo(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-              >
-                {execOptions.map(opt => (
+              <select value={executivo} onChange={(e) => setExecutivo(e.target.value)} className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2">
+                {execOptions.map((opt) => (
                   <option key={opt.value || "__all"} value={opt.value}>
                     {opt.label}
                   </option>
@@ -471,7 +491,7 @@ export default function Vendas() {
             ) : (
               <input
                 value={executivo}
-                onChange={e => setExecutivo(e.target.value)}
+                onChange={(e) => setExecutivo(e.target.value)}
                 placeholder="Filtrar executivo"
                 className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
               />
@@ -482,42 +502,29 @@ export default function Vendas() {
           <div className="md:col-span-6">
             <label className="text-xs text-zinc-400">Diretoria</label>
             {diretoriasOptions.length > 1 ? (
-              <select
-                value={diretoria}
-                onChange={e => setDiretoria(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-              >
+              <select value={diretoria} onChange={(e) => setDiretoria(e.target.value)} className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2">
                 <option value="">Todas</option>
                 {diretoriasOptions
-                  .filter(v => v)
-                  .map(v => (
+                  .filter((v) => v)
+                  .map((v) => (
                     <option key={v} value={v}>
                       {v}
                     </option>
                   ))}
               </select>
             ) : (
-              <input
-                value={diretoria}
-                onChange={e => setDiretoria(e.target.value)}
-                placeholder="Diretoria"
-                className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-              />
+              <input value={diretoria} onChange={(e) => setDiretoria(e.target.value)} placeholder="Diretoria" className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2" />
             )}
           </div>
 
           {/* Tipo PI */}
           <div className="md:col-span-6">
             <label className="text-xs text-zinc-400">Tipo de PI</label>
-            <select
-              value={tipoPI}
-              onChange={e => setTipoPI(e.target.value)}
-              className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-            >
+            <select value={tipoPI} onChange={(e) => setTipoPI(e.target.value)} className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2">
               <option value="">Todos</option>
               {tipoOptions
-                .filter(v => v)
-                .map(v => (
+                .filter((v) => v)
+                .map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>
@@ -558,7 +565,7 @@ export default function Vendas() {
         </div>
       </div>
 
-      {/* TOPs */}
+      {/* TOPs (✅ AGORA CLICÁVEIS) */}
       {painel && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-5 gap-3">
           {[
@@ -567,24 +574,32 @@ export default function Vendas() {
             { title: "Top Campanhas", items: painel.top_campanhas },
             { title: "Top Canais", items: painel.top_canais },
             { title: "Top Tipos PI", items: painel.top_tipos_pi },
-          ].map(box => (
-            <div key={box.title} className={cardShell() + " p-4"}>
-              <div className="font-semibold text-sm">{box.title}</div>
-              <div className="mt-3 space-y-2">
-                {(box.items || []).slice(0, 8).map((it, idx) => (
-                  <div key={idx} className="flex items-start justify-between gap-3">
-                    <div className="text-xs text-zinc-200 truncate max-w-[160px]">
-                      {idx + 1}. {labelFromTopItem(it)}
+          ].map((box) => {
+            const has = Array.isArray(box.items) && box.items.length > 0
+            return (
+              <CardButton
+                key={box.title}
+                title={box.title}
+                subtitle={has ? "Clique para abrir" : "Sem dados"}
+                disabled={!has}
+                onClick={() => abrirTopModal(box.title, box.items)}
+              >
+                <div className="mt-2 space-y-2">
+                  {(box.items || []).slice(0, 2).map((it, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-3">
+                      <div className="text-xs text-zinc-200 truncate max-w-[180px]">
+                        {idx + 1}. {labelFromTopItem(it)}
+                      </div>
+                      <div className="text-xs text-zinc-400">{fmtBRL(it.total)}</div>
                     </div>
-                    <div className="text-xs text-zinc-400">{fmtBRL(it.total)}</div>
-                  </div>
-                ))}
-                {(!box.items || box.items.length === 0) && (
-                  <div className="text-xs text-zinc-500">Sem dados.</div>
-                )}
-              </div>
-            </div>
-          ))}
+                  ))}
+                  {(box.items || []).length > 2 && (
+                    <div className="text-xs text-zinc-500 mt-2">+{(box.items || []).length - 2} itens…</div>
+                  )}
+                </div>
+              </CardButton>
+            )
+          })}
         </div>
       )}
 
@@ -599,7 +614,7 @@ export default function Vendas() {
 
         {painel && view === "cards" && (
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-            {painel.ranking.map(r => (
+            {painel.ranking.map((r) => (
               <button
                 key={`${r.executivo}-${r.diretoria || ""}`}
                 onClick={() => carregarDetalhe(r.executivo)}
@@ -611,9 +626,7 @@ export default function Vendas() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold truncate">{r.executivo}</div>
-                  <span className={["text-xs px-2 py-1 rounded-full border", badgeClass(r.status)].join(" ")}>
-                    {r.status}
-                  </span>
+                  <span className={["text-xs px-2 py-1 rounded-full border", badgeClass(r.status)].join(" ")}>{r.status}</span>
                 </div>
                 <div className="text-xs text-zinc-400 mt-1">{r.diretoria || "—"}</div>
 
@@ -655,13 +668,10 @@ export default function Vendas() {
                 </tr>
               </thead>
               <tbody>
-                {painel.ranking.map(r => (
+                {painel.ranking.map((r) => (
                   <tr
                     key={`${r.executivo}-${r.diretoria || ""}`}
-                    className={[
-                      "border-t border-zinc-800 hover:bg-zinc-900/60 cursor-pointer",
-                      selectedExec === r.executivo ? "bg-zinc-900/40" : "",
-                    ].join(" ")}
+                    className={["border-t border-zinc-800 hover:bg-zinc-900/60 cursor-pointer", selectedExec === r.executivo ? "bg-zinc-900/40" : ""].join(" ")}
                     onClick={() => carregarDetalhe(r.executivo)}
                   >
                     <td className="p-4">{r.executivo}</td>
@@ -671,9 +681,7 @@ export default function Vendas() {
                     <td className="p-4 text-right">{r.pct_atingido.toFixed(2)}%</td>
                     <td className="p-4 text-right">{fmtBRL(r.restante)}</td>
                     <td className="p-4">
-                      <span className={["text-xs px-2 py-1 rounded-full border", badgeClass(r.status)].join(" ")}>
-                        {r.status}
-                      </span>
+                      <span className={["text-xs px-2 py-1 rounded-full border", badgeClass(r.status)].join(" ")}>{r.status}</span>
                     </td>
                   </tr>
                 ))}
@@ -690,9 +698,7 @@ export default function Vendas() {
 
         {loadingDetalhe && <div className="mt-3 text-sm text-zinc-400">Carregando PIs...</div>}
 
-        {!loadingDetalhe && selectedExec && !detalhe && (
-          <div className="mt-3 text-sm text-zinc-400">Sem detalhe carregado ainda.</div>
-        )}
+        {!loadingDetalhe && selectedExec && !detalhe && <div className="mt-3 text-sm text-zinc-400">Sem detalhe carregado ainda.</div>}
 
         {detalhe && (
           <div className="mt-3 space-y-3">
@@ -726,7 +732,7 @@ export default function Vendas() {
                   </tr>
                 </thead>
                 <tbody>
-                  {detalhe.itens.map(it => (
+                  {detalhe.itens.map((it) => (
                     <tr key={it.id} className="border-t border-zinc-800 hover:bg-zinc-900/60">
                       <td className="p-4">{it.numero_pi}</td>
                       <td className="p-4">{it.tipo_pi}</td>
@@ -759,10 +765,7 @@ export default function Vendas() {
           <div className={cardShell() + " w-full max-w-lg"}>
             <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
               <div className="font-semibold">Definir meta</div>
-              <button
-                onClick={() => setMetaOpen(false)}
-                className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm"
-              >
+              <button onClick={() => setMetaOpen(false)} className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm">
                 Fechar
               </button>
             </div>
@@ -772,7 +775,7 @@ export default function Vendas() {
                 <label className="text-xs text-zinc-400">Escopo</label>
                 <select
                   value={metaEscopo}
-                  onChange={e => {
+                  onChange={(e) => {
                     const v = e.target.value === "DIRETORIA" ? "DIRETORIA" : "EXECUTIVO"
                     setMetaEscopo(v)
                     setMetaChave("")
@@ -785,16 +788,10 @@ export default function Vendas() {
               </div>
 
               <div>
-                <label className="text-xs text-zinc-400">
-                  {metaEscopo === "EXECUTIVO" ? "Executivo" : "Diretoria"}
-                </label>
-                <select
-                  value={metaChave}
-                  onChange={e => setMetaChave(e.target.value)}
-                  className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
-                >
+                <label className="text-xs text-zinc-400">{metaEscopo === "EXECUTIVO" ? "Executivo" : "Diretoria"}</label>
+                <select value={metaChave} onChange={(e) => setMetaChave(e.target.value)} className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2">
                   <option value="">Selecione</option>
-                  {metaOptions.map(v => (
+                  {metaOptions.map((v) => (
                     <option key={v} value={v}>
                       {v}
                     </option>
@@ -809,16 +806,13 @@ export default function Vendas() {
                   min={0}
                   step="0.01"
                   value={metaValor}
-                  onChange={e => setMetaValor(Number(e.target.value))}
+                  onChange={(e) => setMetaValor(Number(e.target.value))}
                   className="mt-1 w-full rounded-xl bg-zinc-950 border border-zinc-800 p-2"
                 />
               </div>
 
               <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setMetaOpen(false)}
-                  className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm"
-                >
+                <button onClick={() => setMetaOpen(false)} className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm">
                   Cancelar
                 </button>
                 <button
@@ -832,6 +826,58 @@ export default function Vendas() {
 
               <div className="text-xs text-zinc-500">
                 Período da meta: {String(mes).padStart(2, "0")}/{ano}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Modal Top (aberto ao clicar nos cards Top) */}
+      {topOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className={cardShell() + " w-full max-w-3xl"}>
+            <div className="p-5 border-b border-zinc-800 flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">{topTitle}</div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  Período atual do painel: {String(mes).padStart(2, "0")}/{ano}
+                </div>
+              </div>
+              <button onClick={() => setTopOpen(false)} className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:bg-zinc-900 text-sm">
+                Fechar
+              </button>
+            </div>
+
+            <div className="p-5">
+              {(!topItems || topItems.length === 0) && <div className="text-sm text-zinc-400">Sem dados.</div>}
+
+              {topItems && topItems.length > 0 && (
+                <div className={cardShell() + " overflow-auto"}>
+                  <table className="min-w-[760px] w-full text-sm">
+                    <thead className="bg-zinc-950/80">
+                      <tr className="text-zinc-300">
+                        <th className="p-4 text-left">#</th>
+                        <th className="p-4 text-left">Nome</th>
+                        <th className="p-4 text-right">Total (líquido)</th>
+                        <th className="p-4 text-right">Qtd PIs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topItems.map((it, idx) => (
+                        <tr key={idx} className="border-t border-zinc-800 hover:bg-zinc-900/60">
+                          <td className="p-4">{idx + 1}</td>
+                          <td className="p-4">{labelFromTopItem(it)}</td>
+                          <td className="p-4 text-right">{fmtBRL(it.total)}</td>
+                          <td className="p-4 text-right">{it.qtd_pis ?? 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="text-xs text-zinc-500 mt-3">
+                Próximo upgrade: clicar em uma linha e abrir “PIs relacionados” desse anunciante/agência/campanha/canal/tipo.
               </div>
             </div>
           </div>

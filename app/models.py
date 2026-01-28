@@ -102,6 +102,15 @@ class PI(Base):
     cnpj_agencia = Column(String)
     uf_agencia = Column(String)
 
+    # ✅ NOVO: controle explícito (ajuda no front e no cálculo)
+    tem_agencia = Column(Boolean, default=False, nullable=False)
+
+    # ✅ NOVO: comissão da agência
+    # percentual em % (ex: 20.0)
+    comissao_agencia_percentual = Column(Float, nullable=True)
+    # valor calculado (R$)
+    comissao_agencia_valor = Column(Float, nullable=True)
+
     executivo = Column(String)
     diretoria = Column(String)
 

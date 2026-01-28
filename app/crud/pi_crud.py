@@ -42,6 +42,64 @@ def _parse_date(value: Optional[str]) -> Optional[date]:
     return None
 
 
+def _to_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def _normalize_agencia_campos(dados: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normaliza payload que vem do front/schema para o que existe no model:
+    - remove campos que não existem no model (mes_venda/dia_venda etc.)
+    - mapeia perfil_anunciante/subperfil_anunciante -> perfil/subperfil
+    - aplica regra de comissão/tem_agencia
+    """
+    # --- remove campos "fantasmas" que causam invalid keyword argument ---
+    dados.pop("mes_venda", None)
+    dados.pop("dia_venda", None)
+
+    # --- mapeia perfil do schema para o model ---
+    if "perfil_anunciante" in dados and "perfil" not in dados:
+        dados["perfil"] = dados.get("perfil_anunciante")
+    if "subperfil_anunciante" in dados and "subperfil" not in dados:
+        dados["subperfil"] = dados.get("subperfil_anunciante")
+
+    dados.pop("perfil_anunciante", None)
+    dados.pop("subperfil_anunciante", None)
+
+    # --- normaliza valores numéricos da comissão ---
+    if "tem_agencia" in dados and dados.get("tem_agencia") is None:
+        dados["tem_agencia"] = False
+
+    if "comissao_agencia_percentual" in dados:
+        dados["comissao_agencia_percentual"] = _to_float(dados.get("comissao_agencia_percentual"))
+    if "comissao_agencia_valor" in dados:
+        dados["comissao_agencia_valor"] = _to_float(dados.get("comissao_agencia_valor"))
+
+    tem_agencia = bool(dados.get("tem_agencia") or False)
+
+    # Se não tem agência: zera comissão
+    if not tem_agencia:
+        dados["tem_agencia"] = False
+        dados["comissao_agencia_percentual"] = None
+        dados["comissao_agencia_valor"] = None
+        return dados
+
+    # Se tem agência, tenta calcular o valor caso percentual esteja presente e valor ausente
+    bruto = _to_float(dados.get("valor_bruto")) or 0.0
+    perc = dados.get("comissao_agencia_percentual")
+    val = dados.get("comissao_agencia_valor")
+
+    if (val is None) and (perc is not None):
+        dados["comissao_agencia_valor"] = (perc / 100.0) * bruto
+
+    return dados
+
+
 # =========================================================
 # Consultas
 # =========================================================
@@ -106,6 +164,9 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
     dados = _clean_empty_strings(dados)
     dados["tipo_pi"] = _normalize_tipo(dados.get("tipo_pi"))
 
+    # normalizações / compat
+    dados = _normalize_agencia_campos(dados)
+
     dados["data_venda"] = _parse_date(dados.get("data_venda"))
     dados["vencimento"] = _parse_date(dados.get("vencimento"))
     dados["data_emissao"] = _parse_date(dados.get("data_emissao"))
@@ -119,7 +180,7 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
         if not dados.get("numero_pi_matriz"):
             raise ValueError("Abatimento exige PI Matriz.")
         saldo = calcular_saldo_restante(db, dados["numero_pi_matriz"])
-        if (dados.get("valor_bruto") or 0) > saldo:
+        if (_to_float(dados.get("valor_bruto")) or 0) > saldo:
             raise ValueError("Valor do abatimento excede saldo.")
         dados["numero_pi_normal"] = None
 
@@ -148,12 +209,18 @@ def create(db: Session, dados: Dict[str, Any]) -> PI:
         razao_social_agencia=dados.get("razao_social_agencia"),
         cnpj_agencia=dados.get("cnpj_agencia"),
         uf_agencia=dados.get("uf_agencia"),
+
+        # ✅ novos campos
+        tem_agencia=bool(dados.get("tem_agencia") or False),
+        comissao_agencia_percentual=_to_float(dados.get("comissao_agencia_percentual")),
+        comissao_agencia_valor=_to_float(dados.get("comissao_agencia_valor")),
+
         data_venda=dados.get("data_venda"),
         canal=dados.get("canal"),
         perfil=dados.get("perfil"),
         subperfil=dados.get("subperfil"),
-        valor_bruto=dados.get("valor_bruto"),
-        valor_liquido=dados.get("valor_liquido"),
+        valor_bruto=_to_float(dados.get("valor_bruto")),
+        valor_liquido=_to_float(dados.get("valor_liquido")),
         vencimento=dados.get("vencimento"),
         data_emissao=dados.get("data_emissao"),
         observacoes=dados.get("observacoes"),
@@ -173,6 +240,9 @@ def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
 
     dados = _clean_empty_strings(dados)
 
+    # normalizações / compat
+    dados = _normalize_agencia_campos(dados)
+
     if "data_venda" in dados:
         dados["data_venda"] = _parse_date(dados.get("data_venda"))
     if "vencimento" in dados:
@@ -182,6 +252,12 @@ def update(db: Session, pi_id: int, dados: Dict[str, Any]) -> PI:
 
     if "tipo_pi" in dados:
         dados["tipo_pi"] = _normalize_tipo(dados["tipo_pi"])
+
+    # normaliza floats se vierem no update
+    if "valor_bruto" in dados:
+        dados["valor_bruto"] = _to_float(dados.get("valor_bruto"))
+    if "valor_liquido" in dados:
+        dados["valor_liquido"] = _to_float(dados.get("valor_liquido"))
 
     for campo, valor in dados.items():
         if hasattr(pi, campo):

@@ -162,6 +162,11 @@ function formatPIOption(pi: PISimple) {
   return parts.join(" - ")
 }
 
+function clampPct(n: number) {
+  if (!Number.isFinite(n)) return 0
+  return Math.min(100, Math.max(0, n))
+}
+
 export default function CadastroPI() {
   // ===== Identificação
   const [tipoPI, setTipoPI] = useState<TipoPI>("Normal")
@@ -185,6 +190,9 @@ export default function CadastroPI() {
   const [nomeAgencia, setNomeAgencia] = useState("")
   const [razaoAgencia, setRazaoAgencia] = useState("")
   const [ufAgencia, setUfAgencia] = useState("DF")
+
+  // ✅ Comissão da agência (fica em Responsáveis e Valores, embaixo)
+  const [comissaoAgenciaPct, setComissaoAgenciaPct] = useState<number>(0)
 
   // ===== Campanha
   const [nomeCampanha, setNomeCampanha] = useState("")
@@ -331,6 +339,11 @@ export default function CadastroPI() {
     }
   }, [temItens])
 
+  // se desmarca agência, zera comissão (evita “desconto fantasma”)
+  useEffect(() => {
+    if (!temAgencia) setComissaoAgenciaPct(0)
+  }, [temAgencia])
+
   // ===== Buscar por CNPJ (BD -> BrasilAPI fallback)
   async function buscarAnunciante() {
     const cnpj = onlyDigits(cnpjAnunciante)
@@ -446,9 +459,7 @@ export default function CadastroPI() {
   }
 
   function rmVeic(idx: number, vIdx: number) {
-    setProdutos((prev) =>
-      prev.map((p, i) => (i === idx ? { ...p, veiculacoes: p.veiculacoes.filter((_, j) => j !== vIdx) } : p))
-    )
+    setProdutos((prev) => prev.map((p, i) => (i === idx ? { ...p, veiculacoes: p.veiculacoes.filter((_, j) => j !== vIdx) } : p)))
   }
 
   // ===== Cálculos por VEICULAÇÃO (unitário * dias) =====
@@ -482,16 +493,43 @@ export default function CadastroPI() {
     }
   }, [produtos])
 
+  // ===== Regra nova:
+  // Bruto (PI) = Total Líquido das veiculações (somaLiquidoVeics)
+  // Líquido (PI) = Bruto (PI) - comissão agência (se houver)
+  const brutoBasePI = useMemo(() => {
+    if (temItens) return Number((somaLiquidoVeics ?? 0).toFixed(2))
+    // manual: base é o bruto manual
+    return Number(((parseBRL(valorBrutoManual) ?? 0) as number).toFixed(2))
+  }, [temItens, somaLiquidoVeics, valorBrutoManual])
+
+  const comissaoPct = useMemo(() => clampPct(comissaoAgenciaPct), [comissaoAgenciaPct])
+
+  const valorComissao = useMemo(() => {
+    if (!temAgencia) return 0
+    return Number((brutoBasePI * (comissaoPct / 100)).toFixed(2))
+  }, [temAgencia, brutoBasePI, comissaoPct])
+
+  const liquidoFinalPI = useMemo(() => {
+    if (temAgencia) return Number((brutoBasePI - valorComissao).toFixed(2))
+    // sem agência:
+    if (temItens) return Number((somaLiquidoVeics ?? 0).toFixed(2)) // igual ao brutoBasePI
+    // manual sem agência: respeita líquido manual
+    return Number(((parseBRL(valorLiquidoManual) ?? 0) as number).toFixed(2))
+  }, [temAgencia, brutoBasePI, valorComissao, temItens, somaLiquidoVeics, valorLiquidoManual])
+
   // mantém campos do PI sincronizados
   useEffect(() => {
-    if (temItens) {
-      setValorBruto(somaBrutoVeics ? somaBrutoVeics.toFixed(2).replace(".", ",") : "")
-      setValorLiquido(somaLiquidoVeics ? somaLiquidoVeics.toFixed(2).replace(".", ",") : "")
-    } else {
-      setValorBruto(valorBrutoManual || "")
-      setValorLiquido(valorLiquidoManual || "")
+    // sempre sincroniza os campos "visuais" (valorBruto/valorLiquido)
+    const vb = brutoBasePI
+    const vl = liquidoFinalPI
+    setValorBruto(vb ? vb.toFixed(2).replace(".", ",") : "")
+    setValorLiquido(vl ? vl.toFixed(2).replace(".", ",") : "")
+
+    // manual: se tem agência, o líquido manual vira derivado do bruto - comissão (e não precisa digitar)
+    if (!temItens && temAgencia) {
+      setValorLiquidoManual(vl ? vl.toFixed(2).replace(".", ",") : "")
     }
-  }, [temItens, somaBrutoVeics, somaLiquidoVeics, valorBrutoManual, valorLiquidoManual])
+  }, [brutoBasePI, liquidoFinalPI, temItens, temAgencia])
 
   // ===== Regras de envio
   const podeEnviar = useMemo(() => {
@@ -508,26 +546,24 @@ export default function CadastroPI() {
       if (algumSemUnit) return false
 
       const veicInvalida = produtos.some((p) =>
-        p.veiculacoes.some(
-          (v) =>
-            v.dias == null ||
-            v.dias <= 0 ||
-            v.valor_liquido == null ||
-            v.valor_liquido < 0 ||
-            (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
-        )
+        p.veiculacoes.some((v) => v.dias == null || v.dias <= 0 || (v.desconto != null && (v.desconto < 0 || v.desconto > 100)))
       )
       if (veicInvalida) return false
     } else {
-      const vb = parseBRL(valorBrutoManual) ?? 0
-      const vl = parseBRL(valorLiquidoManual)
-      if (vl == null || vl <= 0) return false
-      if (!Number.isFinite(vb) || vb < 0) return false
+      const vb = parseBRL(valorBrutoManual)
+      if (vb == null || vb <= 0) return false
+
+      if (!temAgencia) {
+        const vl = parseBRL(valorLiquidoManual)
+        if (vl == null || vl <= 0) return false
+      }
     }
+
+    if (temAgencia && (comissaoPct < 0 || comissaoPct > 100)) return false
 
     // dataVenda vem de <input type="date">, então já é yyyy-mm-dd (ou vazio)
     return true
-  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, temItens, produtos, valorBrutoManual, valorLiquidoManual])
+  }, [numeroPI, tipoPI, numeroPINormal, numeroPIMatriz, temItens, produtos, valorBrutoManual, valorLiquidoManual, temAgencia, comissaoPct])
 
   // ===== Upload de anexos após criar PI
   async function uploadAnexos(pi: { id: number; numero_pi: string }) {
@@ -569,25 +605,22 @@ export default function CadastroPI() {
         if (algumSemUnit) throw new Error("Selecione um produto do catálogo (com valor unitário) para cada item.")
 
         const veicInvalida = produtos.some((p) =>
-          p.veiculacoes.some(
-            (v) =>
-              v.dias == null ||
-              v.dias <= 0 ||
-              v.valor_liquido == null ||
-              v.valor_liquido < 0 ||
-              (v.desconto != null && (v.desconto < 0 || v.desconto > 100))
-          )
+          p.veiculacoes.some((v) => v.dias == null || v.dias <= 0 || (v.desconto != null && (v.desconto < 0 || v.desconto > 100)))
         )
-        if (veicInvalida) throw new Error("Preencha Dias, % Desconto (0–100) e Valor Líquido em todas as veiculações.")
+        if (veicInvalida) throw new Error("Preencha Dias e % Desconto (0–100) em todas as veiculações.")
       } else {
-        const vb = parseBRL(valorBrutoManual) ?? 0
-        const vl = parseBRL(valorLiquidoManual)
-        if (vl == null || vl <= 0) throw new Error("Informe o Valor Líquido (manual) maior que zero.")
-        if (!Number.isFinite(vb) || vb < 0) throw new Error("Valor Bruto (manual) inválido.")
+        const vb = parseBRL(valorBrutoManual)
+        if (vb == null || vb <= 0) throw new Error("Informe o Valor Bruto (manual) maior que zero.")
+
+        if (!temAgencia) {
+          const vl = parseBRL(valorLiquidoManual)
+          if (vl == null || vl <= 0) throw new Error("Informe o Valor Líquido (manual) maior que zero.")
+        }
       }
 
-      const brutoFinal = temItens ? Number(somaBrutoVeics.toFixed(2)) : Number((parseBRL(valorBrutoManual) ?? 0).toFixed(2))
-      const liquidoFinal = temItens ? Number(somaLiquidoVeics.toFixed(2)) : Number((parseBRL(valorLiquidoManual) ?? 0).toFixed(2))
+      // ✅ brutoFinal = base do PI (líquido total das veiculações quando tem itens)
+      const brutoFinal = Number((brutoBasePI ?? 0).toFixed(2))
+      const liquidoFinal = Number((liquidoFinalPI ?? 0).toFixed(2))
 
       const payload: any = {
         numero_pi: numeroPI.trim(),
@@ -605,6 +638,11 @@ export default function CadastroPI() {
         razao_social_agencia: temAgencia ? (razaoAgencia || undefined) : undefined,
         cnpj_agencia: temAgencia ? (onlyDigits(cnpjAgencia) || undefined) : undefined,
         uf_agencia: temAgencia ? (ufAgencia || undefined) : undefined,
+
+        // ✅ NOVO: persistir comissão e flag de agência
+        tem_agencia: temAgencia,
+        comissao_agencia_percentual: temAgencia ? comissaoPct : undefined,
+        comissao_agencia_valor: temAgencia ? Number((valorComissao ?? 0).toFixed(2)) : undefined,
 
         nome_campanha: nomeCampanha || undefined,
         perfil_anunciante: perfilAnunciante || undefined,
@@ -631,6 +669,9 @@ export default function CadastroPI() {
         for (const p of produtos) {
           for (const v of p.veiculacoes) {
             const bruto = calcBrutoUnitDias(p.valor_unitario ?? 0, v.dias ?? 0)
+            const lCalc = liquidoCalcDaVeic(p, v)
+            const liquidoUsado = v.valor_liquido == null ? lCalc : Number(v.valor_liquido)
+
             const body: any = {
               numero_pi: pi.numero_pi,
               produto_id: p.produto_id ?? undefined,
@@ -643,7 +684,7 @@ export default function CadastroPI() {
 
               valor_bruto: Number(bruto.toFixed(2)),
               desconto: v.desconto == null ? 0 : Number(v.desconto),
-              valor_liquido: v.valor_liquido == null ? undefined : Number(v.valor_liquido),
+              valor_liquido: Number(liquidoUsado.toFixed(2)),
             }
             chamadas.push(apiPost("/veiculacoes", body))
           }
@@ -669,6 +710,7 @@ export default function CadastroPI() {
       setNomeAgencia("")
       setRazaoAgencia("")
       setUfAgencia("DF")
+      setComissaoAgenciaPct(0)
       setNomeCampanha("")
       setPerfilAnunciante("Privado")
       setSubperfilAnunciante("Privado")
@@ -855,11 +897,7 @@ export default function CadastroPI() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">UF do Cliente</label>
-              <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                value={ufCliente}
-                onChange={(e) => setUfCliente(e.target.value)}
-              >
+              <select className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500" value={ufCliente} onChange={(e) => setUfCliente(e.target.value)}>
                 {UFS.map((uf) => (
                   <option key={uf} value={uf}>
                     {uf}
@@ -1119,27 +1157,16 @@ export default function CadastroPI() {
                                 {p.veiculacoes.map((v, vIdx) => {
                                   const bruto = brutoDaVeic(p, v)
                                   const lCalc = liquidoCalcDaVeic(p, v)
-                                  const mismatch =
-                                    v.valor_liquido != null && p.valor_unitario != null && v.dias != null ? !nearEq(Number(v.valor_liquido), lCalc) : false
+                                  const mismatch = v.valor_liquido != null && p.valor_unitario != null && v.dias != null ? !nearEq(Number(v.valor_liquido), lCalc) : false
 
                                   return (
                                     <tr key={vIdx} className="border-b last:border-0 align-top">
                                       <td className="px-3 py-2">
-                                        <input
-                                          type="date"
-                                          value={v.data_inicio || ""}
-                                          onChange={(e) => setVeic(idx, vIdx, { data_inicio: e.target.value })}
-                                          className="rounded-lg border border-slate-300 px-2 py-1"
-                                        />
+                                        <input type="date" value={v.data_inicio || ""} onChange={(e) => setVeic(idx, vIdx, { data_inicio: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1" />
                                       </td>
 
                                       <td className="px-3 py-2">
-                                        <input
-                                          type="date"
-                                          value={v.data_fim || ""}
-                                          onChange={(e) => setVeic(idx, vIdx, { data_fim: e.target.value })}
-                                          className="rounded-lg border border-slate-300 px-2 py-1"
-                                        />
+                                        <input type="date" value={v.data_fim || ""} onChange={(e) => setVeic(idx, vIdx, { data_fim: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1" />
                                       </td>
 
                                       {/* Dias */}
@@ -1229,7 +1256,7 @@ export default function CadastroPI() {
                     </div>
                     {!nearEq(somaLiquidoVeics, liquidoCalcVeics) && <span className="text-xs text-amber-700">(pelo cálculo seria {fmtMoney(liquidoCalcVeics)} — confira descontos)</span>}
                   </div>
-                  <div className="text-xs text-slate-500">No envio, o PI será salvo com os totais acima.</div>
+                  <div className="text-xs text-slate-500">No PI, o Bruto será o Total Líquido acima. Se houver agência, aplica comissão em cima desse valor.</div>
                 </div>
               </div>
             )}
@@ -1239,6 +1266,7 @@ export default function CadastroPI() {
         {/* Responsáveis & Valores do PI */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Responsáveis e Valores</h2>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Executivo Responsável</label>
@@ -1264,14 +1292,12 @@ export default function CadastroPI() {
 
             {/* Valor Bruto */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Valor Bruto (PI) — {temItens ? "automático" : "manual"}
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Bruto (PI) — {temItens ? "automático" : "manual"}</label>
 
               {temItens ? (
                 <>
                   <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorBruto ? `R$ ${valorBruto}` : ""} />
-                  <div className="text-xs text-slate-500 mt-1">Somatório de (valor unitário × dias).</div>
+                  <div className="text-xs text-slate-500 mt-1">Regra: Bruto do PI = Total Líquido das veiculações.</div>
                 </>
               ) : (
                 <>
@@ -1289,25 +1315,27 @@ export default function CadastroPI() {
 
             {/* Valor Líquido */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Valor Líquido (PI) — {temItens ? "automático" : "manual"}
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Líquido (PI) — {temItens ? "automático" : temAgencia ? "automático (comissão)" : "manual"}</label>
 
               {temItens ? (
                 <>
                   <input type="text" readOnly className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-slate-900" value={valorLiquido ? `R$ ${valorLiquido}` : ""} />
-                  <div className="text-xs text-slate-500 mt-1">Somatório dos líquidos informados em cada veiculação.</div>
+                  <div className="text-xs text-slate-500 mt-1">Se houver agência, Líquido = Bruto − comissão.</div>
                 </>
               ) : (
                 <>
                   <input
                     type="text"
-                    placeholder="Ex: 98.500,00"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
-                    value={valorLiquidoManual}
+                    placeholder={temAgencia ? "Calculado automaticamente" : "Ex: 98.500,00"}
+                    readOnly={temAgencia}
+                    className={[
+                      "w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-4",
+                      temAgencia ? "bg-slate-50 border-slate-300 text-slate-900" : "border-slate-300 focus:ring-red-100 focus:border-red-500",
+                    ].join(" ")}
+                    value={temAgencia ? (valorLiquido ? `R$ ${valorLiquido}` : "") : valorLiquidoManual}
                     onChange={(e) => setValorLiquidoManual(e.target.value)}
                   />
-                  <div className="text-xs text-slate-500 mt-1">Obrigatório quando “Não” tem itens.</div>
+                  <div className="text-xs text-slate-500 mt-1">{temAgencia ? "Como tem agência, o líquido é derivado do bruto e da comissão." : "Obrigatório quando não tem itens."}</div>
                 </>
               )}
             </div>
@@ -1317,6 +1345,48 @@ export default function CadastroPI() {
               <input type="text" placeholder="Escreva observações gerais" className="w-full rounded-xl border border-slate-300 px-3 py-2" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
             </div>
           </div>
+
+          {/* ✅ Card de comissão embaixo */}
+          {temAgencia && (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-red-800">Comissão da Agência</div>
+                  <div className="text-xs text-red-700">
+                    Aplicada sobre o <strong>Valor Bruto (PI)</strong>. O bruto permanece o valor base, e o líquido é o valor após o desconto da comissão.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-red-800 font-medium">%</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    max={100}
+                    value={comissaoAgenciaPct}
+                    onChange={(e) => setComissaoAgenciaPct(clampPct(e.target.value === "" ? 0 : Number(e.target.value)))}
+                    className="w-28 rounded-xl border border-red-300 px-3 py-2 bg-white focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-500"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded-xl bg-white border border-red-200 p-3">
+                  <div className="text-xs text-slate-600">Base (Bruto do PI)</div>
+                  <div className="text-lg font-semibold text-slate-900">{fmtMoney(brutoBasePI)}</div>
+                </div>
+                <div className="rounded-xl bg-white border border-red-200 p-3">
+                  <div className="text-xs text-slate-600">Comissão ({comissaoPct.toFixed(1).replace(".", ",")}%)</div>
+                  <div className="text-lg font-semibold text-slate-900">{fmtMoney(valorComissao)}</div>
+                </div>
+                <div className="rounded-xl bg-white border border-red-200 p-3">
+                  <div className="text-xs text-slate-600">Líquido após comissão</div>
+                  <div className="text-lg font-semibold text-slate-900">{fmtMoney(liquidoFinalPI)}</div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Anexos */}
@@ -1325,12 +1395,22 @@ export default function CadastroPI() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">PDF do PI</label>
-              <input type="file" accept="application/pdf" onChange={(e) => setArquivoPi(e.target.files && e.target.files[0] ? e.target.files[0] : null)} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setArquivoPi(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
               <div className="text-xs text-slate-500 mt-1">{arquivoPi?.name}</div>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Proposta (PDF)</label>
-              <input type="file" accept="application/pdf" onChange={(e) => setArquivoProposta(e.target.files && e.target.files[0] ? e.target.files[0] : null)} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setArquivoProposta(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
               <div className="text-xs text-slate-500 mt-1">{arquivoProposta?.name}</div>
             </div>
           </div>
